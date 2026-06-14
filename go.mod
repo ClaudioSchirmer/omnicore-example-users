@@ -3,7 +3,7 @@ module github.com/ClaudioSchirmer/omnicore-example-users
 go 1.26.3
 
 require (
-	github.com/ClaudioSchirmer/omnicore v0.1.0
+	github.com/ClaudioSchirmer/omnicore v0.3.0
 	github.com/gofiber/fiber/v2 v2.52.13
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
