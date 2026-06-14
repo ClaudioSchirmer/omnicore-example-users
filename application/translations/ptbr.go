@@ -23,5 +23,13 @@ func (ptbr) Translations() map[string]string {
 		"EmailAlreadyExistsNotification": "E-mail já cadastrado.",
 		"EmailCannotChangeNotification":  "O e-mail não pode ser alterado após a criação do usuário.",
 		"DuplicateAddressNotification":   "Endereço duplicado neste usuário.",
+		// Parameterized notification — {maxLength} é substituído em tempo de
+		// render pelo valor do campo `tvar:"maxLength"` da notification.
+		"NameMaxLengthExceededNotification": "O nome excede o tamanho máximo permitido de {maxLength} caracteres.",
+		// Context label — preenche o gap pré-existente em que o framework
+		// sempre traduziu NotificationContext.context mas o exemplo nunca
+		// declarou a entrada; com isso o campo wire `context` renderiza
+		// traduzido conforme Accept-Language.
+		"User": "Usuário",
 	}
 }

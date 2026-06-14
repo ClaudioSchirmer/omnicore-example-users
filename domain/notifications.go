@@ -41,3 +41,24 @@ type EmailCannotChangeNotification struct{ domain.DomainNotificationBase }
 // defensible if the source of truth were the existing collection rather than
 // the request shape.
 type DuplicateAddressNotification struct{ domain.DomainNotificationBase }
+
+// NameMaxLengthExceededNotification is the canonical parameterized-notification
+// showcase of this service. The MaxLength field carries the per-request limit
+// the rule rejected; the framework's translation layer reflects the `tvar`
+// tag and substitutes {maxLength} in the catalog string at render time.
+//
+// Default Semantic (Validation → 422). Wire envelope carries the rejected
+// input via the AddNotification value parameter, mirroring InvalidEmail /
+// InvalidPhone shape — the consumer sees both "what they sent" (value) and
+// "what the limit is" (substituted into the message).
+//
+// The MaxLength field is populated by the Cmd boundary
+// (InsertUserCommand.ToEntity / UpdateUserCommand.ApplyTo /
+// PatchUserCommand.ApplyPartiallyTo and their manual showcase twins) and
+// flows into User.NameMaxLength as a transient:"-" field. The example
+// hardcodes 100 at the Cmd boundary; production would resolve it from a
+// per-tenant config service.
+type NameMaxLengthExceededNotification struct {
+	domain.DomainNotificationBase
+	MaxLength int `tvar:"maxLength"`
+}

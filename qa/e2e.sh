@@ -178,6 +178,59 @@ show "1.10 Multiple notifications grouped (invalid email + invalid zip)" POST /u
 
 show "1.11 Invalid JSON (parse error → 400)" POST /users '{not json' 400
 
+# 1.12 + 1.13 — NameMaxLengthExceededNotification: the framework's parameterized
+# notification mechanism. The notification carries `MaxLength int tvar:"maxLength"`
+# (domain/notifications.go) and the catalog entry contains the `{maxLength}` placeholder.
+# At render time the framework substitutes the runtime value (the per-request limit
+# injected by InsertUserCommand.ToEntity from nameMaxLengthPolicy=100). Two cases
+# verify both languages — the same notification key produces a substituted message
+# in EN and PT-BR independently.
+#
+# Body-substring assertions: the rendered message must carry the literal "100"
+# (substituted) AND must NOT carry the literal "{maxLength}" (placeholder leaked).
+NAME_OVER_LIMIT=$(printf 'A%.0s' $(seq 1 101))
+BODY_NAME_OVER='{
+  "name":"'"$NAME_OVER_LIMIT"'","email":"jane@example.com","phone":"14155552671",
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+}'
+
+show "1.12 NameMaxLengthExceededNotification — 101-char name rejected (status only)" POST /users "$BODY_NAME_OVER" 422
+
+# 1.13 EN-rendered message body assertion: substituted "100", placeholder absent.
+title "1.13 NameMaxLengthExceededNotification — EN message renders '100', no '{maxLength}'"
+RESP_NAME_EN=$(curl -sS -X POST "$BASE/users" \
+  -H "Content-Type: application/json" -H "Accept-Language: en-US" \
+  --data "$BODY_NAME_OVER")
+echo "RESPONSE:"
+echo "$RESP_NAME_EN" | python3 -m json.tool 2>/dev/null || echo "$RESP_NAME_EN"
+if echo "$RESP_NAME_EN" | grep -q '"notificationKey":"NameMaxLengthExceededNotification"' \
+   && echo "$RESP_NAME_EN" | grep -q '100' \
+   && ! echo "$RESP_NAME_EN" | grep -q '{maxLength}'; then
+  printf '\033[1;32mPASS\033[0m (EN message contains "100" and no "{maxLength}")\n'
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected substituted "100" and no placeholder, got body above)\n'
+  FAIL=$((FAIL+1))
+fi
+
+# 1.14 PT-BR-rendered message body assertion — same notification key, different
+# locale. Catalog entry: "O nome excede o tamanho máximo permitido de {maxLength} caracteres."
+title "1.14 NameMaxLengthExceededNotification — PT-BR message renders '100', no '{maxLength}'"
+RESP_NAME_PT=$(curl -sS -X POST "$BASE/users" \
+  -H "Content-Type: application/json" -H "Accept-Language: pt-BR" \
+  --data "$BODY_NAME_OVER")
+echo "RESPONSE:"
+echo "$RESP_NAME_PT" | python3 -m json.tool 2>/dev/null || echo "$RESP_NAME_PT"
+if echo "$RESP_NAME_PT" | grep -q '"notificationKey":"NameMaxLengthExceededNotification"' \
+   && echo "$RESP_NAME_PT" | grep -q 'tamanho máximo permitido de 100 caracteres' \
+   && ! echo "$RESP_NAME_PT" | grep -q '{maxLength}'; then
+  printf '\033[1;32mPASS\033[0m (PT-BR message renders substituted "100" with no placeholder leak)\n'
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected PT-BR substitution, got body above)\n'
+  FAIL=$((FAIL+1))
+fi
+
 ####################################
 sec "2. POST /users — happy path (multi-country)"
 ####################################
