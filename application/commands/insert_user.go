@@ -87,29 +87,30 @@ type InsertUserResult struct {
 // yet — for verbs other than Insert the id is available via t.GetID()).
 // BeforeCommit receives the generated id (populated for all 5 write verbs).
 //
-// ARCHITECTURAL NOTE — application stays SQL-free.
-// The TxHandle exposes Exec/Query/QueryRow so application code can compose
-// with the framework's TX without importing pgx. That does NOT authorize
-// embedding SQL strings or table names here: the moment a Cmd / handler
-// writes `tx.Exec("INSERT INTO foo …")` the application layer regains a
-// dependency on the database schema and the DDD boundary collapses.
+// TxHandle is a sealed marker — it carries NO public methods. The hook
+// cannot write SQL through it. The canonical (and only) shape for an
+// in-TX side effect is:
 //
-// The canonical shape for an in-TX side effect is:
-//
-//   1. Declare a port in application/ (or domain/) — pure Go interface:
+//   1. Declare a port in application/ (or domain/) — pure Go interface
+//      whose method receives a persistence.TxHandle parameter:
 //        type NotificationOutbox interface {
 //            EnqueueActivationRequested(ctx *configuration.AppContext,
 //                tx persistence.TxHandle, userID domain.ID) error
 //        }
 //
-//   2. Implement it in infra/ — the adapter owns the SQL + table name:
-//        func (NotificationOutboxPG) EnqueueActivationRequested(ctx, tx, id) error {
-//            _, err := tx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
+//   2. Implement the port in infra/ — the adapter recovers the pgx.Tx
+//      via fwinfra.UnwrapPgxTx(tx) and owns the SQL + table name:
+//        func (NotificationOutboxPG) EnqueueActivationRequested(
+//            ctx *configuration.AppContext, tx persistence.TxHandle, id domain.ID,
+//        ) error {
+//            pgxTx := fwinfra.UnwrapPgxTx(tx)
+//            _, err := pgxTx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
 //            return err
 //        }
 //
 //   3. Inject the port on the Cmd (constructor / wire) and call it from
-//      the hook — same TX, same atomicity, no SQL in application.
+//      the hook — same TX as the framework's writes, atomic by
+//      construction, application layer never pronounces SQL.
 //
 // The placeholder below illustrates the call shape on the Auto path.
 /*
