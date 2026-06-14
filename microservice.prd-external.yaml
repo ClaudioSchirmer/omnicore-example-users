@@ -1,0 +1,61 @@
+service: omnicore-example-users
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+
+postgres:
+  dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27018}"
+  database: "${MONGO_DB:users_views}"
+  rebuild:
+    autoRun: true     # sandbox posture; QA boots under prd-external without strict-mode abort
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKERS:localhost:9094}"
+  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+
+migrations:
+  dir: ./migrations
+  autoRun: true
+
+# Variant profile exercising the framework's external validator (RFC 7662
+# introspection against Keycloak) with the cache disabled — every authenticated
+# request fires an IdP round-trip, so a revocation at the IdP is honored on the
+# very next request. Use this profile when revocation latency must be zero;
+# accept the throughput cost.
+auth:
+  mode: jwt
+  jwt:
+    algorithms: [RS256]
+    issuer: "${JWT_ISSUER:http://localhost:8088/realms/omnicore-test}"
+    audience: "${JWT_AUDIENCE:omnicore-users-api}"
+    leewaySeconds: 5
+    jwksUrl: "${JWT_JWKS_URL:http://localhost:8088/realms/omnicore-test/protocol/openid-connect/certs}"
+  externalValidator:
+    method: POST
+    url: "${JWT_INTROSPECT_URL:http://localhost:8088/realms/omnicore-test/protocol/openid-connect/token/introspect}"
+    tokenPlacement: form_field
+    tokenField: token
+    extraHeaders:
+      Authorization: "Basic ${OMNICORE_CLIENT_BASIC:b21uaWNvcmUtdXNlcnMtY2xpZW50OnRlc3Qtc2VjcmV0LXBsZWFzZS1jaGFuZ2U=}"
+    success:
+      jsonPath: $.active
+      expectedValue: true
+    timeoutMs: 2000
+    failMode: closed
+    cacheTtlSeconds: 0
+  publicRoutes:
+    - GET /health
+  auditClaims:
+    - preferred_username
+    - email
+
+# Audit destinations — both active (framework default; explicit here so the
+# yaml carries no hidden assumptions about audit routing).
+audit:
+  destinations:
+    - slog
+    - database

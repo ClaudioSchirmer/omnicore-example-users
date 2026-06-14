@@ -1,0 +1,52 @@
+package handlers
+
+import (
+	"github.com/ClaudioSchirmer/omnicore/application/configuration"
+	"github.com/ClaudioSchirmer/omnicore/application/queries"
+	"github.com/ClaudioSchirmer/omnicore/domain"
+
+	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
+)
+
+// FindAddressByEmailAndIDQueryHandler is the manual showcase twin of
+// FindAddressByIDQueryHandler. Same projection — one address sub-document —
+// reached via the email-keyed lookup the manual showcase uses on the read
+// side. ReadPage with Filter[email]+Limit:1, walks the embedded addresses[],
+// returns the matching entry or a canonical 404 — User context when the
+// parent is absent, Address context when the parent is present but the
+// address id is not in the embedded array.
+type FindAddressByEmailAndIDQueryHandler struct {
+	Reader queries.ViewReader
+	View   string
+}
+
+func (h *FindAddressByEmailAndIDQueryHandler) Handle(
+	ctx *configuration.AppContext, q *appqueries.FindAddressByEmailAndIDQuery,
+) (map[string]any, error) {
+	criteria := q.ToCriteria(ctx)
+	if criteria.Filter == nil {
+		criteria.Filter = map[string]any{}
+	}
+
+	// ─── Custom filter seam — same shape as find_user_by_email_custom ─────
+	//
+	//   if tenant, _ := ctx.Identity().Claims["tenant_id"].(string); tenant != "" {
+	//       criteria.Filter["tenant_id"] = tenant
+	//   }
+	//
+	// ──────────────────────────────────────────────────────────────────────
+
+	page, err := h.Reader.ReadPage(ctx, h.View, criteria)
+	if err != nil {
+		return nil, err
+	}
+	if len(page.Items) == 0 {
+		return nil, domain.NotFoundError("User", "email", q.Email)
+	}
+	doc := page.Items[0]
+
+	if addr, ok := pickAddressByID(doc["addresses"], q.AddressID); ok {
+		return addr, nil
+	}
+	return nil, domain.NotFoundError("Address", "id", q.AddressID)
+}

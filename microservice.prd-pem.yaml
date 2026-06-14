@@ -1,0 +1,57 @@
+service: omnicore-example-users
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+
+postgres:
+  dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27018}"
+  database: "${MONGO_DB:users_views}"
+  rebuild:
+    autoRun: true     # sandbox posture; QA boots under prd-pem without strict-mode abort
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKERS:localhost:9094}"
+  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+
+migrations:
+  dir: ./migrations
+  autoRun: true
+
+# Variant profile exercising the framework's local-PEM validation path. The key
+# below is the same RS256 keypair pinned in infra/keycloak/realm-export.json,
+# so tokens minted by the test Keycloak realm verify here without contacting
+# the IdP at runtime. Used by qa/auth.sh to demonstrate that JWKS and PEM are
+# wire-compatible modes, not different validators.
+auth:
+  mode: jwt
+  jwt:
+    algorithms: [RS256]
+    issuer: "${JWT_ISSUER:http://localhost:8088/realms/omnicore-test}"
+    audience: "${JWT_AUDIENCE:omnicore-users-api}"
+    leewaySeconds: 5
+    publicKeyPem: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqpGyt3vvhxO9zHySp43Q
+      pru0Mct0Yel8cJBf6EbWciuzi6fr3jvegadWqBA2DjmysNlBt8AQ80Ry1JRaBTuK
+      uhJoFnc9g8xvYf+yOfXS+07xofzt4kTtIYSrUmHIT8ujJOvwQjBnz+l0ZlO66VMr
+      uVvxmyXo48VvgsTEQGbdKjQh/VPlNNr37mSRRCPgRNcYtA685gzoyhPzvuv4wGjY
+      erKrxfo+dWoaalwe2w4nDzs3y6vEd2G3opMkNmD975wIP7UT986KzYvjDxKVEUWR
+      gWCTIrNHijzWBZjp+NbCnceEE+uFOiwMVUq2Wyd8fHuI4LAcl1460ElEo/1dIC2i
+      7wIDAQAB
+      -----END PUBLIC KEY-----
+  publicRoutes:
+    - GET /health
+  auditClaims:
+    - preferred_username
+    - email
+
+# Audit destinations — both active (framework default; explicit here so the
+# yaml carries no hidden assumptions about audit routing).
+audit:
+  destinations:
+    - slog
+    - database

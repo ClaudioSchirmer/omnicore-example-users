@@ -1,0 +1,63 @@
+service: omnicore-example-users
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+
+postgres:
+  dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27018}"
+  database: "${MONGO_DB:users_views}"
+  rebuild:
+    autoRun: true     # sandbox posture; QA boots under prd-authz without strict-mode abort
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKERS:localhost:9094}"
+  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+
+migrations:
+  dir: ./migrations
+  autoRun: true
+
+# Authorization-enabled prd profile. JWT validated locally against the IdP's
+# JWKS endpoint (same as prd.yaml) PLUS the framework's authorization layer is
+# turned on:
+#
+#   - Every non-public route in the Registry must declare
+#     fwopenapi.RequirePermission(...) — the boot scan panics with the offender
+#     list otherwise.
+#   - Identity.HasPermission(p) reads the "permissions" claim from the JWT;
+#     resource-wildcard "users:*" and super-admin "*:*" are honored.
+#   - Tenant scoping is OFF in this profile (tenant.enabled=false). A future
+#     prd-authz-tenant.yaml may flip it once the example's domain carries a
+#     tenant column.
+#
+# Coexists with the canonical prd.yaml — canonical stays authz-off until full
+# rollout. APP_PROFILE=prd-authz selects this file.
+auth:
+  mode: jwt
+  jwt:
+    algorithms: [RS256]
+    issuer: "${JWT_ISSUER:http://localhost:8088/realms/omnicore-test}"
+    audience: "${JWT_AUDIENCE:omnicore-users-api}"
+    leewaySeconds: 5
+    jwksUrl: "${JWT_JWKS_URL:http://localhost:8088/realms/omnicore-test/protocol/openid-connect/certs}"
+  publicRoutes:
+    - GET /health
+  auditClaims:
+    - preferred_username
+    - email
+  authorization:
+    enabled: true
+    permissionsClaim: permissions
+    tenant:
+      enabled: false
+
+# Audit destinations — both active (framework default; explicit here so the
+# yaml carries no hidden assumptions about audit routing).
+audit:
+  destinations:
+    - slog
+    - database

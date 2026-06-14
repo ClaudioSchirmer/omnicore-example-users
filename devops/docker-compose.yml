@@ -1,0 +1,125 @@
+name: omnicore-example-users
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: omnicore-example-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: omnicore
+      POSTGRES_PASSWORD: omnicore
+      POSTGRES_DB: users_db
+    # wal_level=logical is required by Debezium's logical decoding (pgoutput plugin).
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omnicore -d users_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo:
+    image: mongo:7
+    container_name: omnicore-example-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Single-broker Kafka in KRaft mode (no Zookeeper).
+  # Two listeners: PLAINTEXT (kafka:9092) for in-network services (Debezium),
+  # EXTERNAL (localhost:9094) for the Go app on the host.
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: omnicore-example-kafka
+    ports:
+      - "9094:9094"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Keycloak IdP used by the JWT auth profiles (microservice.prd*.yaml) and by
+  # qa/auth.sh. Realm omnicore-test, client omnicore-users-client (confidential),
+  # users alice/bob. RS256 keys pinned in realm-export.json so the PEM profile
+  # matches the JWKS profile across container restarts. In-memory storage:
+  # every container start re-imports the realm.
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: omnicore-example-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  # Kafka Connect runtime with Debezium plugins. The connector itself (outbox
+  # source) is registered post-boot via REST — see debezium/users-outbox-connector.json.
+  debezium:
+    image: debezium/connect:2.5
+    container_name: omnicore-example-debezium
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:9092"
+      GROUP_ID: "omnicore-connect"
+      CONFIG_STORAGE_TOPIC: "omnicore_connect_configs"
+      OFFSET_STORAGE_TOPIC: "omnicore_connect_offsets"
+      STATUS_STORAGE_TOPIC: "omnicore_connect_statuses"
+      KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  mongo_data:
+  kafka_data:

@@ -1,0 +1,203 @@
+service: omnicore-example-users
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+
+postgres:
+  dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27018}"
+  database: "${MONGO_DB:users_views}"
+  # Mongo schema evolution — drift between the declared ViewDefinition and the
+  # materialized collection state is detected at boot via the omnicore_mongo_views
+  # registry row carrying the spec hash. autoRun governs whether the framework
+  # rebuilds automatically when drift is found (dev=true / non-dev=check is
+  # the profile-aware default; declared explicitly here to make the showcase
+  # self-documenting). allowDowngrade is the opt-in for code version < registry
+  # version (canary / blue-green rollback flow); default false.
+  rebuild:
+    autoRun: true            # dev default; sandbox iteration without boot abort
+    allowDowngrade: false    # default; opt-in for canary / blue-green rollback
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKERS:localhost:9094}"
+  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+
+migrations:
+  dir: ./migrations
+  autoRun: true
+
+# Read-side `?limit=` ceiling — applies uniformly to every paged GET that does
+# not opt into a per-view override via `fwinfra.View("...").MaxLimit(N)`.
+# Framework fallback when neither is declared is 100; declared explicitly here
+# so the dev profile matches the production-grade posture and the value is
+# discoverable in the yaml diff.
+query:
+  maxLimit: 100
+
+openapi:
+  uiPath: /docs           # default; change to e.g. /swagger or /admin/docs
+  rootRedirect: true      # opt-in; GET / → 302 uiPath
+
+# Authentication is disabled in the dev profile so the example can run without
+# a local IdP. The framework rejects this combination under APP_PROFILE=prd, so
+# a real deployment must set auth.mode=jwt (and configure jwksUrl / publicKeyPem
+# + issuer + audience) in microservice.prd.yaml before promoting.
+auth:
+  mode: disabled
+  # auditClaims is the JWT-claim allowlist surfaced on the AuditEvent's
+  # actorClaims block. Empty (the dev default) keeps the block omitted entirely.
+  # Production profiles typically declare [tenant_id, roles, preferred_username]
+  # so audit forensics can reconstruct "who did what under which scope".
+  auditClaims: []
+
+# Audit routing — declared explicitly here so the dev profile carries every key
+# the framework recognizes (no hidden defaults). The framework writes one
+# AuditEvent per successful write (granularity B: the aggregate is the event
+# unit, identical to the outbox row). `destinations` controls where it lands:
+#
+#   - `database` → INSERT into audit_events INSIDE the same pgx.Tx as the data
+#                  row + outbox row. Atomic by construction: if COMMIT succeeds,
+#                  the audit row exists. Source of truth for compliance and
+#                  forensics; queryable via SQL with the indexes on entity_type,
+#                  actor, tenant_id, thread_id, created_at (BRIN).
+#   - `slog`     → flat top-level slog line emitted AFTER COMMIT. Read-side
+#                  echo for observability (ELK / Loki / stdout collector);
+#                  lossy if the shipper drops events, but the PG row stays
+#                  the authority.
+#
+# Both active is the framework default and the recommended posture — the PG
+# row guarantees durability and ELK keeps the cross-service consolidation
+# pattern the team already runs. Empty list (`destinations: []`) disables
+# audit entirely; the audit_events table still exists but no row is written.
+audit:
+  destinations:
+    - slog
+    - database
+
+# Outbound HTTP — exercises the omnicore/infra/httpclient subsystem
+# end-to-end against the local Keycloak fixture. Two services declared:
+# `keycloak-public` hits the OIDC discovery endpoint (anonymous, cacheable);
+# `keycloak-admin` hits the admin REST API (oauth2-client-credentials).
+httpClient:
+  defaults:
+    timeout: 10s
+    headers:
+      User-Agent: "omnicore-example-users/1.0"
+    cache:
+      enabled: true
+      defaultTTL: 5m
+      # Keycloak's discovery and admin endpoints emit Cache-Control: no-store,
+      # which the framework honors by default — preventing the cache from
+      # storing. For this showcase we disable that hint so the YAML TTLs
+      # govern eviction; in production, leave this on and trust the upstream.
+      honorCacheControl: false
+
+  services:
+    keycloak-public:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      endpoints:
+        getRealmInfo:
+          method: GET
+          path: /realms/omnicore-test/.well-known/openid-configuration
+          cache: { ttl: 5m }
+
+    keycloak-admin:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      auth: { provider: kc-admin }
+      endpoints:
+        getUser:
+          method: GET
+          path: /admin/realms/omnicore-test/users/{id}
+          acceptableStatus: [404]
+          cache:
+            ttl: 1m
+            varyOn: [header:Accept-Language]
+
+    keycloak-tenant:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      auth: { provider: kc-password-tenant }
+      endpoints:
+        whoami:
+          method: GET
+          path: /realms/omnicore-test/protocol/openid-connect/userinfo
+
+    # `echo` and `echo-signed` point at the example service itself — the
+    # producer side lives in web/echo_routes.go (the /echo/* group). They
+    # showcase the streaming surfaces (Phase 7) plus HMAC signing (Phase 6)
+    # without requiring an extra container in docker-compose.
+    #
+    # Two services because signing is per-service and rejects streaming
+    # uploads at call time (the body cannot be hashed without buffering).
+    # `echo` carries the streaming endpoints; `echo-signed` carries the
+    # non-streaming JSON endpoint that exercises HMAC.
+    echo:
+      baseURL: "${ECHO_URL:http://localhost:8080}"
+      endpoints:
+        download:
+          method: GET
+          path: /echo/stream/{size}
+          responseStream: true
+        uploadStream:
+          method: POST
+          path: /echo/upload
+        multipart:
+          method: POST
+          path: /echo/multipart
+        sse:
+          method: GET
+          path: /echo/sse
+          responseSSE: true
+
+    echo-signed:
+      baseURL: "${ECHO_URL:http://localhost:8080}"
+      signing:
+        type: hmac-sha256
+        keyId: "${ECHO_KEY_ID:demo-key-1}"
+        keyIdHeader: X-Key-Id
+        secret: "${ECHO_SIGNING_SECRET:demo-secret-please-change}"
+        signedHeaders:
+          - host
+          - x-date
+          - x-content-sha256
+        timestampHeader: X-Date
+        timestampFormat: rfc1123
+        signatureHeader: X-Signature
+      endpoints:
+        signed:
+          method: POST
+          path: /echo/signed
+
+  authProviders:
+    kc-admin:
+      type: oauth2-client-credentials
+      tokenEndpoint: "${KC_URL:http://localhost:8088}/realms/omnicore-test/protocol/openid-connect/token"
+      clientId: "${KC_ADMIN_CLIENT_ID:omnicore-users-client}"
+      clientSecret: "${KC_ADMIN_CLIENT_SECRET:test-secret-please-change}"
+      tokenCache:
+        source: response-field
+        jsonPath: $.expires_in
+        unit: seconds
+        skew: 30s
+      revocationOnUnauthorized: true
+
+    kc-password-tenant:
+      type: credentials-exchange
+      tokenEndpoint: "${KC_URL:http://localhost:8088}/realms/omnicore-test/protocol/openid-connect/token"
+      requestCodec: form-urlencoded
+      requestFields:
+        grant_type: password
+        client_id: "${KC_TENANT_CLIENT_ID:omnicore-users-client}"
+        client_secret: "${KC_TENANT_CLIENT_SECRET:test-secret-please-change}"
+        scope: openid
+      requestFieldsFromCtx:
+        username: tenant.username
+        password: tenant.password
+      responseTokenPath: $.access_token
+      tokenCache:
+        source: response-field
+        jsonPath: $.expires_in
+        unit: seconds
+        skew: 30s
