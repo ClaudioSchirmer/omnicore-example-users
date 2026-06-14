@@ -1176,7 +1176,7 @@ The script orchestrates its own server lifecycle (build, start, kill_port-guarde
 
 ### `qa/schema_evolution.sh` — Mongo wipe-and-recover under the registry + advisory lock
 
-Boots the service once under `APP_PROFILE=dev` (autoRun=true) and exercises the framework's Mongo schema-evolution path end to end — the design documented in `omnicore/tasks/mongo_schema_evolution_2.md`. Sequence:
+Boots the service once under `APP_PROFILE=dev` (autoRun=true) and exercises the framework's Mongo schema-evolution path end to end. Sequence:
 
 1. Reset state (truncate `users` + `outbox` + delete `omnicore_mongo_views` row + `db.users.deleteMany`) so the boot lands on a clean slate.
 2. Start the service. Boot detects `DriftFreshInit` (no registry row + empty Mongo) → `InitRegistryOnly` writes the registry row at `status='done'`, `version=1` (UserView declares `Version(1)`).
