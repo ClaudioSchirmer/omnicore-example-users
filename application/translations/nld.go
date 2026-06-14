@@ -22,6 +22,8 @@ func (nld) Translations() map[string]string {
 		"InvalidCountryNotification":     "Ongeldig land (gebruik de 2-letterige ISO-code).",
 		"EmailAlreadyExistsNotification": "E-mailadres is al geregistreerd.",
 		"EmailCannotChangeNotification":  "Het e-mailadres kan niet worden gewijzigd na het aanmaken van de gebruiker.",
-		"DuplicateAddressNotification":   "Dubbel adres voor deze gebruiker.",
+		"DuplicateAddressNotification":      "Dubbel adres voor deze gebruiker.",
+		"NameMaxLengthExceededNotification": "Naam overschrijdt de maximaal toegestane lengte van {maxLength} tekens.",
+		"User":                              "Gebruiker",
 	}
 }

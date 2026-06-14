@@ -38,6 +38,24 @@ type User struct {
 	RequestingPrincipalIsAdmin bool   `transient:"-"`
 }
 
+// nameMaxLength is the User's hard cap on the Name field length — a pure
+// domain rule of THIS aggregate, not a configurable per-tenant value. Lives
+// in the domain layer alongside the entity it constrains; the application
+// layer (commands/handlers) never references it.
+//
+// Acts as the runtime value the parameterized-notification mechanism
+// substitutes into the translated message via the
+// NameMaxLengthExceededNotification's `tvar:"maxLength"` field. The framework
+// renders {maxLength} → "100" in the catalog string at the wire boundary.
+//
+// If a future requirement demanded per-tenant variability, the rule would
+// migrate from a constant to a domain.Service lookup consulted inside
+// BuildRules — same notification type, same wire shape, only the source of
+// the value changes. Today the example keeps the rule pure to avoid
+// dragging an external configuration dependency through every consumer of
+// the User aggregate.
+const nameMaxLength = 100
+
 // UserService is the domain port that User needs for invariants that depend
 // on external lookups. Today only email uniqueness — between BuildRules and
 // COMMIT there is a small race window (another TX inserting the same email),
@@ -208,6 +226,14 @@ func (u *User) BuildRules(actionName string, service domain.Service, r *domain.R
 	r.IfInsertOrUpdate(func() {
 		if u.Name == "" {
 			r.AddNotification("Name", domain.RequiredFieldNotification{})
+		} else if len(u.Name) > nameMaxLength {
+			// Parameterized notification showcase: the limit is a pure
+			// domain constant (nameMaxLength); the rejected length surfaces
+			// inside the translated message via the `tvar:"maxLength"` tag
+			// on NameMaxLengthExceededNotification. Wire value carries the
+			// rejected input itself (the consumer-supplied Name), mirroring
+			// the InvalidEmail/InvalidPhone shape.
+			r.AddNotification("Name", NameMaxLengthExceededNotification{MaxLength: nameMaxLength}, u.Name)
 		}
 
 		if u.Email == "" {

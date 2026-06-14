@@ -21,5 +21,14 @@ func (eng) Translations() map[string]string {
 		"EmailAlreadyExistsNotification": "Email already registered.",
 		"EmailCannotChangeNotification":  "Email cannot be changed after the user is created.",
 		"DuplicateAddressNotification":   "Duplicate address for this user.",
+		// Parameterized notification — {maxLength} is substituted at render time
+		// from the tvar:"maxLength" tag on the notification struct.
+		"NameMaxLengthExceededNotification": "Name exceeds the maximum allowed length of {maxLength} characters.",
+		// Context-label entry — closes a pre-existing gap where the framework
+		// has always translated NotificationContext.context but the example
+		// never declared the entry, so the literal Go struct name "User"
+		// reached the wire envelope. With this entry registered, the wire
+		// `context` field renders translated per Accept-Language.
+		"User": "User",
 	}
 }

@@ -22,6 +22,8 @@ func (ita) Translations() map[string]string {
 		"InvalidCountryNotification":     "Paese non valido (usa il codice ISO a 2 lettere).",
 		"EmailAlreadyExistsNotification": "Email già registrata.",
 		"EmailCannotChangeNotification":  "L'email non può essere modificata dopo la creazione dell'utente.",
-		"DuplicateAddressNotification":   "Indirizzo duplicato per questo utente.",
+		"DuplicateAddressNotification":      "Indirizzo duplicato per questo utente.",
+		"NameMaxLengthExceededNotification": "Il nome supera la lunghezza massima consentita di {maxLength} caratteri.",
+		"User":                              "Utente",
 	}
 }

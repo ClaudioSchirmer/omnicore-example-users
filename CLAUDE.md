@@ -140,7 +140,7 @@ For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Orchestrator`, `
 ```
 omnicore-example-users/
 ├── domain/                        # Pure DDD, zero IO
-│   ├── notifications.go           # 8 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict)
+│   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength")
 │   ├── address.go                 # Address (AggregateValueObject)
 │   └── user.go                    # User (AggregateRoot + AggregateRootProvider)
 ├── infra/                         # Adapters, imports omnicore/infra (implementation of domain ports — Go only)
@@ -273,7 +273,7 @@ Implements two framework interfaces:
 
 **`BuildRules` deals only with the root fields.** The framework discovers children via reflection on `AggregateRoot.AllAggregateItems()` and auto-fires `Address.BuildRules` for each active item at the boundary (`GetInsertable/Update/Delete`). Anyone wanting to validate VOs **outside** of `AggregateChildren()` (e.g.: tags in a JSONB column) can still call `u.AddAggregateValueObject("TypeName", item)`; types already present in AggregateRoot are ignored in this path.
 
-**Field validations:** name (required), email (regex), phone (10-15 digits, nullable). No country-specific fields in the root — the example is deliberately international.
+**Field validations:** name (required + maximum length of 100), email (regex), phone (10-15 digits, nullable). No country-specific fields in the root — the example is deliberately international. The 100-char cap lives in `domain/user.go` as the package-private constant `nameMaxLength` — a pure domain rule of this aggregate, not a configurable per-tenant value. The application layer never references the constant; the rule fires inside `BuildRules.IfInsertOrUpdate`, comparing `len(u.Name)` directly against `nameMaxLength` and emitting `NameMaxLengthExceededNotification{MaxLength: nameMaxLength}` on overflow. The framework's parameterized-notification mechanism substitutes the emitted value into the translated message via the `tvar:"maxLength"` tag on the notification struct (catalog entries declare `{maxLength}` and the renderer substitutes "100" at the wire boundary). If a future requirement demanded per-tenant variability, the rule would migrate from a constant to a `domain.Service` lookup consulted inside `BuildRules` — same notification type, same wire shape, only the source of the value changes.
 
 **Nullables:** `Phone *string` — column `users.phone` is nullable. Convention of the example: empty input from JSON becomes nil via `commands.NilIfEmpty` at the boundary (Insert/Update/Patch commands). Domain tests `if u.Phone != nil && *u.Phone != ""`. pgx writes NULL when nil; auto-scan reads NULL as nil. No `db:` tags on the struct — the framework's snake_case convention matches directly.
 
@@ -295,8 +295,10 @@ Implements two framework interfaces:
 | `InvalidStateNotification`, `InvalidZipCodeNotification`, `InvalidCountryNotification` | `Address.BuildRules` | Validation (422) |
 | `EmailAlreadyExistsNotification` | `BaseRepository` via `Constraints` upon detecting a PG unique violation | **Conflict (409)** via `Semantic()` override |
 | `DuplicateAddressNotification` | `User.AddAddress` upon detecting `sameBusinessIdentity` with an address already in the aggregate | Validation (422) — request shape carries the duplicate |
+| `EmailCannotChangeNotification` | `User.BuildRules.IfUpdate` when `domain.Old(u).Email != u.Email` | Validation (422) — transition-aware invariant |
+| `NameMaxLengthExceededNotification` | `User.BuildRules.IfInsertOrUpdate` when `len(u.Name) > nameMaxLength` (pure domain constant in `domain/user.go`) | Validation (422) — **parameterized notification showcase**: carries `MaxLength int \`tvar:"maxLength"\`` so the translated message substitutes the value the domain emitted |
 
-All embed `domain.DomainNotificationBase`. Translated in `application/translations/{ptbr,eng,esp,fra}.go`.
+All embed `domain.DomainNotificationBase`. Translated in `application/translations/{ptbr,eng,esp,fra,deu,ita,nld}.go` (seven languages — mirror of the framework's seven built-in catalogs). The `application/translations/` catalogs also declare a `"User"` entry that translates the `NotificationContext.context` label across the seven languages — the framework has always translated context labels via `convert.go::ToContextDTOs`; previously the entry was missing and the literal Go struct name reached the wire envelope.
 
 ---
 
@@ -431,7 +433,7 @@ Seven modules: `PTBR()`, `ENG()`, `ESP()`, `FRA()`, `DEU()`, `ITA()`, and `NLD()
 Translations: []translation.Module{apptrans.PTBR(), apptrans.ENG(), apptrans.ESP(), apptrans.FRA(), apptrans.DEU(), apptrans.ITA(), apptrans.NLD()},
 ```
 
-8 keys covered in each language — one per custom notification (`RequiredFieldNotification` and other kernel ones are provided by the framework).
+10 keys covered in each language — one per custom notification (8 invariants + `NameMaxLengthExceededNotification` carrying the `{maxLength}` placeholder for the parameterized-notification showcase) plus the `"User"` context-label entry (translated alongside notifications by the framework's convert.go). `RequiredFieldNotification` and other kernel keys are provided by the framework's seven `Core*` modules.
 
 ---
 
