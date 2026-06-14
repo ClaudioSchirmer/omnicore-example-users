@@ -87,28 +87,50 @@ type InsertUserResult struct {
 // yet — for verbs other than Insert the id is available via t.GetID()).
 // BeforeCommit receives the generated id (populated for all 5 write verbs).
 //
-// To activate: uncomment + add imports for "omnicore/application/persistence".
-// The configuration + appdomain + domain imports are already present above.
+// ARCHITECTURAL NOTE — application stays SQL-free.
+// The TxHandle exposes Exec/Query/QueryRow so application code can compose
+// with the framework's TX without importing pgx. That does NOT authorize
+// embedding SQL strings or table names here: the moment a Cmd / handler
+// writes `tx.Exec("INSERT INTO foo …")` the application layer regains a
+// dependency on the database schema and the DDD boundary collapses.
+//
+// The canonical shape for an in-TX side effect is:
+//
+//   1. Declare a port in application/ (or domain/) — pure Go interface:
+//        type NotificationOutbox interface {
+//            EnqueueActivationRequested(ctx *configuration.AppContext,
+//                tx persistence.TxHandle, userID domain.ID) error
+//        }
+//
+//   2. Implement it in infra/ — the adapter owns the SQL + table name:
+//        func (NotificationOutboxPG) EnqueueActivationRequested(ctx, tx, id) error {
+//            _, err := tx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
+//            return err
+//        }
+//
+//   3. Inject the port on the Cmd (constructor / wire) and call it from
+//      the hook — same TX, same atomicity, no SQL in application.
+//
+// The placeholder below illustrates the call shape on the Auto path.
 /*
 // Slot A — pre-write hook. Useful for: in-TX state reads (quota checks,
-// row-level locks via SELECT ... FOR UPDATE), pre-write invariants that
-// depend on a TX-snapshot read, metrics emission, span enrichment.
+// row-level locks), pre-write invariants that depend on a TX-snapshot
+// read, metrics emission, span enrichment. The hook calls a port; the
+// port's adapter owns whatever SQL the side effect needs.
 func (c InsertUserCommand) AfterBegin(
 	ctx *configuration.AppContext,
 	u *appdomain.User,
 	tx persistence.TxHandle,
 ) error {
-	var serverNow string
-	if err := tx.QueryRow(ctx, `SELECT NOW()::text`).Scan(&serverNow); err != nil {
-		return err
-	}
+	// Example: enforce a quota check that depends on TX-snapshot state.
+	// return c.QuotaPort.AssertTenantQuota(ctx, tx, u.TenantID)
 	return nil
 }
 
 // Slot D — post-write hook. Useful for: writing companion outbox events,
 // denormalization rows, cross-table updates — all atomically with the
 // aggregate write. The framework's canonical outbox row already shipped a
-// few microseconds before this hook fires; the extra row added here will
+// few microseconds before this hook fires; any extra row added here will
 // COMMIT (or ROLLBACK) together with it.
 func (c InsertUserCommand) BeforeCommit(
 	ctx *configuration.AppContext,
@@ -116,13 +138,10 @@ func (c InsertUserCommand) BeforeCommit(
 	id domain.ID,
 	tx persistence.TxHandle,
 ) error {
-	_, err := tx.Exec(ctx,
-		`INSERT INTO outbox (aggregate_type, event_type, aggregate_id, payload, created_at)
-		 VALUES ($1, $2, $3, $4, NOW())`,
-		"users", "UserActivationRequired", id.String(),
-		[]byte(`{"user_id":"`+id.String()+`"}`),
-	)
-	return err
+	// Example: emit a companion integration event via a port. The adapter
+	// in infra/ owns the table name and the SQL.
+	// return c.NotificationOutbox.EnqueueActivationRequested(ctx, tx, id)
+	return nil
 }
 
 // Compile-time guards against typos on the provider method signatures —
