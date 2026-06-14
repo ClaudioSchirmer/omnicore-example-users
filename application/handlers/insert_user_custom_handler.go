@@ -61,9 +61,32 @@ func (h *InsertUserCustomCommandHandler) Handle(
 // ROLLBACK; NotificationCarrier identity propagates verbatim through the
 // persister to pipeline.Run.
 //
-// To activate: replace the `h.Repo.Insert(ctx, insertable)` above with the
-// version below and add imports for "omnicore/application/persistence" and
-// the example-users domain alias.
+// ARCHITECTURAL NOTE — application stays SQL-free.
+// The closures below receive a persistence.TxHandle so they can compose
+// with the framework's TX without importing pgx. That does NOT authorize
+// embedding SQL strings or table names here: the moment a handler writes
+// `tx.Exec("INSERT INTO foo …")` the application layer regains a
+// dependency on the database schema and the DDD boundary collapses.
+//
+// The canonical shape for an in-TX side effect is:
+//
+//   1. Declare a port in application/ (or domain/) — pure Go interface:
+//        type NotificationOutbox interface {
+//            EnqueueActivationRequested(ctx *configuration.AppContext,
+//                tx persistence.TxHandle, userID domain.ID) error
+//        }
+//
+//   2. Implement it in infra/ — the adapter owns the SQL + table name:
+//        func (NotificationOutboxPG) EnqueueActivationRequested(ctx, tx, id) error {
+//            _, err := tx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
+//            return err
+//        }
+//
+//   3. Inject the port on the handler (constructor / wire) and call it
+//      from inside the closure — same TX, same atomicity, no SQL in
+//      application.
+//
+// The placeholder below illustrates the call shape on the manual path.
 /*
 id, err := h.Repo.Insert(ctx, insertable,
 	persistence.WithAfterBegin[*appdomain.User](func(
@@ -71,10 +94,11 @@ id, err := h.Repo.Insert(ctx, insertable,
 		u *appdomain.User,
 		tx persistence.TxHandle,
 	) error {
-		// Slot A — pre-write. Useful for in-TX state reads, FOR UPDATE locks,
-		// pre-write invariants depending on the TX snapshot.
-		var serverNow string
-		return tx.QueryRow(ctx, `SELECT NOW()::text`).Scan(&serverNow)
+		// Slot A — pre-write. Useful for in-TX state reads, row-level locks,
+		// pre-write invariants depending on the TX snapshot. The closure
+		// calls a port; the port's adapter in infra/ owns the SQL.
+		// return h.QuotaPort.AssertTenantQuota(ctx, tx, u.TenantID)
+		return nil
 	}),
 	persistence.WithBeforeCommit[*appdomain.User](func(
 		ctx *configuration.AppContext,
@@ -84,14 +108,9 @@ id, err := h.Repo.Insert(ctx, insertable,
 	) error {
 		// Slot D — post-write. Useful for companion outbox events,
 		// denormalization rows, cross-table updates — atomic with the
-		// framework's own writes.
-		_, err := tx.Exec(ctx,
-			`INSERT INTO outbox (aggregate_type, event_type, aggregate_id, payload, created_at)
-			 VALUES ($1, $2, $3, $4, NOW())`,
-			"users", "UserActivationRequired", id.String(),
-			[]byte(`{"user_id":"`+id.String()+`"}`),
-		)
-		return err
+		// framework's own writes. Same rule: call a port, never inline SQL.
+		// return h.NotificationOutbox.EnqueueActivationRequested(ctx, tx, id)
+		return nil
 	}),
 )
 */
