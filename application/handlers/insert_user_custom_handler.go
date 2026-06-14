@@ -61,30 +61,30 @@ func (h *InsertUserCustomCommandHandler) Handle(
 // ROLLBACK; NotificationCarrier identity propagates verbatim through the
 // persister to pipeline.Run.
 //
-// ARCHITECTURAL NOTE — application stays SQL-free.
-// The closures below receive a persistence.TxHandle so they can compose
-// with the framework's TX without importing pgx. That does NOT authorize
-// embedding SQL strings or table names here: the moment a handler writes
-// `tx.Exec("INSERT INTO foo …")` the application layer regains a
-// dependency on the database schema and the DDD boundary collapses.
+// TxHandle is a sealed marker — it carries NO public methods. The closure
+// cannot write SQL through it. The canonical (and only) shape for an
+// in-TX side effect is:
 //
-// The canonical shape for an in-TX side effect is:
-//
-//   1. Declare a port in application/ (or domain/) — pure Go interface:
+//   1. Declare a port in application/ (or domain/) — pure Go interface
+//      whose method receives a persistence.TxHandle parameter:
 //        type NotificationOutbox interface {
 //            EnqueueActivationRequested(ctx *configuration.AppContext,
 //                tx persistence.TxHandle, userID domain.ID) error
 //        }
 //
-//   2. Implement it in infra/ — the adapter owns the SQL + table name:
-//        func (NotificationOutboxPG) EnqueueActivationRequested(ctx, tx, id) error {
-//            _, err := tx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
+//   2. Implement the port in infra/ — the adapter recovers the pgx.Tx
+//      via fwinfra.UnwrapPgxTx(tx) and owns the SQL + table name:
+//        func (NotificationOutboxPG) EnqueueActivationRequested(
+//            ctx *configuration.AppContext, tx persistence.TxHandle, id domain.ID,
+//        ) error {
+//            pgxTx := fwinfra.UnwrapPgxTx(tx)
+//            _, err := pgxTx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
 //            return err
 //        }
 //
 //   3. Inject the port on the handler (constructor / wire) and call it
-//      from inside the closure — same TX, same atomicity, no SQL in
-//      application.
+//      from inside the closure — same TX as the framework's writes,
+//      atomic by construction, application layer never pronounces SQL.
 //
 // The placeholder below illustrates the call shape on the manual path.
 /*
