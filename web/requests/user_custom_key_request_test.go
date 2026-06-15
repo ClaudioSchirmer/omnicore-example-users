@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // TestUserCustomKeyRequest_BindPath_PopulatesEmail asserts the
@@ -20,14 +20,14 @@ func TestUserCustomKeyRequest_BindPath_PopulatesEmail(t *testing.T) {
 	var ok bool
 	var badField string
 
-	app.Patch("/showcase/users-custom/:email/archive", func(c *fiber.Ctx) error {
+	app.Patch("/showcase/users-custom/:email/archive", func(c fiber.Ctx) error {
 		var req UserCustomKeyRequest
 		badField, ok = fwweb.BindPath(c, &req)
 		bound = req
 		return c.SendStatus(fiber.StatusOK)
 	})
 
-	resp, err := app.Test(httptest.NewRequest("PATCH", "/showcase/users-custom/jane@example.com/archive", nil), -1)
+	resp, err := app.Test(httptest.NewRequest("PATCH", "/showcase/users-custom/jane@example.com/archive", nil), fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)
 	}

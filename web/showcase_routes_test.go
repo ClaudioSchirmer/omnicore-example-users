@@ -15,7 +15,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/infra/httpclient"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 
 	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
 )

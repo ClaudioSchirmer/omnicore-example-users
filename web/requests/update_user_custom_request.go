@@ -10,7 +10,7 @@ import (
 //
 // Email carries no `json` tag — its value comes from the URL segment via
 // the `path:"email"` tag, not from the body. The custom route chains
-// fwweb.BindPath(c, &req) before BodyParser so the framework reads
+// fwweb.BindPath(c, &req) before c.Bind().Body() so the framework reads
 // c.Params("email") into req.Email, then ToCommand maps it to
 // cmd.EmailKey. Letting Email also live in the body would create three
 // confusing options (URL = old + body = new → silent rename; URL must ==
@@ -20,7 +20,7 @@ import (
 // to allow email mutation.
 //
 // The manual route does NOT enforce the FullBody strict-body check the
-// canonical PUT applies — body parsing is plain BodyParser, and the
+// canonical PUT applies — body parsing is plain c.Bind().Body(), and the
 // dispatching handler accepts whatever the consumer sent. Missing fields
 // are domain-rejected via BuildRules (422), not wire-rejected (400).
 type UpdateUserCustomRequest struct {
@@ -32,7 +32,7 @@ type UpdateUserCustomRequest struct {
 
 // ToCommand converts the Request DTO into the Command. EmailKey comes from
 // req.Email — populated by fwweb.BindPath from the /:email URL segment
-// before BodyParser. The route no longer assigns cmd.EmailKey manually;
+// before c.Bind().Body(). The route no longer assigns cmd.EmailKey manually;
 // path-binding owns the wire boundary, and ToCommand owns the
 // application-side mapping.
 func (r UpdateUserCustomRequest) ToCommand() *commands.UpdateUserCustomCommand {

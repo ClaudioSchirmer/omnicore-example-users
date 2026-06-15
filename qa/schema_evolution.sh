@@ -49,7 +49,7 @@ SERVER_BIN="/tmp/omnicore-example-users-qa-schema"
 SERVER_BIN_V2="/tmp/omnicore-example-users-qa-schema-v2"
 SERVER_BIN_V2_ARTIFACT="/tmp/omnicore-example-users-qa-schema-v2-artifact"
 SERVER_LOG="/tmp/omnicore-example-users-qa-schema.log"
-CDC_WAIT_SEC="${CDC_WAIT_SEC:-12}"
+CDC_WAIT_SEC="${CDC_WAIT_SEC:-60}"
 
 VIEWS_SRC="$REPO_ROOT/infra/views.go"
 VIEWS_BAK="/tmp/omnicore-example-qa-views.go.bak"
@@ -290,6 +290,29 @@ mongo_users_count() {
     "print(db.users.countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
 }
 
+# wait_until_mongo_count polls the Mongo users count every 1s until it reaches
+# the expected target OR the timeout expires. Returns immediately on a hit.
+# Replaces fixed sleeps after CDC-emitting operations so the test is robust
+# against cold-boot variability of the Debezium → Kafka → SyncEngine pipeline
+# without masking a real failure: when CDC is genuinely broken, the loop still
+# times out and the downstream assert_eq fires the FAIL with the actual count.
+# Args: $1 = expected count, $2 = timeout seconds (default 60).
+wait_until_mongo_count() {
+  local expected="$1"
+  local timeout="${2:-60}"
+  local elapsed=0
+  local got=""
+  while [ "$elapsed" -lt "$timeout" ]; do
+    got=$(mongo_users_count)
+    if [ "$got" = "$expected" ]; then
+      return 0
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  return 1
+}
+
 # ─── Source patching helpers ─────────────────────────────────────────────────
 # Each helper takes the ORIGINAL views.go from the backup, applies a perl
 # transform, writes the result to the working file, and verifies the patch
@@ -409,8 +432,8 @@ assert_eq "POST user1 status" "201" "$s1"
 assert_eq "POST user2 status" "201" "$s2"
 assert_eq "POST user3 status" "201" "$s3"
 
-title "Wait ${CDC_WAIT_SEC}s for Debezium → Kafka → SyncEngine pipeline"
-sleep "$CDC_WAIT_SEC"
+title "Poll Mongo until 3 users materialize (timeout ${CDC_WAIT_SEC}s) — CDC pipeline: Debezium → Kafka → SyncEngine"
+wait_until_mongo_count 3 "$CDC_WAIT_SEC" || true
 
 api_total=$(count_users_via_api)
 assert_eq "GET /users count (post-CDC)" "3" "$api_total"

@@ -11,7 +11,7 @@ import (
 
 	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // MountShowcase registers every framework-showcase route under /showcase/*.
@@ -145,9 +145,9 @@ func MountShowcase(app *fiber.App, kc *appexternal.KeycloakService, echo *appext
 // logging middleware does not capture the stream body (only status,
 // headers, ContentLength surface in slog).
 func showcaseDownloadStream(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		n, sample, err := echo.DownloadStream(ctx, c.Params("size"))
 		if err != nil {
 			return respondWithError(c, fiber.StatusBadGateway, "download stream failed", err)
@@ -165,9 +165,9 @@ func showcaseDownloadStream(echo *appexternal.EchoService) fiber.Handler {
 // io.Reader is one-shot) and the logging middleware does not capture
 // the request body.
 func showcaseUploadStream(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		mime := string(c.Request().Header.ContentType())
 		if mime == "" {
 			mime = "application/octet-stream"
@@ -187,9 +187,9 @@ func showcaseUploadStream(echo *appexternal.EchoService) fiber.Handler {
 // file content is never fully buffered. Returns the upstream's parsed
 // structure.
 func showcaseMultipart(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		payload := c.Body()
 		if len(payload) == 0 {
 			payload = []byte("PDF-PLACEHOLDER")
@@ -216,9 +216,9 @@ func showcaseMultipart(echo *appexternal.EchoService) fiber.Handler {
 // emits SSEvent values; the caller MUST Close the response.
 // Demonstrates id / event / data / retry parsing.
 func showcaseSSE(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		events, err := echo.SubscribeEvents(ctx)
 		if err != nil {
 			return respondWithError(c, fiber.StatusBadGateway, "sse subscription failed", err)
@@ -236,9 +236,9 @@ func showcaseSSE(echo *appexternal.EchoService) fiber.Handler {
 // upstream echoes them back. The QA suite asserts each header is
 // populated, proving HMAC signing executed end to end.
 func showcaseSigned(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		payload := map[string]any{
 			"hello": "signed-world",
 			"size":  len(c.Body()),
@@ -258,9 +258,9 @@ func showcaseSigned(echo *appexternal.EchoService) fiber.Handler {
 // the framework's binding accepts the override and forwards a JSON body
 // instead of streaming. Returns the upstream's byte count.
 func showcaseWithConfigOverride(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		body := string(c.Body())
 		if strings.TrimSpace(body) == "" {
 			body = "default-payload"
@@ -280,9 +280,9 @@ func showcaseWithConfigOverride(echo *appexternal.EchoService) fiber.Handler {
 // verify the framework propagated it. Demonstrates per-customer
 // credentials supplied at call time instead of via a YAML auth provider.
 func showcaseInlineBearer(echo *appexternal.EchoService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		token := c.Query("token")
 		resp, err := echo.InlineBearerRoundTrip(ctx, token, "inline-auth-demo")
 		if err != nil {

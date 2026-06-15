@@ -17,7 +17,7 @@ type PatchUserCustomRequest struct {
 
 // ToCommand converts the Request DTO into the Command. EmailKey comes from
 // req.Email — populated by fwweb.BindPath from the /:email URL segment
-// before BodyParser.
+// before c.Bind().Body().
 func (r PatchUserCustomRequest) ToCommand() *commands.PatchUserCustomCommand {
 	return &commands.PatchUserCustomCommand{
 		EmailKey: r.Email,
