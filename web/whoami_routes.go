@@ -5,7 +5,7 @@ import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // WhoamiResponse is the documented JSON shape of GET /whoami. Declared
@@ -54,7 +54,7 @@ func MountWhoami(app *fiber.App, d bootstrap.Deps) {
 // whoami reads AppContext.Identity (populated by the framework's
 // AuthMiddleware) and replies with the authenticated principal or the
 // anonymous placeholder.
-func whoami(c *fiber.Ctx) error {
+func whoami(c fiber.Ctx) error {
 	id := fwweb.AppContext(c).Identity()
 	body := fiber.Map{"subject": "anonymous", "authenticated": false}
 	if id != nil {

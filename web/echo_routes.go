@@ -11,7 +11,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // MountEcho registers the /echo/* routes that act as the upstream for the
@@ -51,7 +51,7 @@ func MountEcho(app *fiber.App, d bootstrap.Deps) {
 // application/octet-stream so the consumer can copy the body via the
 // httpclient StreamResponse path. Cap at 16 MiB so a typo doesn't spawn
 // an unbounded transfer.
-func echoStream(c *fiber.Ctx) error {
+func echoStream(c fiber.Ctx) error {
 	size, err := strconv.Atoi(c.Params("size"))
 	if err != nil || size < 0 {
 		return fiber.NewError(fiber.StatusBadRequest, "size must be a non-negative integer")
@@ -67,7 +67,7 @@ func echoStream(c *fiber.Ctx) error {
 // echoUpload reads the request body verbatim and replies with the byte
 // count and the Content-Type it saw. Useful for proving the streaming
 // upload tag (http:"body,stream") piped the bytes intact.
-func echoUpload(c *fiber.Ctx) error {
+func echoUpload(c fiber.Ctx) error {
 	body := c.Body()
 	return c.JSON(fiber.Map{
 		"received_bytes": len(body),
@@ -79,7 +79,7 @@ func echoUpload(c *fiber.Ctx) error {
 // summary of each file (name, filename, mime, size). The consumer side
 // asserts the structure matches what the framework's binding layer
 // produced via the io.Pipe multipart writer.
-func echoMultipart(c *fiber.Ctx) error {
+func echoMultipart(c fiber.Ctx) error {
 	mediatype, params, err := mime.ParseMediaType(string(c.Request().Header.ContentType()))
 	if err != nil || mediatype != "multipart/form-data" {
 		return fiber.NewError(fiber.StatusBadRequest, "expected multipart/form-data")
@@ -114,7 +114,7 @@ func echoMultipart(c *fiber.Ctx) error {
 // EventSource parser dispatches the last event before EOF. Includes an
 // id: field on the second event and a retry: hint on the third so the
 // consumer can assert the parser surfaces them on SSEvent.
-func echoSSE(c *fiber.Ctx) error {
+func echoSSE(c fiber.Ctx) error {
 	c.Set(fiber.HeaderContentType, "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	body := "event: tick\ndata: 1\n\n" +
@@ -127,7 +127,7 @@ func echoSSE(c *fiber.Ctx) error {
 // and replies with them so the consumer can prove that signing ran end
 // to end. Body bytes are echoed too so the consumer can verify content
 // integrity against the X-Content-SHA256 hash without re-hashing.
-func echoSigned(c *fiber.Ctx) error {
+func echoSigned(c fiber.Ctx) error {
 	body := c.Body()
 	return c.JSON(fiber.Map{
 		"observed_at":     time.Now().UTC().Format(time.RFC3339),

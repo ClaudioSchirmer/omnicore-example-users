@@ -7,7 +7,7 @@ import (
 	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/infra"
 	appweb "github.com/ClaudioSchirmer/omnicore-example-users/web"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // UsersFeature bundles the User aggregate's repo + service + view and

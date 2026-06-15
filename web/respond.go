@@ -3,7 +3,7 @@ package web
 import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // respondWithError surfaces a non-domain failure (typically an outbound call
@@ -20,7 +20,7 @@ import (
 // RespondFromResult. whoami_routes.go does not consume it because the
 // endpoint never fails — it returns the anonymous placeholder when no
 // Identity is present.
-func respondWithError(c *fiber.Ctx, status int, description string, cause error) error {
+func respondWithError(c fiber.Ctx, status int, description string, cause error) error {
 	msg := fwweb.ErrorMessage{Message: description}
 	if cause != nil {
 		msg.Message = description + ": " + cause.Error()

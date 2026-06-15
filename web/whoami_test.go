@@ -9,7 +9,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // readJSON decodes the response body into a generic map for assertion.
@@ -33,7 +33,7 @@ func TestWhoami_AnonymousWhenIdentityNil(t *testing.T) {
 	app.Get("/whoami", whoami)
 
 	req := httptest.NewRequest("GET", "/whoami", nil)
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestWhoami_ReflectsIdentityWhenPresent(t *testing.T) {
 	app.Use(fwweb.AppContextMiddleware())
 	// Simulate the auth middleware: attach an Identity to the AppContext
 	// before the route runs.
-	app.Use(func(c *fiber.Ctx) error {
+	app.Use(func(c fiber.Ctx) error {
 		fwweb.AppContext(c).SetIdentity(&configuration.Identity{
 			Subject:   "user-42",
 			Issuer:    "https://idp.test",
@@ -66,7 +66,7 @@ func TestWhoami_ReflectsIdentityWhenPresent(t *testing.T) {
 	app.Get("/whoami", whoami)
 
 	req := httptest.NewRequest("GET", "/whoami", nil)
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("app.Test: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // userRepo is the merged port MountUsers consumes: it satisfies both the

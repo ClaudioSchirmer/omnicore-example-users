@@ -14,7 +14,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/responses"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // usersViewName is the Mongo view this showcase reads from — same name
@@ -35,7 +35,7 @@ const usersViewName = "users"
 //      use the shared requests.UserCustomKeyRequest; body-carrying ones
 //      use their endpoint-specific DTO (with the same path:"email" tag).
 //   2. parse body (when applicable)
-//   3. build AppContext + propagate the request's UserContext
+//   3. build AppContext + propagate the request's cancellation context (c)
 //   4. assemble the Command — req.ToCommand() for body endpoints, an
 //      inline one-liner mapping req.Email → cmd.EmailKey for bodyless
 //   5. dispatch via pipeline.Dispatch
@@ -308,14 +308,14 @@ func customInsertUser(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.InsertUserCustomRequest
-		if err := c.BodyParser(&req); err != nil {
+		if err := c.Bind().Body(&req); err != nil {
 			return respondCustomSchemaViolation(c)
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
 		h := &apphandlers.InsertUserCustomCommandHandler{Repo: repo, Service: svc}
@@ -335,17 +335,17 @@ func customUpdateUser(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.UpdateUserCustomRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
-		if err := c.BodyParser(&req); err != nil {
+		if err := c.Bind().Body(&req); err != nil {
 			return respondCustomSchemaViolation(c)
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
 		h := &apphandlers.UpdateUserCustomCommandHandler{Repo: repo, Service: svc}
@@ -368,19 +368,19 @@ func customPatchUser(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.PatchUserCustomRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
 		if len(c.Body()) > 0 {
-			if err := c.BodyParser(&req); err != nil {
+			if err := c.Bind().Body(&req); err != nil {
 				return respondCustomSchemaViolation(c)
 			}
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
 		h := &apphandlers.PatchUserCustomCommandHandler{Repo: repo, Service: svc}
@@ -395,7 +395,7 @@ func customPatchUser(
 
 // ─── PATCH /showcase/users-custom/:email/archive ───────────────────────────
 //
-// Bodyless: no BodyParser. The shared UserCustomKeyRequest carries the
+// Bodyless: no Bind().Body(). The shared UserCustomKeyRequest carries the
 // :email path segment so the route exposes its identifier via a tagged
 // struct field (same surface a reverse-engineering pass introspects on
 // the body-carrying PUT/PATCH custom routes).
@@ -410,14 +410,14 @@ func customArchiveUser(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.UserCustomKeyRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := &commands.ArchiveUserCustomCommand{EmailKey: req.Email}
 		h := &apphandlers.ArchiveUserCustomCommandHandler{Repo: repo, Service: svc}
@@ -437,14 +437,14 @@ func customUnarchiveUser(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.UserCustomKeyRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := &commands.UnarchiveUserCustomCommand{EmailKey: req.Email}
 		h := &apphandlers.UnarchiveUserCustomCommandHandler{Repo: repo, Service: svc}
@@ -468,14 +468,14 @@ func customDeleteUser(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.UserCustomKeyRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := &commands.DeleteUserCustomCommand{EmailKey: req.Email}
 		h := &apphandlers.DeleteUserCustomCommandHandler{Repo: repo, Service: svc}
@@ -505,9 +505,9 @@ func customGetUserByEmail(
 	reader fwqueries.ViewReader,
 	parser *fwweb.QueryParser[requests.FindUserByEmailCustomRequest, requests.FindUserByEmailCustomResponse],
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		var req requests.FindUserByEmailCustomRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
@@ -562,9 +562,9 @@ func customListUsers(
 	reader fwqueries.ViewReader,
 	parser *fwweb.QueryParser[requests.FindUsersCustomRequest, requests.FindUsersCustomResponse],
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		var req requests.FindUsersCustomRequest
 		crit, badField, ok := parser.Parse(c)
@@ -597,17 +597,17 @@ func customChangeAddress(
 	repo apphandlers.UserCustomRepository,
 	svc domain.Service,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		var req requests.ChangeAddressCustomRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
-		if err := c.BodyParser(&req); err != nil {
+		if err := c.Bind().Body(&req); err != nil {
 			return respondCustomSchemaViolation(c)
 		}
 
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
 		h := &apphandlers.ChangeAddressCustomCommandHandler{Repo: repo, Service: svc}
@@ -633,9 +633,9 @@ func customGetAddressByEmailAndID(
 	pipe *pipeline.Pipeline,
 	reader fwqueries.ViewReader,
 ) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		appCtx := fwweb.AppContext(c)
-		appCtx.SetParent(c.UserContext())
+		appCtx.SetParent(c)
 
 		var req requests.FindAddressByEmailAndIDRequest
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
@@ -666,7 +666,7 @@ func customGetAddressByEmailAndID(
 // shape stays compatible, at the cost of the typed notificationKey. The
 // limitation is documented in CLAUDE.md as a known trade-off of going
 // fully manual on the body parse step.
-func respondCustomSchemaViolation(c *fiber.Ctx) error {
+func respondCustomSchemaViolation(c fiber.Ctx) error {
 	return fwweb.Respond(c, fwweb.Response{
 		Success:     false,
 		Status:      fiber.StatusBadRequest,

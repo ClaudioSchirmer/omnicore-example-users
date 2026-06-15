@@ -7,7 +7,7 @@ import (
 	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
 	appweb "github.com/ClaudioSchirmer/omnicore-example-users/web"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // ShowcaseFeature mounts every framework-exercise route under a single

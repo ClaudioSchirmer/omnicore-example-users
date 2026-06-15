@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // newEchoApp builds an isolated Fiber app with only the /echo/* routes
@@ -28,7 +28,7 @@ func newEchoApp() *fiber.App {
 func TestEcho_Stream_WritesRequestedByteCount(t *testing.T) {
 	app := newEchoApp()
 	req := httptest.NewRequest("GET", "/echo/stream/512", nil)
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestEcho_Stream_WritesRequestedByteCount(t *testing.T) {
 func TestEcho_Stream_RejectsNegativeSize(t *testing.T) {
 	app := newEchoApp()
 	req := httptest.NewRequest("GET", "/echo/stream/-1", nil)
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestEcho_Upload_EchoesByteCountAndContentType(t *testing.T) {
 	payload := bytes.Repeat([]byte("Z"), 128)
 	req := httptest.NewRequest("POST", "/echo/upload", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "image/png")
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestEcho_Multipart_ParsesFieldsAndFile(t *testing.T) {
 
 	req := httptest.NewRequest("POST", "/echo/multipart", &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestEcho_Multipart_ParsesFieldsAndFile(t *testing.T) {
 func TestEcho_SSE_StreamsThreeEvents(t *testing.T) {
 	app := newEchoApp()
 	req := httptest.NewRequest("GET", "/echo/sse", nil)
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestEcho_Signed_CapturesHeaders(t *testing.T) {
 	req.Header.Set("X-Key-Id", "demo-key-1")
 	req.Header.Set("Authorization", "Bearer test-token")
 
-	resp, err := app.Test(req, -1)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 0, FailOnTimeout: false})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}

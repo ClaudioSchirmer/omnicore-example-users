@@ -12,7 +12,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // freshApp returns a Fiber app pre-wired with the framework's AppContext
@@ -27,7 +27,7 @@ func freshApp() *fiber.App {
 
 func TestRespondWithError_PopulatesEnvelope(t *testing.T) {
 	app := freshApp()
-	app.Get("/x", func(c *fiber.Ctx) error {
+	app.Get("/x", func(c fiber.Ctx) error {
 		return respondWithError(c, fiber.StatusBadGateway, "upstream down", errors.New("dial timeout"))
 	})
 	resp, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/x", nil))
@@ -55,7 +55,7 @@ func TestRespondWithError_PopulatesEnvelope(t *testing.T) {
 
 func TestRespondWithError_NilCauseOmitsDetail(t *testing.T) {
 	app := freshApp()
-	app.Get("/x", func(c *fiber.Ctx) error {
+	app.Get("/x", func(c fiber.Ctx) error {
 		return respondWithError(c, fiber.StatusServiceUnavailable, "down", nil)
 	})
 	resp, _ := app.Test(httptest.NewRequest(fiber.MethodGet, "/x", nil))
@@ -92,7 +92,7 @@ func TestWhoami_AnonymousResponseWhenNoIdentity(t *testing.T) {
 func TestWhoami_PopulatesFromIdentity(t *testing.T) {
 	app := freshApp()
 	// Inject an Identity via a middleware that runs AFTER AppContextMiddleware.
-	app.Use(func(c *fiber.Ctx) error {
+	app.Use(func(c fiber.Ctx) error {
 		fwweb.AppContext(c).SetIdentity(&configuration.Identity{
 			Subject: "alice-uuid",
 			Issuer:  "https://idp.example",

@@ -7,7 +7,7 @@ import (
 
 	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 )
 
 // keycloakRealm hits Keycloak's OIDC discovery endpoint. Anonymous; the
@@ -17,9 +17,9 @@ import (
 //
 // Registered by MountShowcase under /showcase/keycloak/realm.
 func keycloakRealm(kc *appexternal.KeycloakService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		info, err := kc.GetRealmInfo(ctx)
 		if err != nil {
 			return respondWithError(c, fiber.StatusBadGateway, "keycloak realm fetch failed", err)
@@ -38,9 +38,9 @@ func keycloakRealm(kc *appexternal.KeycloakService) fiber.Handler {
 //
 // Registered by MountShowcase under /showcase/keycloak/admin/:id.
 func keycloakAdminUser(kc *appexternal.KeycloakService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		user, err := kc.FetchUser(ctx, c.Params("id"))
 		switch {
 		case errors.Is(err, appexternal.ErrUserNotFound):
@@ -62,14 +62,14 @@ func keycloakAdminUser(kc *appexternal.KeycloakService) fiber.Handler {
 //
 // Registered by MountShowcase under /showcase/keycloak/tenant/whoami.
 func keycloakTenantWhoami(kc *appexternal.KeycloakService) fiber.Handler {
-	return func(c *fiber.Ctx) error {
+	return func(c fiber.Ctx) error {
 		username := c.Query("username")
 		password := c.Query("password")
 		if username == "" || password == "" {
 			return respondWithError(c, fiber.StatusBadRequest, "username and password query params are required (demo only)", nil)
 		}
 		ctx := fwweb.AppContext(c)
-		ctx.SetParent(c.UserContext())
+		ctx.SetParent(c)
 		who, err := kc.WhoamiTenant(ctx, username, password)
 		if err != nil {
 			return respondWithError(c, fiber.StatusBadGateway, "keycloak tenant whoami failed", err)
