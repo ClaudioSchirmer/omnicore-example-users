@@ -25,5 +25,18 @@ func (nld) Translations() map[string]string {
 		"DuplicateAddressNotification":      "Dubbel adres voor deze gebruiker.",
 		"NameMaxLengthExceededNotification": "Naam overschrijdt de maximaal toegestane lengte van {maxLength} tekens.",
 		"User":                              "Gebruiker",
+		// Field labels — see ptbr.go for the per-locale rationale.
+		"UserNameField":            "Naam",
+		"UserEmailField":           "E-mailadres",
+		"UserPhoneField":           "Telefoon",
+		"AddressLabelField":        "Label",
+		"AddressStreetField":       "Straat",
+		"AddressNumberField":       "Huisnummer",
+		"AddressComplementField":   "Adresaanvulling",
+		"AddressNeighborhoodField": "Wijk",
+		"AddressCityField":         "Stad",
+		"AddressStateField":        "Provincie",
+		"AddressZipCodeField":      "Postcode",
+		"AddressCountryField":      "Land",
 	}
 }

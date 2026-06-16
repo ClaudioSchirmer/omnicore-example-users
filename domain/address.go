@@ -17,15 +17,15 @@ import (
 // addresses are nullable. Same convention as User.Phone: nil → NULL.
 type Address struct {
 	ID           string
-	Label        *string
-	Street       string
-	Number       string
-	Complement   *string
-	Neighborhood string
-	City         string
-	State        string
-	ZipCode      string
-	Country      string
+	Label        *string `label:"AddressLabelField"`
+	Street       string  `label:"AddressStreetField"`
+	Number       string  `label:"AddressNumberField"`
+	Complement   *string `label:"AddressComplementField"`
+	Neighborhood string  `label:"AddressNeighborhoodField"`
+	City         string  `label:"AddressCityField"`
+	State        string  `label:"AddressStateField"`
+	ZipCode      string  `label:"AddressZipCodeField"`
+	Country      string  `label:"AddressCountryField"`
 }
 
 func (a Address) GetID() string { return a.ID }

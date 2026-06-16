@@ -31,5 +31,25 @@ func (ptbr) Translations() map[string]string {
 		// declarou a entrada; com isso o campo wire `context` renderiza
 		// traduzido conforme Accept-Language.
 		"User": "Usuário",
+		// Field labels — humanizam o identificador do campo na superfície
+		// reativa (MessageDTO.FieldLabel + render-at-read no audit via
+		// FieldChange.FieldLabelKey). Mapeamento 1:1 com as tags `label:"..."`
+		// declaradas em domain/user.go e domain/address.go. Lidos pelo
+		// framework no momento da emissão da notification e no audit_builder;
+		// canais sem frontend (e-mail, SMS, push, leitura de auditoria) leem
+		// o envelope direto e enxergam "CEP" em vez de
+		// "addresses[0].zipCode".
+		"UserNameField":            "Nome",
+		"UserEmailField":           "E-mail",
+		"UserPhoneField":           "Telefone",
+		"AddressLabelField":        "Rótulo",
+		"AddressStreetField":       "Rua",
+		"AddressNumberField":       "Número",
+		"AddressComplementField":   "Complemento",
+		"AddressNeighborhoodField": "Bairro",
+		"AddressCityField":         "Cidade",
+		"AddressStateField":        "Estado",
+		"AddressZipCodeField":      "CEP",
+		"AddressCountryField":      "País",
 	}
 }

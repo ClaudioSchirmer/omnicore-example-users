@@ -914,6 +914,86 @@ else
 fi
 
 ##############################################################################
+sec "17. Field labels — FieldChange carries the catalog key for translated read"
+##############################################################################
+# domain/user.go tags Name (`label:"UserNameField"`), Email
+# (`label:"UserEmailField"`), Phone (`label:"UserPhoneField"`).
+# domain/address.go tags every AVO field (`label:"AddressZipCodeField"`, etc.).
+# The framework's audit_builder reads the tag at write time (via
+# labelKeysByColumn cached per reflect.Type) and stamps
+# FieldChange.FieldLabelKey on each row of `changes`. The slog echo serializes
+# it via `json:"fieldLabelKey,omitempty"`. Storage is the raw catalog key (not
+# the rendered string) so future audit readers render via Deps.Translator in
+# any locale.
+
+INSERT_BODY_LABEL=$(cat <<'JSON'
+{
+  "name": "Label User",
+  "email": "label@audit.test",
+  "phone": "14155557777",
+  "addresses": [{
+    "label": "home", "street": "1 Loop", "number": "1",
+    "neighborhood": "Mariani", "city": "Cupertino",
+    "state": "CA", "zipCode": "95014", "country": "US"
+  }]
+}
+JSON
+)
+capture_audit POST /users "$INSERT_BODY_LABEL" "$VALID" 201
+LABEL_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
+
+# 17.1 — A clean PATCH on Name produces a single root-level FieldChange whose
+# fieldLabelKey is "UserNameField".
+capture_audit PATCH "/users/$LABEL_USER_ID" '{"name":"Label User (renamed)"}' "$VALID" 200
+assert_audit "17.1 PATCH Name → FieldChange.fieldLabelKey=UserNameField" '
+eq(a.get("verb"), "update", "verb")
+eq(a.get("kind"), "delta",  "kind")
+ch = a.get("changes") or []
+hits = [c for c in ch if c.get("field") == "name"]
+eq(len(hits), 1, "name change count")
+if hits:
+  eq(hits[0].get("fieldLabelKey"), "UserNameField", "name fieldLabelKey")
+# Untagged columns (updated_at) carry no label tag — fieldLabelKey omitted.
+for c in ch:
+  if c.get("field") != "name":
+    expect("fieldLabelKey" not in c or c.get("fieldLabelKey") == "",
+           "untagged column " + repr(c.get("field")) + " must omit fieldLabelKey, got " + repr(c.get("fieldLabelKey")))
+'
+
+# 17.2 — Child cascade: a PUT against the address subresource produces a
+# child-level FieldChange (op=updated, kind=delta on the child) whose
+# fieldLabelKey is "AddressZipCodeField" — proving the resolver descends
+# through the AVO type at audit write time. Same canonical endpoint §8
+# uses for single-address mutations.
+LABEL_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
+  SELECT id FROM addresses
+  WHERE user_id='$LABEL_USER_ID' AND deleted_at IS NULL LIMIT 1
+" | tr -d '[:space:]')
+CHANGE_BODY_LABEL=$(cat <<'JSON'
+{
+  "label": "home", "street": "1 Loop", "number": "1",
+  "complement": null,
+  "neighborhood": "Mariani", "city": "Cupertino",
+  "state": "CA", "zipCode": "94025", "country": "US"
+}
+JSON
+)
+capture_audit PUT "/users/$LABEL_USER_ID/addresses/$LABEL_ADDR_ID" "$CHANGE_BODY_LABEL" "$VALID" 200
+assert_audit "17.2 PUT zipCode → children.Address[0].changes[].fieldLabelKey=AddressZipCodeField" '
+addrs = (a.get("children") or {}).get("Address") or []
+eq(len(addrs), 1, "children.Address length")
+if addrs:
+  ch = addrs[0].get("changes") or []
+  hits = [c for c in ch if c.get("field") == "zip_code"]
+  eq(len(hits), 1, "zip_code change count")
+  if hits:
+    eq(hits[0].get("fieldLabelKey"), "AddressZipCodeField", "zip_code fieldLabelKey")
+'
+
+# Cleanup — leave the table in the state §16 expects.
+capture_audit DELETE "/users/$LABEL_USER_ID" "" "$VALID" 204
+
+##############################################################################
 sec "Summary"
 ##############################################################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

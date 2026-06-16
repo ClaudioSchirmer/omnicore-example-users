@@ -25,5 +25,18 @@ func (esp) Translations() map[string]string {
 		"DuplicateAddressNotification":      "Dirección duplicada para este usuario.",
 		"NameMaxLengthExceededNotification": "El nombre supera la longitud máxima permitida de {maxLength} caracteres.",
 		"User":                              "Usuario",
+		// Field labels — see ptbr.go for the per-locale rationale.
+		"UserNameField":            "Nombre",
+		"UserEmailField":           "Correo electrónico",
+		"UserPhoneField":           "Teléfono",
+		"AddressLabelField":        "Etiqueta",
+		"AddressStreetField":       "Calle",
+		"AddressNumberField":       "Número",
+		"AddressComplementField":   "Complemento",
+		"AddressNeighborhoodField": "Barrio",
+		"AddressCityField":         "Ciudad",
+		"AddressStateField":        "Estado",
+		"AddressZipCodeField":      "Código postal",
+		"AddressCountryField":      "País",
 	}
 }

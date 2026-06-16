@@ -1276,6 +1276,93 @@ fi
 rm -f "$RESP_TMP"
 
 ####################################
+sec "18. Field labels — humanized identifiers per locale"
+####################################
+# The framework reads `label:"<catalogKey>"` struct tags off the domain
+# entities at notification emit time (Rules.AddNotification populates LabelKey
+# on the message; convert.go renders it via Translator.Render). The wire
+# envelope carries the rendered string on MessageDTO.FieldLabel beside the
+# technical FieldName. Empty when no tag → omitempty elides; raw key on
+# catalog miss (symmetric with the existing Notification.Message fallback).
+#
+# This service tags every validated field on User + Address; PTBR and ENG
+# catalogs declare every key. The cases below cross-check that the wire
+# emits the expected rendered label per locale.
+
+# field_label_check posts the invalid body with the given Accept-Language;
+# asserts the top-level status AND that errors[0].messages[0].fieldLabel
+# equals the expected value.
+field_label_check() {
+  local case_name="$1" lang_header="$2" body="$3" expected_status="$4" expected_label="$5"
+  title "$case_name"
+  echo "REQUEST : POST /users (Accept-Language: $lang_header)"
+  local tmp; tmp=$(mktemp)
+  local status
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST "$BASE/users" \
+    -H "Content-Type: application/json" -H "Accept-Language: $lang_header" \
+    --data "$body")
+  echo "STATUS  : $status"
+  python3 -m json.tool < "$tmp" 2>/dev/null | head -20 || cat "$tmp"
+  echo
+  local got_label
+  got_label=$(python3 -c '
+import sys, json
+doc = json.load(open(sys.argv[1]))
+errs = doc.get("errors") or []
+if not errs or not errs[0].get("messages"):
+  print("__MISSING__")
+else:
+  print(errs[0]["messages"][0].get("fieldLabel", ""))
+' "$tmp")
+  if [ "$status" = "$expected_status" ] && [ "$got_label" = "$expected_label" ]; then
+    printf '\033[1;32mPASS\033[0m (status=%s fieldLabel=%s)\n' "$status" "$got_label"
+    PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (status=%s/%s fieldLabel=%s/%s)\n' "$status" "$expected_status" "$got_label" "$expected_label"
+    FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
+# 18.1 — User.Name has `label:"UserNameField"`. Missing name → 422 with
+# fieldLabel rendered in the actor's locale.
+field_label_check "18.1 POST missing Name → 422 with fieldLabel=Nome (PT-BR)" \
+  "pt-BR" '{"name":"","email":"label-pt@example.com","phone":"14155553333","addresses":[]}' \
+  "422" "Nome"
+
+# 18.2 — Same notification, different locale: ENG catalog renders "Name".
+field_label_check "18.2 POST missing Name → 422 with fieldLabel=Name (en-US)" \
+  "en-US" '{"name":"","email":"label-en@example.com","phone":"14155554444","addresses":[]}' \
+  "422" "Name"
+
+# 18.3 — Aggregate child label: Address.ZipCode tag resolves through the
+# scoped Rules; the wire `field` retains the path "addresses[0].zipCode"
+# and `fieldLabel` carries the translated AVO field label.
+title "18.3 POST invalid Address.ZipCode → 422 with field=addresses[0].zipCode + fieldLabel=CEP (PT-BR)"
+ADDR_BODY='{"name":"With Address","email":"label-addr@example.com","phone":"14155555555","addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Centro","city":"Cidade","state":"SP","zipCode":"AB","country":"BR"}]}'
+TMP=$(mktemp)
+STATUS=$(curl -sS -o "$TMP" -w "%{http_code}" -X POST "$BASE/users" \
+  -H "Content-Type: application/json" -H "Accept-Language: pt-BR" \
+  --data "$ADDR_BODY")
+echo "STATUS  : $STATUS"
+python3 -m json.tool < "$TMP" 2>/dev/null | head -25 || cat "$TMP"
+echo
+ZIP_LABEL=$(python3 -c '
+import sys, json
+doc = json.load(open(sys.argv[1]))
+hits = [m for ctx in (doc.get("errors") or []) for m in (ctx.get("messages") or []) if m.get("field") == "addresses[0].zipCode"]
+print(hits[0].get("fieldLabel", "") if hits else "__MISSING__")
+' "$TMP")
+if [ "$STATUS" = "422" ] && [ "$ZIP_LABEL" = "CEP" ]; then
+  printf '\033[1;32mPASS\033[0m (zipCode fieldLabel=CEP)\n'
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (status=%s zipLabel=%s want CEP)\n' "$STATUS" "$ZIP_LABEL"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$TMP"
+
+####################################
 sec "Summary"
 ####################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

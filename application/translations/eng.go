@@ -30,5 +30,20 @@ func (eng) Translations() map[string]string {
 		// reached the wire envelope. With this entry registered, the wire
 		// `context` field renders translated per Accept-Language.
 		"User": "User",
+		// Field labels — human-readable names for the fields the domain
+		// declares via the `label:"..."` struct tag. Mirrored across all
+		// seven catalogs; see ptbr.go for the per-locale rationale.
+		"UserNameField":            "Name",
+		"UserEmailField":           "Email",
+		"UserPhoneField":           "Phone",
+		"AddressLabelField":        "Label",
+		"AddressStreetField":       "Street",
+		"AddressNumberField":       "Number",
+		"AddressComplementField":   "Complement",
+		"AddressNeighborhoodField": "Neighborhood",
+		"AddressCityField":         "City",
+		"AddressStateField":        "State",
+		"AddressZipCodeField":      "ZIP Code",
+		"AddressCountryField":      "Country",
 	}
 }
