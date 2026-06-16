@@ -26,6 +26,7 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 		Features: []bootstrap.Feature{
 			NewUsersFeature(d),
 			NewShowcaseFeature(d),
+			NewAdminFeature(),
 		},
 		OpenAPI: &openapi.Config{
 			Title:       "OmniCore Example Users",

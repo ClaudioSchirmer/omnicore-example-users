@@ -226,7 +226,8 @@ omnicore-example-users/
 │   ├── main.go                    # ~10 lines: bootstrap.Run(Wire)
 │   ├── wire.go                    # Wire(d Deps) Wiring — translations + features + OpenAPI config (publishes /openapi.json + /docs)
 │   ├── users_feature.go           # UsersFeature: repo + view + Mount → web.MountUsers
-│   └── showcase_feature.go        # ShowcaseFeature: kc + echo + custom repo/svc + Mount → MountWhoami/Echo/Showcase/UsersCustom
+│   ├── showcase_feature.go        # ShowcaseFeature: kc + echo + custom repo/svc + Mount → MountWhoami/Echo/Showcase/UsersCustom
+│   └── admin_feature.go           # AdminFeature: mount-only — POST /admin/retries/{upstream,integration} behind RequirePermission("admin:retry")
 ├── microservice.dev.yaml          # Declarative bootstrap config — APP_PROFILE=dev (auth disabled)
 ├── microservice.prd.yaml          # Canonical prd — JWT validated locally against Keycloak JWKS
 ├── microservice.prd-pem.yaml      # Variant — JWT validated against the PEM inlined here (key pinned in realm-export)
@@ -243,7 +244,7 @@ omnicore-example-users/
 - `application/` — commands + handlers
 - `infra/` — implementation of domain ports (Postgres, views, repos) in Go. **No non-Go artifacts live here** — `infra/` is a DDD layer, not an operational dump.
 - `web/` — owner of Fiber routes (`MountXxx` per aggregate)
-- `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), and `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`). Run: `go run ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
+- `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`), and `admin_feature.go` (struct `AdminFeature` — mount-only, no domain; registers `POST /admin/retries/upstream` and `POST /admin/retries/integration` behind `RequirePermission("admin:retry")`, under Swagger tag `Admin`). Run: `go run ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
 - `migrations/` — non-Go but **part of the service's contract**: SQL DDL for the domain tables, versioned alongside `domain/*.go`. Each `.up.sql` requires a matching `.down.sql`. Path declared in `microservice.*.yaml` (`migrations.dir: ./migrations`).
 - `devops/` — non-Go scaffolding the service doesn't know about: `docker-compose.yml` for the local bench, `debezium/` (framework outbox→Kafka pipeline boilerplate — parameterized by service name + DSN + topic prefix), `keycloak/` (test IdP only used by `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh`). In production, `devops/` is replaced by whatever real infrastructure the operator provisions (managed PG/Mongo/Kafka/IdP); the service binary doesn't read anything from this folder.
 - `qa/` — end-to-end suites operated by bash + curl + python (`e2e.sh`, `auth.sh`, `audit.sh`, `httpclient.sh`, `openapi.sh`, `authz.sh`).
@@ -858,7 +859,19 @@ httpClient:
 
 `APP_PROFILE=dev` selects this file at boot. A production deployment adds a sibling `microservice.prd.yaml` (not in the repo — the maintainer ships it separately) with `auth.mode: jwt` plus `jwksUrl` / `publicKeyPem` + `issuer` + `audience` configured against a real IdP.
 
-**Supported variables (with defaults for local docker-compose):** `HTTP_ADDR`, `DATABASE_URL`, `MONGO_URI`, `MONGO_DB`, `KAFKA_BROKERS`, `SYNC_GROUP_ID`, `KC_URL`, `KC_ADMIN_CLIENT_ID`, `KC_ADMIN_CLIENT_SECRET`, `KC_TENANT_CLIENT_ID`, `KC_TENANT_CLIENT_SECRET`. For an alternative path, export `OMNICORE_CONFIG_PATH` (still requires `APP_PROFILE`). `migrations.dir` is relative to CWD — always run from the service root (`APP_PROFILE=dev go run ./bootstrap`) to resolve correctly.
+**Supported variables (with defaults for local docker-compose):** `HTTP_ADDR`, `DATABASE_URL`, `MONGO_URI`, `MONGO_DB`, `KAFKA_BROKERS`, `SYNC_GROUP_ID`, `KC_URL`, `KC_ADMIN_CLIENT_ID`, `KC_ADMIN_CLIENT_SECRET`, `KC_TENANT_CLIENT_ID`, `KC_TENANT_CLIENT_SECRET`, `INTEGRATION_GROUP_ID`. For an alternative path, export `OMNICORE_CONFIG_PATH` (still requires `APP_PROFILE`). `migrations.dir` is relative to CWD — always run from the service root (`APP_PROFILE=dev go run ./bootstrap`) to resolve correctly.
+
+**Integration + shutdown blocks.** Every variant carries the new framework blocks:
+
+- `integration.defaults` — seeds the consumer-group name (`"${INTEGRATION_GROUP_ID:omnicore-example-users-integration}"`), worker count (4), and startFrom hint (`latest`). The service currently emits no events AND consumes no events, so the empty `publishes` and `subscribes` maps result in zero runtime cost — `fwintegration.Configure` registers the singleton and `bootstrap.Run` spins no consumer goroutines. The defaults are declared so a future round adding a publisher or subscriber edits only the matching sub-block.
+- `shutdown.drainTimeoutSeconds: 30` — caps the coordinated drain on SIGINT/SIGTERM. The framework runs HTTP server, integration consumer pool, and upstream subscribers' drains in parallel under the shared shutdownCtx. 30s matches the kubernetes `terminationGracePeriodSeconds` default so a pod eviction completes inside the orchestrator's window.
+
+**AdminFeature surfaces.** The `bootstrap/admin_feature.go` struct registers two HTTP routes that drive the framework's retry primitives:
+
+- `POST /admin/retries/upstream` — walks `d.UpstreamSubscribers` calling `RetryPendingFailures(ctx)` on each; returns `{"retried": N}`.
+- `POST /admin/retries/integration` — walks `d.IntegrationRegistry.Receivers()` calling `RetryPendingFailures(ctx, pg.Pool(), pipe, logger)` on each; returns `{"retried": N}`.
+
+Both routes sit behind `fwopenapi.RequirePermission("admin:retry")` and surface under Swagger tag `Admin`. The handlers read the registry / subscriber slice via closure at request time — by the time HTTP starts serving (after Phase Receivers + ConsumerPool.Start completed) both are fully populated. Operators expose the routes through the same JWT / claim machinery any other gated endpoint uses.
 
 ### Migrations
 
