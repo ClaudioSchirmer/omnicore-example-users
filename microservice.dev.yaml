@@ -201,3 +201,24 @@ httpClient:
         jsonPath: $.expires_in
         unit: seconds
         skew: 30s
+
+# Cross-service integration events — declared here so a future round adds
+# publishers / subscribers without touching the YAML grammar. The defaults
+# block seeds the consumer-group naming and worker count across any
+# integration.subscribes entry that omits its own override. The service
+# currently emits nothing AND consumes nothing, so the cost is purely
+# structural — fwintegration.Configure(cfg.Integration, ...) ignores the
+# empty publishes / subscribes maps without spinning a single goroutine.
+integration:
+  defaults:
+    consumerGroup: "${INTEGRATION_GROUP_ID:omnicore-example-users-integration}"
+    workers: 4
+    startFrom: latest
+
+# Coordinated drain budget on SIGINT/SIGTERM. The framework runs HTTP
+# server, integration consumer pool, and upstream subscribers' drains in
+# parallel under the shared shutdown context capped at this value. 30s
+# matches the canonical kubernetes terminationGracePeriodSeconds so the
+# pod-evicted drain completes inside the orchestrator's window.
+shutdown:
+  drainTimeoutSeconds: 30

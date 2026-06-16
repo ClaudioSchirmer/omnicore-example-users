@@ -55,3 +55,16 @@ audit:
   destinations:
     - slog
     - database
+
+# Cross-service integration events — defaults seeded; producer / subscriber
+# entries land here when the service starts emitting or consuming events.
+integration:
+  defaults:
+    consumerGroup: "${INTEGRATION_GROUP_ID:omnicore-example-users-integration}"
+    workers: 4
+    startFrom: latest
+
+# Coordinated drain on SIGINT/SIGTERM (matches kubernetes
+# terminationGracePeriodSeconds default).
+shutdown:
+  drainTimeoutSeconds: 30
