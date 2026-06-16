@@ -140,7 +140,7 @@ For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Orchestrator`, `
 ```
 omnicore-example-users/
 ├── domain/                        # Pure DDD, zero IO
-│   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength")
+│   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength"); User + Address fields carry `label:"<catalogKey>"` tags consumed by the framework's field-label resolver
 │   ├── address.go                 # Address (AggregateValueObject)
 │   └── user.go                    # User (AggregateRoot + AggregateRootProvider)
 ├── infra/                         # Adapters, imports omnicore/infra (implementation of domain ports — Go only)
@@ -227,7 +227,8 @@ omnicore-example-users/
 │   ├── wire.go                    # Wire(d Deps) Wiring — translations + features + OpenAPI config (publishes /openapi.json + /docs)
 │   ├── users_feature.go           # UsersFeature: repo + view + Mount → web.MountUsers
 │   ├── showcase_feature.go        # ShowcaseFeature: kc + echo + custom repo/svc + Mount → MountWhoami/Echo/Showcase/UsersCustom
-│   └── admin_feature.go           # AdminFeature: mount-only — POST /admin/retries/{upstream,integration} behind RequirePermission("admin:retry")
+│   ├── admin_feature.go           # AdminFeature: mount-only — POST /admin/retries/{upstream,integration} behind RequirePermission("admin:retry")
+│   └── audit_feature.go           # AuditFeature: mount-only — GET /audit/:aggregateId behind RequirePermission("audit:read")
 ├── microservice.dev.yaml          # Declarative bootstrap config — APP_PROFILE=dev (auth disabled)
 ├── microservice.prd.yaml          # Canonical prd — JWT validated locally against Keycloak JWKS
 ├── microservice.prd-pem.yaml      # Variant — JWT validated against the PEM inlined here (key pinned in realm-export)
@@ -244,10 +245,23 @@ omnicore-example-users/
 - `application/` — commands + handlers
 - `infra/` — implementation of domain ports (Postgres, views, repos) in Go. **No non-Go artifacts live here** — `infra/` is a DDD layer, not an operational dump.
 - `web/` — owner of Fiber routes (`MountXxx` per aggregate)
-- `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`), and `admin_feature.go` (struct `AdminFeature` — mount-only, no domain; registers `POST /admin/retries/upstream` and `POST /admin/retries/integration` behind `RequirePermission("admin:retry")`, under Swagger tag `Admin`). Run: `go run ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
+- `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`), `admin_feature.go` (struct `AdminFeature` — mount-only, no domain; registers `POST /admin/retries/upstream` and `POST /admin/retries/integration` behind `RequirePermission("admin:retry")`, under Swagger tag `Admin`), and `audit_feature.go` (struct `AuditFeature` — mount-only, no domain; registers `GET /audit/:aggregateId` behind `RequirePermission("audit:read")`, under Swagger tag `Audit`). Run: `go run ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
 - `migrations/` — non-Go but **part of the service's contract**: SQL DDL for the domain tables, versioned alongside `domain/*.go`. Each `.up.sql` requires a matching `.down.sql`. Path declared in `microservice.*.yaml` (`migrations.dir: ./migrations`).
 - `devops/` — non-Go scaffolding the service doesn't know about: `docker-compose.yml` for the local bench, `debezium/` (framework outbox→Kafka pipeline boilerplate — parameterized by service name + DSN + topic prefix), `keycloak/` (test IdP only used by `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh`). In production, `devops/` is replaced by whatever real infrastructure the operator provisions (managed PG/Mongo/Kafka/IdP); the service binary doesn't read anything from this folder.
 - `qa/` — end-to-end suites operated by bash + curl + python (`e2e.sh`, `auth.sh`, `audit.sh`, `httpclient.sh`, `openapi.sh`, `authz.sh`).
+
+### Feature struct convention
+
+A `bootstrap/<name>_feature.go` struct holds **infra-level adapters that need configuration or domain wrapping** — and ONLY those. Application-layer handlers (anything under `application/handlers/`) are NEVER cached on the feature struct; they are constructed inline inside the per-request closure of each Fiber handler in `web/`.
+
+| Field on a feature struct? | Examples |
+|---|---|
+| ✅ Yes | `repo` (`NewUserRepository(d.Postgres)` wraps with NewEntity factory + ConstraintBindings), `svc` (`NewUserService(...)` configures a domain service), `view` (`UserView()` declares the Mongo view shape consumed by Views() AND Mount()), `kc` / `echo` (vendor adapter structs `NewKeycloakService(d.HttpClient)` / `NewEchoService(d.HttpClient)` configure the per-vendor httpclient surface). |
+| ❌ No | `*pgxpool.Pool`, `*translation.Translator`, `*pipeline.Pipeline`, `bootstrap.Deps` itself, application handlers (`InsertCommandHandler[*User, ...]`, `FindAuditByAggregateQueryHandler{Pool, Translator}`, etc.). These are read straight from `d` at `Mount` time or built inline inside the route's closure. |
+
+**Decision rule:** if the constructor you would call is `appinfra.NewXxx(...)` (a configured infra adapter) or `appexternal.NewXxx(...)` (a configured vendor surface), it belongs on the feature struct. If the constructor is `&apphandlers.YyyHandler{...}` (an application handler that just wraps Deps fields verbatim), it goes inside the per-request closure. When a feature has nothing in the first category (admin / audit / pure mount-only routes), the struct is empty (`type AuditFeature struct{}`, `NewAuditFeature() *AuditFeature`) and `Mount(app, d)` reads everything off `d` — same shape `AdminFeature` follows.
+
+Mirrors how the framework's Auto Command Handlers are constructed: each Fiber wrapper in `web/user_routes.go` builds the handler struct (e.g. `&handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]{Repo: repo}`) at the per-request closure level; only the underlying `repo` is the persistent piece. The manual showcase (`web/user_custom_routes.go::customInsertUser`) follows the same convention with `&apphandlers.InsertUserCustomCommandHandler{Repo: repo, Service: svc}` built inside the closure.
 
 ---
 
@@ -434,7 +448,10 @@ Seven modules: `PTBR()`, `ENG()`, `ESP()`, `FRA()`, `DEU()`, `ITA()`, and `NLD()
 Translations: []translation.Module{apptrans.PTBR(), apptrans.ENG(), apptrans.ESP(), apptrans.FRA(), apptrans.DEU(), apptrans.ITA(), apptrans.NLD()},
 ```
 
-10 keys covered in each language — one per custom notification (8 invariants + `NameMaxLengthExceededNotification` carrying the `{maxLength}` placeholder for the parameterized-notification showcase) plus the `"User"` context-label entry (translated alongside notifications by the framework's convert.go). `RequiredFieldNotification` and other kernel keys are provided by the framework's seven `Core*` modules.
+22 keys covered in each language:
+- 9 custom notifications (8 invariants + `NameMaxLengthExceededNotification` carrying the `{maxLength}` placeholder for the parameterized-notification showcase).
+- 1 context label entry (`"User"`) translated alongside notifications by the framework's convert.go.
+- 12 field labels (3 root: `UserNameField`/`UserEmailField`/`UserPhoneField`; 9 AVO: `AddressLabelField`/`AddressStreetField`/`AddressNumberField`/`AddressComplementField`/`AddressNeighborhoodField`/`AddressCityField`/`AddressStateField`/`AddressZipCodeField`/`AddressCountryField`). Declared via `label:"<catalogKey>"` struct tags on `domain/user.go` + `domain/address.go`. The framework's `Rules.AddNotification` resolves the tag at emit and surfaces the translated string on `MessageDTO.FieldLabel`; the auditor stamps the catalog key on `FieldChange.FieldLabelKey` for render-at-read. `RequiredFieldNotification` and other kernel keys are provided by the framework's seven `Core*` modules.
 
 ---
 

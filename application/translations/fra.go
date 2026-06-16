@@ -25,5 +25,18 @@ func (fra) Translations() map[string]string {
 		"DuplicateAddressNotification":      "Adresse en doublon pour cet utilisateur.",
 		"NameMaxLengthExceededNotification": "Le nom dépasse la longueur maximale autorisée de {maxLength} caractères.",
 		"User":                              "Utilisateur",
+		// Field labels — see ptbr.go for the per-locale rationale.
+		"UserNameField":            "Nom",
+		"UserEmailField":           "Adresse e-mail",
+		"UserPhoneField":           "Téléphone",
+		"AddressLabelField":        "Libellé",
+		"AddressStreetField":       "Rue",
+		"AddressNumberField":       "Numéro",
+		"AddressComplementField":   "Complément",
+		"AddressNeighborhoodField": "Quartier",
+		"AddressCityField":         "Ville",
+		"AddressStateField":        "Région",
+		"AddressZipCodeField":      "Code postal",
+		"AddressCountryField":      "Pays",
 	}
 }
