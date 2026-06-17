@@ -19,16 +19,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// userRepo is the merged port MountUsers consumes: it satisfies both the
-// application-layer write surface (persistence.Writer[*User], which carries
-// the variadic WriteOption and the read methods FindByID / New) AND the
-// optional ArchivedFinder needed by the unarchive path. Any concrete
-// UserRepository (canonical or custom) implements both.
-type userRepo interface {
-	persistence.Writer[*appdomain.User]
-	domain.ArchivedFinder[*appdomain.User]
-}
-
 // MountUsers registers the write + query routes for the User aggregate.
 // Called by UsersFeature.Mount after receiving the already-built
 // repo + service + view name. Two changes over the pre-OpenAPI wiring:
@@ -56,7 +46,7 @@ type userRepo interface {
 //     a "data" field on both the runtime and the OpenAPI spec sides.
 func MountUsers(
 	app *fiber.App,
-	repo userRepo,
+	repo persistence.ScopedRepository[*appdomain.User],
 	svc domain.Service,
 	viewName string,
 	d bootstrap.Deps,

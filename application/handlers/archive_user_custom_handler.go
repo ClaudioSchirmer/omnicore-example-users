@@ -23,14 +23,15 @@ import (
 // value-add is the manual orchestration written out, not a divergent
 // response shape.
 type ArchiveUserCustomCommandHandler struct {
-	Repo    UserCustomRepository
+	Repo    ScopedUserRepository
 	Service domain.Service
 }
 
 func (h *ArchiveUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.ArchiveUserCustomCommand,
 ) (fwresults.None, error) {
-	user, err := h.Repo.FindByEmail(cmd.EmailKey)
+	repo := h.Repo.Scope(ctx)
+	user, err := repo.FindByEmail(cmd.EmailKey)
 	if err != nil {
 		return fwresults.None{}, err
 	}
@@ -41,7 +42,7 @@ func (h *ArchiveUserCustomCommandHandler) Handle(
 		return fwresults.None{}, err
 	}
 
-	if err := h.Repo.Archive(ctx, archivable); err != nil {
+	if err := repo.Archive(archivable); err != nil {
 		return fwresults.None{}, err
 	}
 	return fwresults.None{}, nil

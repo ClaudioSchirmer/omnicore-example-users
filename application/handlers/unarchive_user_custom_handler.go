@@ -24,14 +24,15 @@ import (
 // wire layer emits a success envelope without a `data` field, same shape
 // the canonical /users/:id/unarchive returns.
 type UnarchiveUserCustomCommandHandler struct {
-	Repo    UserCustomRepository
+	Repo    ScopedUserRepository
 	Service domain.Service
 }
 
 func (h *UnarchiveUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.UnarchiveUserCustomCommand,
 ) (fwresults.None, error) {
-	user, err := h.Repo.FindArchivedByEmail(cmd.EmailKey)
+	repo := h.Repo.Scope(ctx)
+	user, err := repo.FindArchivedByEmail(cmd.EmailKey)
 	if err != nil {
 		return fwresults.None{}, err
 	}
@@ -42,7 +43,7 @@ func (h *UnarchiveUserCustomCommandHandler) Handle(
 		return fwresults.None{}, err
 	}
 
-	if err := h.Repo.Unarchive(ctx, unarchivable); err != nil {
+	if err := repo.Unarchive(unarchivable); err != nil {
 		return fwresults.None{}, err
 	}
 	return fwresults.None{}, nil

@@ -20,14 +20,15 @@ import (
 // domain entity directly — the same Result type Insert/Update/Patch use,
 // reused for this fourth body-emitting handler.
 type ChangeAddressCustomCommandHandler struct {
-	Repo    UserCustomRepository
+	Repo    ScopedUserRepository
 	Service domain.Service
 }
 
 func (h *ChangeAddressCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.ChangeAddressCustomCommand,
 ) (commands.UserCustomResult, error) {
-	user, err := h.Repo.FindByEmail(cmd.EmailKey)
+	repo := h.Repo.Scope(ctx)
+	user, err := repo.FindByEmail(cmd.EmailKey)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}
@@ -38,7 +39,7 @@ func (h *ChangeAddressCustomCommandHandler) Handle(
 		return commands.UserCustomResult{}, err
 	}
 
-	if err := h.Repo.Update(ctx, updatable); err != nil {
+	if err := repo.Update(updatable); err != nil {
 		return commands.UserCustomResult{}, err
 	}
 	return cmd.FromEntity(ctx, user), nil

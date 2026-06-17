@@ -13,14 +13,15 @@ import (
 // only non-nil fields). The framework's PartialUpdateCommandHandler is the
 // generic equivalent in the canonical /users/* surface.
 type PatchUserCustomCommandHandler struct {
-	Repo    UserCustomRepository
+	Repo    ScopedUserRepository
 	Service domain.Service
 }
 
 func (h *PatchUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.PatchUserCustomCommand,
 ) (commands.UserCustomResult, error) {
-	user, err := h.Repo.FindByEmail(cmd.EmailKey)
+	repo := h.Repo.Scope(ctx)
+	user, err := repo.FindByEmail(cmd.EmailKey)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}
@@ -31,7 +32,7 @@ func (h *PatchUserCustomCommandHandler) Handle(
 		return commands.UserCustomResult{}, err
 	}
 
-	if err := h.Repo.Update(ctx, updatable); err != nil {
+	if err := repo.Update(updatable); err != nil {
 		return commands.UserCustomResult{}, err
 	}
 	return cmd.FromEntity(ctx, user), nil

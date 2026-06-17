@@ -19,14 +19,15 @@ import (
 // FK ON DELETE CASCADE on addresses handles the child rows; the framework's
 // Postgres.Delete runs the DELETE + outbox INSERT in the same TX.
 type DeleteUserCustomCommandHandler struct {
-	Repo    UserCustomRepository
+	Repo    ScopedUserRepository
 	Service domain.Service
 }
 
 func (h *DeleteUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.DeleteUserCustomCommand,
 ) (struct{}, error) {
-	user, err := h.Repo.FindByEmail(cmd.EmailKey)
+	repo := h.Repo.Scope(ctx)
+	user, err := repo.FindByEmail(cmd.EmailKey)
 	if err != nil {
 		return struct{}{}, err
 	}
@@ -37,7 +38,7 @@ func (h *DeleteUserCustomCommandHandler) Handle(
 		return struct{}{}, err
 	}
 
-	if err := h.Repo.Delete(ctx, deletable); err != nil {
+	if err := repo.Delete(deletable); err != nil {
 		return struct{}{}, err
 	}
 	return struct{}{}, nil

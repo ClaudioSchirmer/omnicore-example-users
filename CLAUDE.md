@@ -131,7 +131,7 @@ For day-to-day development where you want cross-module navigation in the IDE and
 
 `go.work` is the Go ≥1.18 canonical multi-module workspace mechanism. It overlays the published module with the local checkout so jump-to-def + `go build ./...` work across both without `replace`. The file is gitignored — every developer has their own.
 
-For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Orchestrator`, `Auto Command Handlers`, `BaseRepository`, `AggregateLoader`, `NotificationSemantic`, `bootstrap.Run`, Migration manager, ViewReader, etc.), see the framework's [`CLAUDE.md`](https://github.com/ClaudioSchirmer/omnicore/blob/main/CLAUDE.md) (maintainer-side) or [`DOCS.html`](https://github.com/ClaudioSchirmer/omnicore/blob/main/DOCS.html) (consumer-side). This document describes only what is specific to this service.
+For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Auto Command Handlers`, `BaseRepository`/`ScopedRepository`, `AggregateLoader`, `NotificationSemantic`, `bootstrap.Run`, Migration manager, ViewReader, etc.), see the framework's [`CLAUDE.md`](https://github.com/ClaudioSchirmer/omnicore/blob/main/CLAUDE.md) (maintainer-side) or [`DOCS.html`](https://github.com/ClaudioSchirmer/omnicore/blob/main/DOCS.html) (consumer-side). This document describes only what is specific to this service.
 
 ---
 
@@ -142,10 +142,11 @@ omnicore-example-users/
 ├── domain/                        # Pure DDD, zero IO
 │   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength"); User + Address fields carry `label:"<catalogKey>"` tags consumed by the framework's field-label resolver
 │   ├── address.go                 # Address (AggregateValueObject)
-│   └── user.go                    # User (AggregateRoot + AggregateRootProvider)
+│   ├── user.go                    # User (AggregateRoot + AggregateRootProvider)
+│   └── user_custom_repository.go  # UserCustomRepository PORT (manual showcase: domain.Repository[*User] + FindByEmail/FindArchivedByEmail)
 ├── infra/                         # Adapters, imports omnicore/infra (implementation of domain ports — Go only)
-│   ├── user_repository.go         # BaseRepository[*User] + AggregateLoader[*User]
-│   ├── user_custom_repository.go  # Manual UserCustomRepository for /showcase/users-custom/* — FindByEmail + write delegation
+│   ├── user_repository.go         # BaseAggregateRepository[*User] — Scope + FindByID/FindArchivedByID via promotion
+│   ├── user_custom_repository.go  # Manual UserCustomRepository — Scope→boundWriter + FindByEmail/FindArchivedByEmail (search engine)
 │   ├── views.go                   # UserView ViewDefinition (called ONCE via UsersFeature)
 │   └── external/                  # Outbound HTTP adapters — wrap omnicore/infra/httpclient
 │       └── keycloak_service.go    # KeycloakService: GetRealmInfo, FetchUser, WhoamiTenant + vendor-neutral DTOs
@@ -178,13 +179,13 @@ omnicore-example-users/
 │   │   ├── delete_user_custom_command.go   # DeleteUserCustomCommand (manual, EmailKey only)
 │   │   └── user_custom_result.go           # UserCustomResult + AddressCustomResult (pure data) + userCustomResultFromUser helper consumed by each Cmd.FromEntity on the manual showcase
 │   ├── handlers/                  # Manual application handlers for /showcase/users-custom/*
-│   │   ├── ports_custom.go                        # UserCustomRepository interface (Repository[*User] + FindByEmail/FindArchivedByEmail)
-│   │   ├── insert_user_custom_handler.go          # ToEntity → GetInsertable → Orchestrator.Insert → SetID → cmd.FromEntity(ctx, user); returns UserCustomResult
-│   │   ├── update_user_custom_handler.go          # FindByEmail → GetUpdatable → Orchestrator.Update → cmd.FromEntity(ctx, user); returns UserCustomResult
-│   │   ├── patch_user_custom_handler.go           # FindByEmail → GetPartialUpdatable → Orchestrator.Update → cmd.FromEntity(ctx, user); returns UserCustomResult
-│   │   ├── archive_user_custom_handler.go         # FindByEmail → GetArchivable → Orchestrator.Archive; returns fwresults.None
-│   │   ├── unarchive_user_custom_handler.go       # FindArchivedByEmail → GetUnarchivable → Orchestrator.Unarchive; returns fwresults.None
-│   │   ├── delete_user_custom_handler.go          # FindByEmail → GetDeletable → Orchestrator.Delete; returns struct{}
+│   │   ├── ports_custom.go                        # ScopedUserRepository provider (Scope→appdomain.UserCustomRepository); the read+write PORT lives in domain/user_custom_repository.go
+│   │   ├── insert_user_custom_handler.go          # ToEntity → GetInsertable → repo.Scope(ctx).Insert → SetID → cmd.FromEntity(ctx, user); returns UserCustomResult
+│   │   ├── update_user_custom_handler.go          # FindByEmail → GetUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
+│   │   ├── patch_user_custom_handler.go           # FindByEmail → GetPartialUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
+│   │   ├── archive_user_custom_handler.go         # FindByEmail → GetArchivable → repo.Scope(ctx).Archive; returns fwresults.None
+│   │   ├── unarchive_user_custom_handler.go       # FindArchivedByEmail → GetUnarchivable → repo.Scope(ctx).Unarchive; returns fwresults.None
+│   │   ├── delete_user_custom_handler.go          # FindByEmail → GetDeletable → repo.Scope(ctx).Delete; returns struct{}
 │   │   ├── find_user_by_email_custom_handler.go   # ReadPage with Filter[email]=<value> Limit=1; carries access-control filter seam
 │   │   └── find_users_custom_handler.go           # ReadPage with parsed criteria; same access-control seam
 │   ├── queries/                   # Query types
@@ -324,7 +325,7 @@ All embed `domain.DomainNotificationBase`. Translated in `application/translatio
 
 Composes two framework primitives:
 
-- **`fwinfra.BaseRepository[*User]`** embedded — provides Insert/Update/Archive/Unarchive/Delete as one-liners delegating to `Postgres`. Aggregate-aware dispatch happens transparently because User implements `AggregateRootProvider`. Unique violations (PG `23505`) turn into typed notifications via the `Constraints` map:
+- **`fwinfra.BaseRepository[*User]`** embedded — provides `Scope(ctx, opts...) domain.Writer` whose boundWriter carries the 5 writes as one-liners delegating to `Postgres`. Aggregate-aware dispatch happens transparently because User implements `AggregateRootProvider`. Unique violations (PG `23505`) turn into typed notifications via the `Constraints` map:
   ```go
   Constraints: map[string]fwinfra.ConstraintBinding{
       "users_email_active_idx": {Notification: EmailAlreadyExistsNotification{}, Field: "email"},
@@ -527,12 +528,12 @@ The exact same User aggregate the canonical `/users/*` surface persists, exposed
 
 | Method | Path | Handler | Body | Success status |
 |---|---|---|---|---|
-| POST | `/showcase/users-custom/` | `InsertUserCustomCommandHandler` — ToEntity → GetInsertable → Orchestrator.Insert → SetID → cmd.FromEntity(ctx, user) | `InsertUserRequest` (reused) | 201 with `UserCustomResponse` (full body) |
-| PUT | `/showcase/users-custom/:email` | `UpdateUserCustomCommandHandler` — FindByEmail → GetUpdatable → Orchestrator.Update → cmd.FromEntity(ctx, user) | `UpdateUserCustomRequest` (no Email) | 200 with `UserCustomResponse` |
-| PATCH | `/showcase/users-custom/:email` | `PatchUserCustomCommandHandler` — FindByEmail → GetPartialUpdatable → Orchestrator.Update → cmd.FromEntity(ctx, user) | `PatchUserCustomRequest` (no Email; lenient) | 200 with `UserCustomResponse` |
-| PATCH | `/showcase/users-custom/:email/archive` | `ArchiveUserCustomCommandHandler` — FindByEmail → GetArchivable → Orchestrator.Archive | `UserCustomKeyRequest` (shared, bodyless — only `Email path:"email"`) | 200 No Body |
-| PATCH | `/showcase/users-custom/:email/unarchive` | `UnarchiveUserCustomCommandHandler` — FindArchivedByEmail → GetUnarchivable → Orchestrator.Unarchive | `UserCustomKeyRequest` (shared) | 200 No Body |
-| DELETE | `/showcase/users-custom/:email` | `DeleteUserCustomCommandHandler` — FindByEmail → GetDeletable → Orchestrator.Delete | `UserCustomKeyRequest` (shared) | 204 No Content |
+| POST | `/showcase/users-custom/` | `InsertUserCustomCommandHandler` — ToEntity → GetInsertable → repo.Scope(ctx).Insert → SetID → cmd.FromEntity(ctx, user) | `InsertUserRequest` (reused) | 201 with `UserCustomResponse` (full body) |
+| PUT | `/showcase/users-custom/:email` | `UpdateUserCustomCommandHandler` — FindByEmail → GetUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user) | `UpdateUserCustomRequest` (no Email) | 200 with `UserCustomResponse` |
+| PATCH | `/showcase/users-custom/:email` | `PatchUserCustomCommandHandler` — FindByEmail → GetPartialUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user) | `PatchUserCustomRequest` (no Email; lenient) | 200 with `UserCustomResponse` |
+| PATCH | `/showcase/users-custom/:email/archive` | `ArchiveUserCustomCommandHandler` — FindByEmail → GetArchivable → repo.Scope(ctx).Archive | `UserCustomKeyRequest` (shared, bodyless — only `Email path:"email"`) | 200 No Body |
+| PATCH | `/showcase/users-custom/:email/unarchive` | `UnarchiveUserCustomCommandHandler` — FindArchivedByEmail → GetUnarchivable → repo.Scope(ctx).Unarchive | `UserCustomKeyRequest` (shared) | 200 No Body |
+| DELETE | `/showcase/users-custom/:email` | `DeleteUserCustomCommandHandler` — FindByEmail → GetDeletable → repo.Scope(ctx).Delete | `UserCustomKeyRequest` (shared) | 204 No Content |
 | GET | `/showcase/users-custom/:email` | `FindUserByEmailCustomQueryHandler` — ReadPage with Filter[email]=<value>, Limit=1 | `?includeArchived=true` optional (allowlist via the route's `fwweb.NewQueryParser[FindUserByEmailCustomRequest, FindUserByEmailCustomResponse]`) | 200 with `FindUserByEmailCustomResponse{id,name,email}` (reduced; `*string,omitempty`) / 404 |
 | GET | `/showcase/users-custom` | `FindUsersCustomQueryHandler` — ReadPage with parsed criteria | `?includeArchived` `?limit` `?after` `?before` `?name` `?email` `?sort` `?fields` `?search` `?onlyTotal` (allowlist + sparse-render boot guard + sort opt-in slog.Warn via the route's `fwweb.NewQueryParser[FindUsersCustomRequest, FindUsersCustomResponse]` — unknown keys → 400) | 200 with `[]FindUsersCustomResponse{id,name,email}` (reduced; `*string,omitempty`) + `pagination` block |
 
@@ -574,8 +575,8 @@ The motivation is to **explode** the wrapper internals into visible Fiber-handle
 | `application/commands/` | `Insert/Update/Patch/Archive/Unarchive/DeleteUserCommand` (+ per-endpoint `Insert/Update/PatchUserResult` co-located in the same files) | All six have `*CustomCommand` twins. Insert mirrors the canonical shape; the other five add an `EmailKey` slot (path identifier) and the PUT/PATCH twins drop `Email` from the mutable surface. A SHARED `UserCustomResult` (+ `AddressCustomResult`) in `user_custom_result.go` carries the snapshot returned by Insert/Update/Patch — the canonical's per-endpoint Result granularity already covers that pattern, so the manual showcase collapses it to one struct to demonstrate that the Result-intermediate principle composes with a shared shape |
 | `application/dtos/` | `AddressInput` (DTO consumed by canonical Insert/Update commands) | `AddressInputCustom` — dedicated twin so only `domain/` is reused across surfaces |
 | `application/handlers/` | framework's generic `handlers.InsertCommandHandler[T,*Cmd,TResult]` etc. | `apphandlers.{Insert,Update,Patch,Archive,Unarchive,Delete}UserHandler` written out |
-| `infra/user_repository.go` | `BaseAggregateRepository[*User]` (writes + FindByID/FindArchivedByID via promotion) | — |
-| `infra/user_custom_repository.go` | — | `UserCustomRepository` — 1-line write delegations + custom `FindByEmail` / `FindArchivedByEmail` SQL |
+| `infra/user_repository.go` | `BaseAggregateRepository[*User]` (Scope + FindByID/FindArchivedByID via promotion) | — |
+| `infra/user_custom_repository.go` | — | `UserCustomRepository` — Scope→boundWriter (1-line write delegations) + `FindByEmail` / `FindArchivedByEmail` via the search engine |
 | `web/user_routes.go` | `fwweb.HandleCommandWithBody{,ID}` + `HandleCommandWithID` | — |
 | `web/user_custom_routes.go` | — | Plain Fiber handlers: `Bind().Body() → AppContext → ToCommand → Dispatch → switch result` |
 | `web/requests/` | `Insert/Update/PatchUserRequest` + `AddressRequest` (canonical wire DTOs) | `Insert/Update/PatchUserCustomRequest` + `AddressCustomRequest` (dedicated wire DTOs — Update/Patch drop `Email` from the body, Insert mirrors the canonical body shape) |
@@ -585,7 +586,8 @@ The motivation is to **explode** the wrapper internals into visible Fiber-handle
 | `infra/` read side | `MongoViewReader` via `d.ViewReader` (canonical) | **same** — manual surface consumes the same reader; lookup by email is a `Filter[email]=<value>` + `Limit=1` ReadPage; list is a normal paged ReadPage |
 | `bootstrap/` | `UsersFeature` mounts via `MountUsers` | `ShowcaseFeature` also constructs `UserCustomRepository` + a second `UserService` and mounts via `MountUsersCustom` |
 
-`application/handlers/ports_custom.go` declares the `UserCustomRepository` interface — `domain.Repository[*User]` extended with `FindByEmail` / `FindArchivedByEmail`. Application depends on the interface (not the concrete `*appinfra.UserCustomRepository`) so the dependency direction stays application → domain.
+The read+write repository PORT is `appdomain.UserCustomRepository` in `domain/user_custom_repository.go` — `domain.Repository[*User]` (pure Reader+Writer) extended with `FindByEmail` / `FindArchivedByEmail`. `application/handlers/ports_custom.go` declares the `ScopedUserRepository` provider (`Scope(ctx, opts...) appdomain.UserCustomRepository`) the handlers hold to bind the request scope. Handlers depend on these interfaces (not the concrete `*appinfra.UserCustomRepository`), keeping the dependency direction application → domain.
+
 
 ### Email as the public identifier
 
@@ -611,7 +613,7 @@ The manual surface gives up three small things the canonical `HandleCommandWithB
 2. **`FullBody` marker support.** The canonical PUT enforces "all exported fields of the Request DTO must be present in the JSON" via the `FullBody` marker + reflection. The manual PUT does not — missing fields surface as 422 from `BuildRules` instead of 400 from the wire. Acceptable here because PUT/PATCH custom drop the immutable `Email` field; what's required is short enough that domain validation covers it.
 3. **Boilerplate.** Each Fiber handler explicitly performs the 5-step dance the wrapper hides. Reading is the point; writing every new manual endpoint by hand is the cost.
 
-Repository-side, `UserCustomRepository.Insert/Update/Archive/Unarchive/Delete` are **1-line delegations to `fwinfra.Postgres`** — the same primitives `BaseRepository` calls under the hood. Going further (managing `pgx.Tx` + outbox INSERT + aggregate cascade by hand) would break the framework's "outbox is atomic with the write" invariant for no didactic gain — that transaction engineering already lives inside `fwinfra.Postgres` and is not part of what "manual" means in this showcase. The custom Repository's own SQL is confined to `FindByEmail` / `FindArchivedByEmail` + the constraint-violation translation (`mapErr` replicated because `BaseRepository.mapErr` is package-private).
+Repository-side, `UserCustomRepository.Insert/Update/Archive/Unarchive/Delete` are **1-line delegations to `fwinfra.Postgres`** — the same primitives `BaseRepository` calls under the hood. Going further (managing `pgx.Tx` + outbox INSERT + aggregate cascade by hand) would break the framework's "outbox is atomic with the write" invariant for no didactic gain — that transaction engineering already lives inside `fwinfra.Postgres` and is not part of what "manual" means in this showcase. The custom Repository writes **no lookup SQL of its own**: `FindByEmail` / `FindArchivedByEmail` resolve the email through the framework's entity search engine (`criteria.Eq("Email", email)` → `loader.FindOne`, the `.OnlyArchived()` scope for the archived twin), and `FindByID` / `FindArchivedByID` go through `criteria.ByID(id)`. The only hand-written SQL-adjacent code left is the constraint-violation translation (`mapErr` replicated because `BaseRepository.mapErr` is package-private).
 
 ### Read side
 
@@ -970,9 +972,8 @@ The script registers the connector via the Kafka Connect REST API — POST if ne
             └─ runAggregateValidations: Address.IsValid on each
             └─ checkAllNotifications → *DomainError if any
             └─ extractAggregateMeta(user) attaches *aggregateMeta
-         └─ orch := persistence.NewOrchestrator(repo, auditor, ctx)
-         └─ orch.Insert(insertable, nil, nil)
-            └─ BaseRepository.Insert → pg.Insert
+         └─ repo.Scope(ctx).Insert(insertable)
+            └─ boundWriter.Insert → pg.Insert
                └─ AggregateInfo() ok → insertAggregate
                   └─ BEGIN TX
                   └─ INSERT users RETURNING id
