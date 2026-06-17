@@ -10,8 +10,8 @@ import (
 // InsertUserCustomCommandHandler is the manual counterpart to the framework's
 // generic InsertCommandHandler. Same lifecycle the Auto handler performs,
 // written out so a reader can trace each step: hydrate entity from Command →
-// run domain validation via GetInsertable → delegate the write to the
-// persistence.Writer port (carrying the new lifecycle-hook variadic) →
+// run domain validation via GetInsertable → bind the request scope via
+// repo := h.Repo.Scope(ctx) and Insert through the pure domain.Writer →
 // propagate the assigned ID back onto the entity → project to
 // commands.UserCustomResult so the wire layer receives an application-layer
 // DTO instead of the raw domain entity.
@@ -21,11 +21,11 @@ import (
 // response shape from the domain entity shape so renames or new domain
 // fields don't leak straight into the HTTP contract.
 //
-// In-TX side effects would land as trailing persistence.WriteOption[*User]
-// options on the Repo.Insert call — same surface the Auto handler reaches via
+// In-TX side effects would land as persistence.WriteOption[*User] options on
+// the Repo.Scope(ctx, opts...) call — same surface the Auto handler reaches via
 // the Cmd's optional AfterBegin / BeforeCommit provider methods.
 type InsertUserCustomCommandHandler struct {
-	Repo    UserCustomRepository
+	Repo    ScopedUserRepository
 	Service domain.Service
 }
 
@@ -39,7 +39,8 @@ func (h *InsertUserCustomCommandHandler) Handle(
 		return commands.UserCustomResult{}, err
 	}
 
-	id, err := h.Repo.Insert(ctx, insertable)
+	repo := h.Repo.Scope(ctx)
+	id, err := repo.Insert(insertable)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}
@@ -88,7 +89,7 @@ func (h *InsertUserCustomCommandHandler) Handle(
 //
 // The placeholder below illustrates the call shape on the manual path.
 /*
-id, err := h.Repo.Insert(ctx, insertable,
+id, err := h.Repo.Scope(ctx,
 	persistence.WithAfterBegin[*appdomain.User](func(
 		ctx *configuration.AppContext,
 		u *appdomain.User,
@@ -112,5 +113,5 @@ id, err := h.Repo.Insert(ctx, insertable,
 		// return h.NotificationOutbox.EnqueueActivationRequested(ctx, tx, id)
 		return nil
 	}),
-)
+).Insert(insertable)
 */

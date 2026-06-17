@@ -51,7 +51,7 @@ const usersViewName = "users"
 //   7. on Failure / Exception → delegate to RespondFromResult, which honors
 //      semanticToStatus (422/404/409/500) on the Result.Notifications.
 //
-// Parameters are interfaces — apphandlers.UserCustomRepository (the port
+// Parameters are interfaces — apphandlers.ScopedUserRepository (the port
 // declared by application/handlers/) and domain.Service (framework
 // abstraction over an injectable domain service). This file imports
 // nothing from `appinfra`. The concrete *appinfra.UserCustomRepository
@@ -62,7 +62,7 @@ const usersViewName = "users"
 // asks for.
 func MountUsersCustom(
 	app *fiber.App,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 	d bootstrap.Deps,
 ) {
@@ -305,7 +305,7 @@ func MountUsersCustom(
 
 func customInsertUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -332,7 +332,7 @@ func customInsertUser(
 
 func customUpdateUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -365,7 +365,7 @@ func customUpdateUser(
 
 func customPatchUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -407,7 +407,7 @@ func customPatchUser(
 
 func customArchiveUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -434,7 +434,7 @@ func customArchiveUser(
 
 func customUnarchiveUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -465,7 +465,7 @@ func customUnarchiveUser(
 
 func customDeleteUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -594,7 +594,7 @@ func customListUsers(
 
 func customChangeAddress(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.UserCustomRepository,
+	repo apphandlers.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {

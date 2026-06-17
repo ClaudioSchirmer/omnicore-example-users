@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
 	"github.com/ClaudioSchirmer/omnicore/criteria"
 	"github.com/ClaudioSchirmer/omnicore/domain"
@@ -15,20 +16,20 @@ import (
 
 // UserCustomRepository is the manual counterpart to UserRepository, used by
 // the /showcase/users-custom/* surface. The canonical UserRepository embeds
-// fwinfra.BaseAggregateRepository — five writes + New() + FindByID +
-// FindArchivedByID come "for free" via promotion. This struct deliberately
-// does NOT embed it: every method is written out so a reader can see what
-// the canonical wrapper hides, and so we can add the email-keyed lookups
-// (FindByEmail / FindArchivedByEmail) that no framework primitive exposes.
+// fwinfra.BaseAggregateRepository — New() + FindByID + FindArchivedByID +
+// Scope come "for free" via promotion. This struct deliberately does NOT
+// embed it: the reads + the scoped-write binding are written out so a reader
+// can see what the canonical wrapper hides, and so we can add the email-keyed
+// lookups (FindByEmail / FindArchivedByEmail) that no framework primitive
+// exposes.
 //
-// The five writes are 1-line delegations to fwinfra.Postgres — the framework
-// primitives that BaseRepository itself calls under the hood. Going further
-// (managing pgx.Tx + outbox INSERT + aggregate cascade by hand) would risk
-// breaking the framework's "outbox is atomic with the write" invariant for
-// no didactic gain — the engineering of that transaction is already inside
-// fwinfra.Postgres and is not part of what "manual" means in this showcase.
-// What is manual here lives one layer above: the Repository shape, the email
-// lookups, and the constraint-violation translation.
+// The repository PORT (read+write) is a domain concept — appdomain.UserRepository
+// in domain/user_repository.go. This struct is the infra adapter that
+// satisfies it: reads are direct (no ctx); writes are bound to the request
+// *AppContext via Scope, which returns a value satisfying appdomain.UserRepository
+// with its Writer half already scoped. The five writes inside the bound writer
+// are 1-line delegations to fwinfra.Postgres — the same primitives
+// BaseRepository.Scope calls under the hood.
 //
 // FindByEmail and FindArchivedByEmail are the actual reason this Repository
 // exists. The /:email path identifier on the showcase routes is an alternate
@@ -63,41 +64,67 @@ func NewUserCustomRepository(pg *fwinfra.Postgres) *UserCustomRepository {
 	}
 }
 
-// ─── persistence.Writer[*User] + domain.Repository[*User] ──────────────────
+// ─── Scope: the write binding ───────────────────────────────────────────────
 //
-// Each delegation is the same one BaseRepository performs internally; writing
-// them out keeps the manual contract visible. RepoConfig is left as zero
-// value — same as the canonical repo — so table/column/FK come from
-// convention (users, name/email/phone, addresses.user_id). The variadic
-// opts thread through to fwinfra.AdaptWriteOptions so the typed
-// persistence.WriteOption[*User] closures (afterBegin / beforeCommit) fired
-// by Auto and manual callers reach the persister identically to the
-// canonical path.
+// Scope binds the request ctx (cancellation → pgx, actor → audit) and the
+// optional in-TX lifecycle hooks, and returns the pure read+write domain port
+// appdomain.UserRepository. The returned scopedUserRepo composes this struct
+// (for the ctx-free reads) with a userCustomBoundWriter (for the ctx-bound
+// writes). Mirrors fwinfra.BaseRepository.Scope, written out by hand.
 
-func (r *UserCustomRepository) Insert(ctx domain.Context, i domain.Insertable, opts ...persistence.WriteOption[*appdomain.User]) (domain.ID, error) {
-	res, err := r.pg.Insert(ctx, i, nil, fwinfra.AdaptWriteOptions(opts))
+func (r *UserCustomRepository) Scope(ctx *configuration.AppContext, opts ...persistence.WriteOption[*appdomain.User]) appdomain.UserRepository {
+	return scopedUserRepo{
+		UserCustomRepository: r,
+		Writer:               userCustomBoundWriter{r: r, ctx: ctx, opts: opts},
+	}
+}
+
+// scopedUserRepo is the request-scoped appdomain.UserRepository Scope returns:
+// reads promoted from the embedded *UserCustomRepository, writes from the
+// embedded (bound) domain.Writer.
+type scopedUserRepo struct {
+	*UserCustomRepository
+	domain.Writer
+}
+
+// userCustomBoundWriter is the request-scoped domain.Writer. Each write is the
+// same delegation BaseRepository performs internally; writing them out keeps
+// the manual contract visible. RepoConfig is left nil (zero value) — same as
+// the canonical repo — so table/column/FK come from convention. The captured
+// opts thread through fwinfra.AdaptWriteOptions so the typed afterBegin /
+// beforeCommit closures reach the persister identically to the canonical path.
+type userCustomBoundWriter struct {
+	r    *UserCustomRepository
+	ctx  *configuration.AppContext
+	opts []persistence.WriteOption[*appdomain.User]
+}
+
+func (w userCustomBoundWriter) Insert(i domain.Insertable) (domain.ID, error) {
+	res, err := w.r.pg.Insert(w.ctx, i, nil, fwinfra.AdaptWriteOptions(w.opts))
 	if err != nil {
-		return domain.ID{}, r.mapErr(err)
+		return domain.ID{}, w.r.mapErr(err)
 	}
 	return domain.NewID(res.ID), nil
 }
 
-func (r *UserCustomRepository) Update(ctx domain.Context, u domain.Updatable, opts ...persistence.WriteOption[*appdomain.User]) error {
-	_, err := r.pg.Update(ctx, u, nil, fwinfra.AdaptWriteOptions(opts))
-	return r.mapErr(err)
+func (w userCustomBoundWriter) Update(u domain.Updatable) error {
+	_, err := w.r.pg.Update(w.ctx, u, nil, fwinfra.AdaptWriteOptions(w.opts))
+	return w.r.mapErr(err)
 }
 
-func (r *UserCustomRepository) Delete(ctx domain.Context, d domain.Deletable, opts ...persistence.WriteOption[*appdomain.User]) error {
-	return r.mapErr(r.pg.Delete(ctx, d, nil, fwinfra.AdaptWriteOptions(opts)))
+func (w userCustomBoundWriter) Delete(d domain.Deletable) error {
+	return w.r.mapErr(w.r.pg.Delete(w.ctx, d, nil, fwinfra.AdaptWriteOptions(w.opts)))
 }
 
-func (r *UserCustomRepository) Archive(ctx domain.Context, a domain.Archivable, opts ...persistence.WriteOption[*appdomain.User]) error {
-	return r.mapErr(r.pg.Archive(ctx, a, nil, fwinfra.AdaptWriteOptions(opts)))
+func (w userCustomBoundWriter) Archive(a domain.Archivable) error {
+	return w.r.mapErr(w.r.pg.Archive(w.ctx, a, nil, fwinfra.AdaptWriteOptions(w.opts)))
 }
 
-func (r *UserCustomRepository) Unarchive(ctx domain.Context, u domain.Unarchivable, opts ...persistence.WriteOption[*appdomain.User]) error {
-	return r.mapErr(r.pg.Unarchive(ctx, u, nil, fwinfra.AdaptWriteOptions(opts)))
+func (w userCustomBoundWriter) Unarchive(u domain.Unarchivable) error {
+	return w.r.mapErr(w.r.pg.Unarchive(w.ctx, u, nil, fwinfra.AdaptWriteOptions(w.opts)))
 }
+
+// ─── Reads (ctx-free, direct on the handle) ─────────────────────────────────
 
 func (r *UserCustomRepository) FindByID(id domain.ID) (*appdomain.User, error) {
 	return r.loader.FindOne(context.Background(), criteria.ByID(id))
@@ -107,19 +134,15 @@ func (r *UserCustomRepository) New() *appdomain.User {
 	return &appdomain.User{}
 }
 
-// ─── domain.ArchivedFinder[*User] ──────────────────────────────────────────
-
+// FindArchivedByID satisfies domain.ArchivedFinder[*User].
 func (r *UserCustomRepository) FindArchivedByID(id domain.ID) (*appdomain.User, error) {
 	return r.loader.FindOne(context.Background(), criteria.ByID(id).OnlyArchived())
 }
 
-// ─── Email-keyed lookups (this Repository's reason to exist) ────────────────
-
 // FindByEmail loads the active aggregate whose email matches, via the entity
 // search engine: criteria.Eq("Email", email) compiles to the WHERE clause and
 // FindOne hydrates root + children, returning RecordNotFound on a miss (same
-// 404 envelope as the canonical by-id miss). The old "SELECT id → Load(id)"
-// two-step is gone — the engine resolves the alternate key directly.
+// 404 envelope as the canonical by-id miss).
 func (r *UserCustomRepository) FindByEmail(email string) (*appdomain.User, error) {
 	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)))
 }
@@ -137,8 +160,7 @@ func (r *UserCustomRepository) FindArchivedByEmail(email string) (*appdomain.Use
 // the framework, so we cannot import it). Without this, a PG 23505 unique
 // violation would reach the wire as a 500. With it, the constraint name is
 // looked up in r.constraints and the matching Notification is emitted as a
-// typed InfrastructureError — same shape the canonical UserRepository
-// produces.
+// typed InfrastructureError — same shape the canonical UserRepository produces.
 func (r *UserCustomRepository) mapErr(err error) error {
 	if err == nil {
 		return nil
@@ -154,11 +176,11 @@ func (r *UserCustomRepository) mapErr(err error) error {
 	return fwinfra.FieldErrorWithCause(r.contextName, binding.Field, pgErr, binding.Notification)
 }
 
-// Compile-time contract checks — the custom Repository satisfies both the
-// application-layer write port and the domain read port, plus
+// Compile-time contract checks: the scoped value is the pure domain read+write
+// port; the bound writer is a domain.Writer; the unscoped struct is an
 // ArchivedFinder for the unarchive flow.
 var (
-	_ persistence.Writer[*appdomain.User]    = (*UserCustomRepository)(nil)
-	_ domain.Repository[*appdomain.User]     = (*UserCustomRepository)(nil)
+	_ appdomain.UserRepository               = scopedUserRepo{}
+	_ domain.Writer                          = userCustomBoundWriter{}
 	_ domain.ArchivedFinder[*appdomain.User] = (*UserCustomRepository)(nil)
 )

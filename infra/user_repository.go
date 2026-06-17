@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"github.com/ClaudioSchirmer/omnicore/application/persistence"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
 
@@ -39,6 +40,6 @@ func NewUserRepository(pg *fwinfra.Postgres) *UserRepository {
 }
 
 var (
-	_ domain.Repository[*appdomain.User]     = (*UserRepository)(nil)
-	_ domain.ArchivedFinder[*appdomain.User] = (*UserRepository)(nil)
+	_ persistence.ScopedRepository[*appdomain.User] = (*UserRepository)(nil)
+	_ domain.ArchivedFinder[*appdomain.User]        = (*UserRepository)(nil)
 )

@@ -19,11 +19,13 @@ import (
 // infrastructure exception helpers.
 var errNotFound = errors.New("user not found")
 
-// fakeRepo is the test double for the apphandlers.UserCustomRepository
-// interface. Counters let each test assert which write methods reached the
-// repo; the foundUser fields seed FindByEmail / FindArchivedByEmail with a
-// preconstructed *User so the handler chain can exercise the application
-// layer without pgx in the loop.
+// fakeRepo is the test double for the handlers' ScopedUserRepository: its
+// Scope returns itself, and it also satisfies the pure appdomain.UserRepository
+// port (Reader + Writer + email lookups) so the handler does
+// repo := h.Repo.Scope(ctx) and then drives reads + writes on the same double.
+// Counters let each test assert which write methods reached the repo; the
+// foundUser fields seed FindByEmail / FindArchivedByEmail with a preconstructed
+// *User so the handler chain can exercise the application layer without pgx.
 type fakeRepo struct {
 	insertCalled    int
 	updateCalled    int
@@ -41,7 +43,13 @@ type fakeRepo struct {
 	foundArchivedUser *appdomain.User
 }
 
-func (r *fakeRepo) Insert(_ domain.Context, _ domain.Insertable, _ ...persistence.WriteOption[*appdomain.User]) (domain.ID, error) {
+// Scope binds the request scope and returns the pure appdomain.UserRepository
+// — here the same double, so the counters and seeded reads are shared.
+func (r *fakeRepo) Scope(_ *configuration.AppContext, _ ...persistence.WriteOption[*appdomain.User]) appdomain.UserRepository {
+	return r
+}
+
+func (r *fakeRepo) Insert(_ domain.Insertable) (domain.ID, error) {
 	r.insertCalled++
 	if r.insertErr != nil {
 		return domain.ID{}, r.insertErr
@@ -49,22 +57,22 @@ func (r *fakeRepo) Insert(_ domain.Context, _ domain.Insertable, _ ...persistenc
 	return domain.NewID(uuid.NewString()), nil
 }
 
-func (r *fakeRepo) Update(_ domain.Context, _ domain.Updatable, _ ...persistence.WriteOption[*appdomain.User]) error {
+func (r *fakeRepo) Update(_ domain.Updatable) error {
 	r.updateCalled++
 	return r.updateErr
 }
 
-func (r *fakeRepo) Delete(_ domain.Context, _ domain.Deletable, _ ...persistence.WriteOption[*appdomain.User]) error {
+func (r *fakeRepo) Delete(_ domain.Deletable) error {
 	r.deleteCalled++
 	return r.deleteErr
 }
 
-func (r *fakeRepo) Archive(_ domain.Context, _ domain.Archivable, _ ...persistence.WriteOption[*appdomain.User]) error {
+func (r *fakeRepo) Archive(_ domain.Archivable) error {
 	r.archiveCalled++
 	return r.archiveErr
 }
 
-func (r *fakeRepo) Unarchive(_ domain.Context, _ domain.Unarchivable, _ ...persistence.WriteOption[*appdomain.User]) error {
+func (r *fakeRepo) Unarchive(_ domain.Unarchivable) error {
 	r.unarchiveCalled++
 	return r.unarchiveErr
 }
