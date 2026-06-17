@@ -143,7 +143,7 @@ omnicore-example-users/
 │   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength"); User + Address fields carry `label:"<catalogKey>"` tags consumed by the framework's field-label resolver
 │   ├── address.go                 # Address (AggregateValueObject)
 │   ├── user.go                    # User (AggregateRoot + AggregateRootProvider)
-│   └── user_repository.go         # UserRepository PORT (pure read+write: domain.Repository[*User] + FindByEmail/FindArchivedByEmail)
+│   └── user_custom_repository.go  # UserCustomRepository PORT (manual showcase: domain.Repository[*User] + FindByEmail/FindArchivedByEmail)
 ├── infra/                         # Adapters, imports omnicore/infra (implementation of domain ports — Go only)
 │   ├── user_repository.go         # BaseAggregateRepository[*User] — Scope + FindByID/FindArchivedByID via promotion
 │   ├── user_custom_repository.go  # Manual UserCustomRepository — Scope→boundWriter + FindByEmail/FindArchivedByEmail (search engine)
@@ -179,7 +179,7 @@ omnicore-example-users/
 │   │   ├── delete_user_custom_command.go   # DeleteUserCustomCommand (manual, EmailKey only)
 │   │   └── user_custom_result.go           # UserCustomResult + AddressCustomResult (pure data) + userCustomResultFromUser helper consumed by each Cmd.FromEntity on the manual showcase
 │   ├── handlers/                  # Manual application handlers for /showcase/users-custom/*
-│   │   ├── ports_custom.go                        # ScopedUserRepository provider (Scope→appdomain.UserRepository); the read+write PORT lives in domain/user_repository.go
+│   │   ├── ports_custom.go                        # ScopedUserRepository provider (Scope→appdomain.UserCustomRepository); the read+write PORT lives in domain/user_custom_repository.go
 │   │   ├── insert_user_custom_handler.go          # ToEntity → GetInsertable → repo.Scope(ctx).Insert → SetID → cmd.FromEntity(ctx, user); returns UserCustomResult
 │   │   ├── update_user_custom_handler.go          # FindByEmail → GetUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
 │   │   ├── patch_user_custom_handler.go           # FindByEmail → GetPartialUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
@@ -586,7 +586,7 @@ The motivation is to **explode** the wrapper internals into visible Fiber-handle
 | `infra/` read side | `MongoViewReader` via `d.ViewReader` (canonical) | **same** — manual surface consumes the same reader; lookup by email is a `Filter[email]=<value>` + `Limit=1` ReadPage; list is a normal paged ReadPage |
 | `bootstrap/` | `UsersFeature` mounts via `MountUsers` | `ShowcaseFeature` also constructs `UserCustomRepository` + a second `UserService` and mounts via `MountUsersCustom` |
 
-The read+write repository PORT is `appdomain.UserRepository` in `domain/user_repository.go` — `domain.Repository[*User]` (pure Reader+Writer) extended with `FindByEmail` / `FindArchivedByEmail`. `application/handlers/ports_custom.go` declares the `ScopedUserRepository` provider (`Scope(ctx, opts...) appdomain.UserRepository`) the handlers hold to bind the request scope. Handlers depend on these interfaces (not the concrete `*appinfra.UserCustomRepository`), keeping the dependency direction application → domain.
+The read+write repository PORT is `appdomain.UserCustomRepository` in `domain/user_custom_repository.go` — `domain.Repository[*User]` (pure Reader+Writer) extended with `FindByEmail` / `FindArchivedByEmail`. `application/handlers/ports_custom.go` declares the `ScopedUserRepository` provider (`Scope(ctx, opts...) appdomain.UserCustomRepository`) the handlers hold to bind the request scope. Handlers depend on these interfaces (not the concrete `*appinfra.UserCustomRepository`), keeping the dependency direction application → domain.
 
 
 ### Email as the public identifier

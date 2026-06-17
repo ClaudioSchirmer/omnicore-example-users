@@ -23,10 +23,10 @@ import (
 // lookups (FindByEmail / FindArchivedByEmail) that no framework primitive
 // exposes.
 //
-// The repository PORT (read+write) is a domain concept — appdomain.UserRepository
-// in domain/user_repository.go. This struct is the infra adapter that
+// The repository PORT (read+write) is a domain concept — appdomain.UserCustomRepository
+// in domain/user_custom_repository.go. This struct is the infra adapter that
 // satisfies it: reads are direct (no ctx); writes are bound to the request
-// *AppContext via Scope, which returns a value satisfying appdomain.UserRepository
+// *AppContext via Scope, which returns a value satisfying appdomain.UserCustomRepository
 // with its Writer half already scoped. The five writes inside the bound writer
 // are 1-line delegations to fwinfra.Postgres — the same primitives
 // BaseRepository.Scope calls under the hood.
@@ -68,18 +68,18 @@ func NewUserCustomRepository(pg *fwinfra.Postgres) *UserCustomRepository {
 //
 // Scope binds the request ctx (cancellation → pgx, actor → audit) and the
 // optional in-TX lifecycle hooks, and returns the pure read+write domain port
-// appdomain.UserRepository. The returned scopedUserRepo composes this struct
+// appdomain.UserCustomRepository. The returned scopedUserRepo composes this struct
 // (for the ctx-free reads) with a userCustomBoundWriter (for the ctx-bound
 // writes). Mirrors fwinfra.BaseRepository.Scope, written out by hand.
 
-func (r *UserCustomRepository) Scope(ctx *configuration.AppContext, opts ...persistence.WriteOption[*appdomain.User]) appdomain.UserRepository {
+func (r *UserCustomRepository) Scope(ctx *configuration.AppContext, opts ...persistence.WriteOption[*appdomain.User]) appdomain.UserCustomRepository {
 	return scopedUserRepo{
 		UserCustomRepository: r,
 		Writer:               userCustomBoundWriter{r: r, ctx: ctx, opts: opts},
 	}
 }
 
-// scopedUserRepo is the request-scoped appdomain.UserRepository Scope returns:
+// scopedUserRepo is the request-scoped appdomain.UserCustomRepository Scope returns:
 // reads promoted from the embedded *UserCustomRepository, writes from the
 // embedded (bound) domain.Writer.
 type scopedUserRepo struct {
@@ -180,7 +180,7 @@ func (r *UserCustomRepository) mapErr(err error) error {
 // port; the bound writer is a domain.Writer; the unscoped struct is an
 // ArchivedFinder for the unarchive flow.
 var (
-	_ appdomain.UserRepository               = scopedUserRepo{}
+	_ appdomain.UserCustomRepository               = scopedUserRepo{}
 	_ domain.Writer                          = userCustomBoundWriter{}
 	_ domain.ArchivedFinder[*appdomain.User] = (*UserCustomRepository)(nil)
 )

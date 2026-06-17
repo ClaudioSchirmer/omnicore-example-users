@@ -20,7 +20,7 @@ import (
 var errNotFound = errors.New("user not found")
 
 // fakeRepo is the test double for the handlers' ScopedUserRepository: its
-// Scope returns itself, and it also satisfies the pure appdomain.UserRepository
+// Scope returns itself, and it also satisfies the pure appdomain.UserCustomRepository
 // port (Reader + Writer + email lookups) so the handler does
 // repo := h.Repo.Scope(ctx) and then drives reads + writes on the same double.
 // Counters let each test assert which write methods reached the repo; the
@@ -43,9 +43,9 @@ type fakeRepo struct {
 	foundArchivedUser *appdomain.User
 }
 
-// Scope binds the request scope and returns the pure appdomain.UserRepository
+// Scope binds the request scope and returns the pure appdomain.UserCustomRepository
 // — here the same double, so the counters and seeded reads are shared.
-func (r *fakeRepo) Scope(_ *configuration.AppContext, _ ...persistence.WriteOption[*appdomain.User]) appdomain.UserRepository {
+func (r *fakeRepo) Scope(_ *configuration.AppContext, _ ...persistence.WriteOption[*appdomain.User]) appdomain.UserCustomRepository {
 	return r
 }
 
