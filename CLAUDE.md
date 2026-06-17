@@ -38,7 +38,7 @@
 >    cd ../omnicore && go build ./... && go vet ./... && go test ./... -count=1
 >    ```
 >    A green suite is a precondition of "done".
-> 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds seven scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage, ~3s), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all seven**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all seven" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/authz also need Keycloak ready) — wait for the maintainer's reply before executing.
+> 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds eight scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage with the in-process memory cache, ~3s), `qa/httpclient-redis.sh` (outbound HTTP cache backend swapped to Redis via `microservice.dev-redis-cache.yaml` — keys/TTL/JSON shape inspected via `docker compose exec redis redis-cli`, plus cross-process persistence and failOpen, ~30s; needs the `redis` container up), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all eight**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all eight" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/httpclient-redis/authz also need Keycloak ready; httpclient-redis additionally needs the `redis` container up) — wait for the maintainer's reply before executing.
 
 > **CRITICAL RULE — DO NOT GUESS, VERIFY BEFORE ASSERTING OR PLANNING**
 >
@@ -1143,6 +1143,29 @@ docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
 APP_PROFILE=dev go run ./bootstrap   # in another terminal
 bash qa/httpclient.sh                # ~3 seconds
+```
+
+### `qa/httpclient-redis.sh` — outbound HTTP cache backend swapped to Redis
+
+Sibling of `qa/httpclient.sh` that swaps the framework's cache backend from in-process memory to Redis (`defaults.cache.store: redis`) via the dedicated `microservice.dev-redis-cache.yaml` variant. Loaded under `APP_PROFILE=dev` + `OMNICORE_CONFIG_PATH=./microservice.dev-redis-cache.yaml` — the YAML name advertises the variant while the profile stays `dev` so the framework's `auth.mode=disabled` guard keeps holding. Unlike `httpclient.sh`, this script **manages the service lifecycle itself** (build, kill_port, start, wait `/health`, cleanup trap) because case 5 needs to stop and restart the server, and case 6 needs to stop and restart the `redis` container — fighting an operator-managed server in another terminal would silently leak processes.
+
+Six cases focused on what only Redis can demonstrate:
+
+- **Case 1 — `redis-cli PING`.** `docker compose exec redis redis-cli PING` returns `PONG`. Proves the Redis container is reachable from inside the suite without depending on `redis-cli` on the host (every machine that has docker has the Redis CLI through this path).
+- **Case 2 — Framework writes entries under the configured `keyPrefix`.** After `GET /showcase/keycloak/realm`, `redis-cli KEYS 'omnicore-example-users-httpcache:*'` returns at least one match and the sample key carries the `keycloak-public` service segment. Validates both that the adapter writes to Redis at all AND that the YAML `keyPrefix` is respected.
+- **Case 3 — Entry decodes back as the framework's `CacheEntry` JSON shape.** `redis-cli GET <key>` pipes through `python3 -c "json.loads(...)"` and asserts the presence of `body`, `headers`, `status`, `contentType`, `contentLength`, `expiresAt`. Catches a regression where the on-wire envelope diverges from `omnicore/infra/httpclient/cache_redis.go::redisCacheEntryEnvelope`.
+- **Case 4 — TTL is bounded by the endpoint's YAML configuration.** `redis-cli TTL <key>` returns an integer between 1 and 300 seconds (the endpoint declares `cache: { ttl: 5m }`). Proves the adapter does NOT silently apply the framework's 5-minute fallback when the YAML already set the value.
+- **Case 5 — Cross-process cache persistence (THE Redis differentiator).** The script kills the server (`SERVER_PID` via SIGTERM, port 8080 freed); Redis still holds the entry (`DBSIZE = 1`). The script restarts the server (fresh process, fresh in-process memory) and hits `/showcase/keycloak/realm` again. The fresh process's slog line MUST carry `"cacheStatus":"hit"` — proving the cache entry survived the process restart, which an in-memory cache cannot do. This is the case that justifies pulling Redis into the dependency tree; the other five are sanity.
+- **Case 6 — `failMode: open` graceful degradation.** With Redis up, `docker compose stop redis`. The next request to `/showcase/keycloak/realm` MUST still return `200` AND the server log MUST contain `httpclient.cache.redis.transport.error` — proving the framework's failOpen policy: cache backend dies → call proceeds to upstream as if cache were disabled + slog.Warn records the underlying problem so operators see Redis going down regardless of the HTTP response. The script then `docker compose start redis` and waits for `PING=PONG` before completing.
+
+The cleanup trap (`trap cleanup EXIT INT TERM`) ensures that any early exit (case 6 mid-failure, Ctrl-C, kernel signal) still kills the spawned server and restarts the Redis container — the suite never leaves the dev environment in a worse state than it found.
+
+Total: 6 cases.
+
+```bash
+docker compose -f devops/docker-compose.yml up -d        # brings up redis alongside the others
+./devops/debezium/register-connector.sh
+bash qa/httpclient-redis.sh                              # ~30s (self-managed lifecycle)
 ```
 
 ### `qa/openapi.sh` — OpenAPI document + Swagger UI

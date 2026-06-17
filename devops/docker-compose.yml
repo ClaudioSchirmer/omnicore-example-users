@@ -90,6 +90,23 @@ services:
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
 
+  # Redis backend exercised by qa/httpclient-redis.sh and the canonical
+  # `dev-redis-cache` profile (microservice.dev-redis-cache.yaml). Optional —
+  # not required by qa/e2e.sh, qa/auth.sh, qa/audit.sh, qa/httpclient.sh,
+  # qa/openapi.sh, qa/authz.sh, qa/schema_evolution.sh. No persistent
+  # volume: the cache is throwaway by design (process-local memory is the
+  # default; redis is just a shared-state demonstration).
+  redis:
+    image: redis:7-alpine
+    container_name: omnicore-example-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # Kafka Connect runtime with Debezium plugins. The connector itself (outbox
   # source) is registered post-boot via REST — see debezium/users-outbox-connector.json.
   debezium:
