@@ -53,6 +53,57 @@ audit:
     - slog
     - database
 
+# Cache subsystem — top-level block, distinct from httpClient.
+# Structural delta from microservice.dev.yaml: the framework's generic
+# cache is backed by Redis instead of in-process memory, AND a SHARED
+# cache instance is exposed on Deps.SharedCache via the cache.shared:
+# sub-block below. httpClient.defaults.cache: (lower down) keeps its
+# POLICY knobs (enabled, defaultTTL, honorCacheControl, per-endpoint
+# varyOn / TTL) but no longer owns the backend choice — it delegates
+# to Deps.Cache (private) via the bootstrap wiring.
+cache:
+  # SERVICE-PRIVATE cache exposed on Deps.Cache. Used by the httpclient
+  # response cache middleware AND by any consumer-side cache.Set /
+  # cache.Get call from a domain handler. Pod-local writes to this
+  # backend are visible to other replicas of the SAME service because
+  # the underlying Redis is shared across pods; the keyPrefix scopes
+  # them away from other services.
+  store: redis
+  redis:
+    addr: "${REDIS_ADDR:localhost:6380}"
+    # KeyPrefix scopes every entry under one namespace so a Redis
+    # shared across services (or environments) never produces a
+    # cross-talk collision. The httpclient's own key already starts
+    # with the service name as the first segment; the prefix here is a
+    # second namespace layer applied uniformly to every cache write
+    # (httpclient AND any handler-level cache.Set call).
+    keyPrefix: "${REDIS_KEY_PREFIX:omnicore-example-users-cache}"
+    # FailMode "open" (the default) keeps the service responsive when
+    # Redis is unreachable — every Get/Set against a down Redis logs
+    # `slog.Warn "cache.redis.transport.error"` and the call proceeds
+    # as if the cache were disabled for that request. qa/cache.sh
+    # validates this behavior explicitly.
+    failMode: open
+    timeoutMs: 100
+
+  # CROSS-SERVICE cache exposed on Deps.SharedCache. The example uses
+  # the SAME Redis instance as the private cache but with a distinct
+  # keyPrefix so the QA suite can observe the two namespaces separated
+  # at the backend layer. In a real deployment, the shared cache would
+  # typically point at a team-wide / cluster-wide Redis instance
+  # different from the per-service one — the YAML shape is identical
+  # so the migration is just changing the addr.
+  #
+  # The framework rejects cache.shared.store: memory at boot — an
+  # in-process LRU cannot honor cross-service reads. Only redis | custom.
+  shared:
+    store: redis
+    redis:
+      addr: "${SHARED_REDIS_ADDR:localhost:6380}"
+      keyPrefix: "${SHARED_REDIS_KEY_PREFIX:omnicore-example-users-shared}"
+      failMode: open
+      timeoutMs: 100
+
 httpClient:
   defaults:
     timeout: 10s
@@ -62,29 +113,6 @@ httpClient:
       enabled: true
       defaultTTL: 5m
       honorCacheControl: false
-      # The only structural delta from microservice.dev.yaml — the cache
-      # backend is Redis instead of in-process memory. The framework picks
-      # the implementation here at New(): "redis" + the redis: sub-block
-      # below builds the go-redis-backed adapter; everything downstream
-      # (the cacheMiddleware, the cache key formula, varyOn, TTL, ...) is
-      # unchanged.
-      store: redis
-      redis:
-        addr: "${REDIS_ADDR:localhost:6380}"
-        # KeyPrefix scopes every entry under one namespace so a Redis
-        # shared across services (or environments) never produces a
-        # cross-talk collision. The framework's key already starts with
-        # the YAML service name as the first segment; the prefix is a
-        # second namespace layer.
-        keyPrefix: "${REDIS_KEY_PREFIX:omnicore-example-users-httpcache}"
-        # FailMode "open" (the default) keeps the service responsive when
-        # Redis is unreachable — every Get/Set against a down Redis logs
-        # `slog.Warn "httpclient.cache.redis.transport.error"` and the
-        # call proceeds to upstream as if the cache were disabled for
-        # that request. qa/httpclient-redis.sh validates this behavior
-        # explicitly (case 6).
-        failMode: open
-        timeoutMs: 100
 
   services:
     keycloak-public:

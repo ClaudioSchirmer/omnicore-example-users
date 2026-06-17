@@ -66,4 +66,9 @@ func (f *ShowcaseFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	appweb.MountEcho(app, d)
 	appweb.MountShowcase(app, f.kc, f.echo, d)
 	appweb.MountUsersCustom(app, f.customRepo, f.customSvc, d)
+	// /showcase/cache/* — minimal CRUD over Deps.Cache (private) and
+	// Deps.SharedCache (shared) so qa/cache.sh can drive the framework's
+	// cache subsystem end to end. Hidden in the OpenAPI spec because it's
+	// a QA fixture, not a production surface.
+	appweb.MountCacheShowcase(app, d)
 }

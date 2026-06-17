@@ -38,7 +38,7 @@
 >    cd ../omnicore && go build ./... && go vet ./... && go test ./... -count=1
 >    ```
 >    A green suite is a precondition of "done".
-> 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds eight scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage with the in-process memory cache, ~3s), `qa/httpclient-redis.sh` (outbound HTTP cache backend swapped to Redis via `microservice.dev-redis-cache.yaml` — keys/TTL/JSON shape inspected via `docker compose exec redis redis-cli`, plus cross-process persistence and failOpen, ~30s; needs the `redis` container up), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all eight**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all eight" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/httpclient-redis/authz also need Keycloak ready; httpclient-redis additionally needs the `redis` container up) — wait for the maintainer's reply before executing.
+> 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds eight scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage with the in-process memory cache, ~3s), `qa/cache.sh` (framework cache subsystem end-to-end — both `Deps.Cache` (private) and `Deps.SharedCache` (shared) exercised via `/showcase/cache/*` routes, plus httpclient delegation, cross-process persistence, TTL, failOpen — ~30s; needs the `redis` container up), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all eight**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all eight" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/cache/authz also need Keycloak ready; cache additionally needs the `redis` container up) — wait for the maintainer's reply before executing.
 
 > **CRITICAL RULE — DO NOT GUESS, VERIFY BEFORE ASSERTING OR PLANNING**
 >
@@ -205,6 +205,7 @@ omnicore-example-users/
 │   ├── keycloak_routes.go         # Keycloak handlers consumed by MountShowcase
 │   ├── showcase_routes.go         # MountShowcase — /showcase/keycloak/* + /showcase/httpclient/* via openapi.MountRaw (Public: true)
 │   ├── echo_routes.go             # MountEcho — /echo/* in-process upstream via openapi.MountRaw (Hidden: true — excluded from spec)
+│   ├── cache_routes.go            # MountCacheShowcase — /showcase/cache/{info,private,shared}/* via openapi.MountRaw (Hidden + Public; drives Deps.Cache + Deps.SharedCache for qa/cache.sh)
 │   ├── respond.go                 # respondWithError shared helper
 │   ├── requests/                  # Request DTOs + co-located Response DTOs (JSON wire format)
 │   │   ├── address_request.go              # AddressRequest + ToAddressInput() (canonical)
@@ -467,9 +468,10 @@ Routes are split across files by responsibility so each file stays focused on on
 | `keycloak_routes.go` | _(handlers only; consumed by `MountShowcase`)_ | Three Keycloak demo handlers |
 | `showcase_routes.go` | `MountShowcase(app, kc, echo, deps)` | `/showcase/keycloak/*` + `/showcase/httpclient/*` |
 | `echo_routes.go` | `MountEcho(app, deps)` | `/echo/*` in-process upstream for `/showcase/httpclient/*` |
+| `cache_routes.go` | `MountCacheShowcase(app, deps)` | `/showcase/cache/{info,private,shared}/*` minimal CRUD over `Deps.Cache` + `Deps.SharedCache` — the QA driver for `qa/cache.sh`; all routes Hidden + Public |
 | `respond.go` | _(shared helper)_ | `respondWithError` envelope for non-domain failures |
 
-`UsersFeature.Mount` calls `MountUsers` and nothing else; `ShowcaseFeature.Mount` calls `MountWhoami` + `MountEcho` + `MountShowcase` + `MountUsersCustom`. The default bootstrap injects the `Recover`, `Logger`, `AppContextMiddleware` middlewares (plus `AuthMiddleware` when `auth.mode: jwt`), the `GET /health` route, and — when `Wiring.OpenAPI != nil` — the `GET /openapi.json` + `GET /docs` documentation routes. None of those appear in this table.
+`UsersFeature.Mount` calls `MountUsers` and nothing else; `ShowcaseFeature.Mount` calls `MountWhoami` + `MountEcho` + `MountShowcase` + `MountUsersCustom` + `MountCacheShowcase`. The default bootstrap injects the `Recover`, `Logger`, `AppContextMiddleware` middlewares (plus `AuthMiddleware` when `auth.mode: jwt`), the `GET /health` route, and — when `Wiring.OpenAPI != nil` — the `GET /openapi.json` + `GET /docs` documentation routes. None of those appear in this table.
 
 Every route registers through `openapi.Mount` (canonical + manual with Pipeline) or `openapi.MountRaw` (free-form / vendor-shaped). When `Wiring.OpenAPI` is unset, `d.OpenAPIRegistry` is nil and both helpers short-circuit to a plain Fiber `group.Add` — the routes still work and the file diff is zero. Endpoints with body use the spec-aware siblings `fwweb.HandleCommandWithBody{,ID}Spec(d.Pipeline, requests.XxxRequest{}, requests.XxxResponse{}.FromResult, handler, status)` which return `(handler, RouteSpec)`. Endpoints without body (Archive/Unarchive/Delete) use `fwweb.HandleCommandWithIDSpec(d.Pipeline, fwresponses.NoBody, handler, status)` for the no-data default. Read endpoints use `fwweb.HandleQueryWith{Params,ID}Spec(d.Pipeline, requests.XxxRequest{}, projector, handler)`.
 
@@ -1145,27 +1147,44 @@ APP_PROFILE=dev go run ./bootstrap   # in another terminal
 bash qa/httpclient.sh                # ~3 seconds
 ```
 
-### `qa/httpclient-redis.sh` — outbound HTTP cache backend swapped to Redis
+### `qa/cache.sh` — framework cache subsystem end-to-end
 
-Sibling of `qa/httpclient.sh` that swaps the framework's cache backend from in-process memory to Redis (`defaults.cache.store: redis`) via the dedicated `microservice.dev-redis-cache.yaml` variant. Loaded under `APP_PROFILE=dev` + `OMNICORE_CONFIG_PATH=./microservice.dev-redis-cache.yaml` — the YAML name advertises the variant while the profile stays `dev` so the framework's `auth.mode=disabled` guard keeps holding. Unlike `httpclient.sh`, this script **manages the service lifecycle itself** (build, kill_port, start, wait `/health`, cleanup trap) because case 5 needs to stop and restart the server, and case 6 needs to stop and restart the `redis` container — fighting an operator-managed server in another terminal would silently leak processes.
+Comprehensive coverage of `omnicore/infra/cache` exercised from the consumer side. The script loads the service under `APP_PROFILE=dev` + `OMNICORE_CONFIG_PATH=./microservice.dev-redis-cache.yaml` — the dedicated variant declares BOTH `cache:` (private, exposed on `Deps.Cache`) AND `cache.shared:` (cross-service, exposed on `Deps.SharedCache`), backed onto the SAME Redis container but with distinct `keyPrefix` segments so the two namespaces stay observably separated. The script **manages the service lifecycle itself** (build, kill_port, start, wait `/health`, cleanup trap) because case 8 needs to stop and restart the server and case 9 needs to stop and restart the `redis` container.
 
-Six cases focused on what only Redis can demonstrate:
+The driver is a dedicated showcase surface registered by `ShowcaseFeature.Mount` via `web.MountCacheShowcase`:
 
-- **Case 1 — `redis-cli PING`.** `docker compose exec redis redis-cli PING` returns `PONG`. Proves the Redis container is reachable from inside the suite without depending on `redis-cli` on the host (every machine that has docker has the Redis CLI through this path).
-- **Case 2 — Framework writes entries under the configured `keyPrefix`.** After `GET /showcase/keycloak/realm`, `redis-cli KEYS 'omnicore-example-users-httpcache:*'` returns at least one match and the sample key carries the `keycloak-public` service segment. Validates both that the adapter writes to Redis at all AND that the YAML `keyPrefix` is respected.
-- **Case 3 — Entry decodes back as the framework's `CacheEntry` JSON shape.** `redis-cli GET <key>` pipes through `python3 -c "json.loads(...)"` and asserts the presence of `body`, `headers`, `status`, `contentType`, `contentLength`, `expiresAt`. Catches a regression where the on-wire envelope diverges from `omnicore/infra/httpclient/cache_redis.go::redisCacheEntryEnvelope`.
-- **Case 4 — TTL is bounded by the endpoint's YAML configuration.** `redis-cli TTL <key>` returns an integer between 1 and 300 seconds (the endpoint declares `cache: { ttl: 5m }`). Proves the adapter does NOT silently apply the framework's 5-minute fallback when the YAML already set the value.
-- **Case 5 — Cross-process cache persistence (THE Redis differentiator).** The script kills the server (`SERVER_PID` via SIGTERM, port 8080 freed); Redis still holds the entry (`DBSIZE = 1`). The script restarts the server (fresh process, fresh in-process memory) and hits `/showcase/keycloak/realm` again. The fresh process's slog line MUST carry `"cacheStatus":"hit"` — proving the cache entry survived the process restart, which an in-memory cache cannot do. This is the case that justifies pulling Redis into the dependency tree; the other five are sanity.
-- **Case 6 — `failMode: open` graceful degradation.** With Redis up, `docker compose stop redis`. The next request to `/showcase/keycloak/realm` MUST still return `200` AND the server log MUST contain `httpclient.cache.redis.transport.error` — proving the framework's failOpen policy: cache backend dies → call proceeds to upstream as if cache were disabled + slog.Warn records the underlying problem so operators see Redis going down regardless of the HTTP response. The script then `docker compose start redis` and waits for `PING=PONG` before completing.
+| Method | Path | Behavior |
+|---|---|---|
+| GET    | `/showcase/cache/info`              | reports `{private: {configured}, shared: {configured}}` so the suite can confirm both `Deps` slots wired at boot |
+| POST   | `/showcase/cache/private/:key`      | `cache.SetJSON` against `Deps.Cache` with `{value, ttl_seconds}` body |
+| GET    | `/showcase/cache/private/:key`      | `cache.GetJSON` against `Deps.Cache`; 404 on miss |
+| DELETE | `/showcase/cache/private/:key`      | `Deps.Cache.Delete`; idempotent |
+| POST   | `/showcase/cache/shared/:key`       | `cache.SetJSON` against `Deps.SharedCache`; 503 when the slot is nil |
+| GET    | `/showcase/cache/shared/:key`       | `cache.GetJSON` against `Deps.SharedCache`; 503 when nil; 404 on miss |
+| DELETE | `/showcase/cache/shared/:key`       | `Deps.SharedCache.Delete`; idempotent |
 
-The cleanup trap (`trap cleanup EXIT INT TERM`) ensures that any early exit (case 6 mid-failure, Ctrl-C, kernel signal) still kills the spawned server and restarts the Redis container — the suite never leaves the dev environment in a worse state than it found.
+All showcase routes are declared `Hidden: true` + `Public: true` — they're QA fixtures, not production surface, so they're excluded from the OpenAPI spec and bypass the AuthMiddleware.
 
-Total: 6 cases.
+Cases:
+
+- **Case 1 — Redis container reachable.** `docker compose exec redis redis-cli PING` returns `PONG`. Sanity check before everything else.
+- **Case 2 — `GET /showcase/cache/info` confirms both Deps slots wired.** Returns `{private: {configured: true}, shared: {configured: true}}` — proves the top-level `cache:` block AND its `shared:` sub-block reached the runtime.
+- **Cases 3a–3e — Private cache CRUD round-trip.** POST `{value: "bar", ttl: 60}` under `/private/foo` → GET returns `value=bar` → `redis-cli KEYS 'omnicore-example-users-cache:*'` shows the key under the private prefix → DELETE removes it → subsequent GET returns 404.
+- **Cases 4a–4e — Shared cache CRUD round-trip + prefix separation.** Same shape against `/shared/global` writing `value=team-wide`. **Case 4c** asserts the shared key lands under `omnicore-example-users-shared:*` (a DIFFERENT prefix from the private cache). **Case 4d** is the prefix-separation guard: queries `KEYS 'omnicore-example-users-cache:global'` and `KEYS 'omnicore-example-users-shared:foo'` — both MUST return empty. Proves the two namespaces don't bleed even when backed by the same Redis instance.
+- **Case 5 — TTL expiration.** POST with `ttl_seconds: 1`, sleep 2s, GET → 404. Proves the framework's TTL semantic reaches Redis as the actual key expiry.
+- **Case 6 — DELETE of non-existent key returns 200.** The `cache.Cache.Delete` contract is idempotent; the showcase honors it; QA pins it so a regression where Delete starts returning 404 for missing keys surfaces here.
+- **Case 7 — httpclient response cache lands under the SAME private prefix.** `GET /showcase/keycloak/realm` hits the httpclient cache middleware (chain position 6); the entry MUST appear under `omnicore-example-users-cache:*` with the `keycloak-public` service segment in the key. Proves the httpclient cache layer consumes `Deps.Cache` — there is no per-httpclient backend anymore.
+- **Case 8 — Cross-process persistence (BOTH private and shared).** Seed two values (one private under `/private/persist`, one shared under `/shared/persist`), kill the server (`SERVER_PID` via SIGTERM), restart, GET both. Each MUST return the seeded value — proving entries survive a process restart in both scopes. This is the case that justifies Redis over in-process memory.
+- **Case 9 — `failMode: open` graceful degradation.** With Redis up, `docker compose stop redis`. POST `/private/outage` MUST still return `200` (Set swallows the transport error), GET MUST return `404` (Get reports a miss instead of failing), AND the server log MUST contain `"msg":"cache.redis.transport.error"` lines — proving the failOpen policy: backend dies → call proceeds gracefully + slog.Warn records the underlying problem so operators see Redis going down regardless of the HTTP response. The script then `docker compose start redis` and waits for `PING=PONG` before completing.
+
+The cleanup trap (`trap cleanup EXIT INT TERM`) ensures any early exit (case 9 mid-failure, Ctrl-C, kernel signal) still kills the spawned server AND restarts the Redis container — the suite never leaves the dev environment in a worse state than it found.
+
+Total: 17 cases.
 
 ```bash
 docker compose -f devops/docker-compose.yml up -d        # brings up redis alongside the others
 ./devops/debezium/register-connector.sh
-bash qa/httpclient-redis.sh                              # ~30s (self-managed lifecycle)
+bash qa/cache.sh                                         # ~30s (self-managed lifecycle)
 ```
 
 ### `qa/openapi.sh` — OpenAPI document + Swagger UI
