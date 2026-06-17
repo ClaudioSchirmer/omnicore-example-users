@@ -1,0 +1,222 @@
+service: omnicore-example-users
+
+# Variant of microservice.dev.yaml that swaps the httpclient cache backend
+# from in-process memory to the framework's Redis adapter. Used exclusively
+# by qa/httpclient-redis.sh — the regular dev workflow continues to point at
+# microservice.dev.yaml.
+#
+# Diff against microservice.dev.yaml is intentionally minimal: ONLY the
+# `httpClient.defaults.cache` block declares `store: redis` plus the matching
+# `redis:` sub-block. Every other section (postgres, mongo, kafka, auth,
+# audit, integration, shutdown, services, authProviders) is identical so the
+# behavior verified by qa/httpclient.sh under `dev` keeps applying under
+# `dev-redis-cache` — only the cache backend swaps underneath.
+#
+# Boot with: APP_PROFILE=dev-redis-cache go run ./bootstrap
+# Prereq:    docker compose -f devops/docker-compose.yml up -d redis
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+
+postgres:
+  dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27018}"
+  database: "${MONGO_DB:users_views}"
+  rebuild:
+    autoRun: true
+    allowDowngrade: false
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKERS:localhost:9094}"
+  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+
+migrations:
+  dir: ./migrations
+  autoRun: true
+
+query:
+  maxLimit: 100
+
+openapi:
+  uiPath: /docs
+  rootRedirect: true
+
+auth:
+  mode: disabled
+  auditClaims: []
+
+audit:
+  destinations:
+    - slog
+    - database
+
+# Cache subsystem — top-level block, distinct from httpClient.
+# Structural delta from microservice.dev.yaml: the framework's generic
+# cache is backed by Redis instead of in-process memory, AND a SHARED
+# cache instance is exposed on Deps.SharedCache via the cache.shared:
+# sub-block below. httpClient.defaults.cache: (lower down) keeps its
+# POLICY knobs (enabled, defaultTTL, honorCacheControl, per-endpoint
+# varyOn / TTL) but no longer owns the backend choice — it delegates
+# to Deps.Cache (private) via the bootstrap wiring.
+cache:
+  # SERVICE-PRIVATE cache exposed on Deps.Cache. Used by the httpclient
+  # response cache middleware AND by any consumer-side cache.Set /
+  # cache.Get call from a domain handler. Pod-local writes to this
+  # backend are visible to other replicas of the SAME service because
+  # the underlying Redis is shared across pods; the keyPrefix scopes
+  # them away from other services.
+  store: redis
+  redis:
+    addr: "${REDIS_ADDR:localhost:6380}"
+    # KeyPrefix scopes every entry under one namespace so a Redis
+    # shared across services (or environments) never produces a
+    # cross-talk collision. The httpclient's own key already starts
+    # with the service name as the first segment; the prefix here is a
+    # second namespace layer applied uniformly to every cache write
+    # (httpclient AND any handler-level cache.Set call).
+    keyPrefix: "${REDIS_KEY_PREFIX:omnicore-example-users-cache}"
+    # FailMode "open" (the default) keeps the service responsive when
+    # Redis is unreachable — every Get/Set against a down Redis logs
+    # `slog.Warn "cache.redis.transport.error"` and the call proceeds
+    # as if the cache were disabled for that request. qa/cache.sh
+    # validates this behavior explicitly.
+    failMode: open
+    timeoutMs: 100
+
+  # CROSS-SERVICE cache exposed on Deps.SharedCache. The example uses
+  # the SAME Redis instance as the private cache but with a distinct
+  # keyPrefix so the QA suite can observe the two namespaces separated
+  # at the backend layer. In a real deployment, the shared cache would
+  # typically point at a team-wide / cluster-wide Redis instance
+  # different from the per-service one — the YAML shape is identical
+  # so the migration is just changing the addr.
+  #
+  # The framework rejects cache.shared.store: memory at boot — an
+  # in-process LRU cannot honor cross-service reads. Only redis | custom.
+  shared:
+    store: redis
+    redis:
+      addr: "${SHARED_REDIS_ADDR:localhost:6380}"
+      keyPrefix: "${SHARED_REDIS_KEY_PREFIX:omnicore-example-users-shared}"
+      failMode: open
+      timeoutMs: 100
+
+httpClient:
+  defaults:
+    timeout: 10s
+    headers:
+      User-Agent: "omnicore-example-users/1.0"
+    cache:
+      enabled: true
+      defaultTTL: 5m
+      honorCacheControl: false
+
+  services:
+    keycloak-public:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      endpoints:
+        getRealmInfo:
+          method: GET
+          path: /realms/omnicore-test/.well-known/openid-configuration
+          cache: { ttl: 5m }
+
+    keycloak-admin:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      auth: { provider: kc-admin }
+      endpoints:
+        getUser:
+          method: GET
+          path: /admin/realms/omnicore-test/users/{id}
+          acceptableStatus: [404]
+          cache:
+            ttl: 1m
+            varyOn: [header:Accept-Language]
+
+    keycloak-tenant:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      auth: { provider: kc-password-tenant }
+      endpoints:
+        whoami:
+          method: GET
+          path: /realms/omnicore-test/protocol/openid-connect/userinfo
+
+    echo:
+      baseURL: "${ECHO_URL:http://localhost:8080}"
+      endpoints:
+        download:
+          method: GET
+          path: /echo/stream/{size}
+          responseStream: true
+        uploadStream:
+          method: POST
+          path: /echo/upload
+        multipart:
+          method: POST
+          path: /echo/multipart
+        sse:
+          method: GET
+          path: /echo/sse
+          responseSSE: true
+
+    echo-signed:
+      baseURL: "${ECHO_URL:http://localhost:8080}"
+      signing:
+        type: hmac-sha256
+        keyId: "${ECHO_KEY_ID:demo-key-1}"
+        keyIdHeader: X-Key-Id
+        secret: "${ECHO_SIGNING_SECRET:demo-secret-please-change}"
+        signedHeaders:
+          - host
+          - x-date
+          - x-content-sha256
+        timestampHeader: X-Date
+        timestampFormat: rfc1123
+        signatureHeader: X-Signature
+      endpoints:
+        signed:
+          method: POST
+          path: /echo/signed
+
+  authProviders:
+    kc-admin:
+      type: oauth2-client-credentials
+      tokenEndpoint: "${KC_URL:http://localhost:8088}/realms/omnicore-test/protocol/openid-connect/token"
+      clientId: "${KC_ADMIN_CLIENT_ID:omnicore-users-client}"
+      clientSecret: "${KC_ADMIN_CLIENT_SECRET:test-secret-please-change}"
+      tokenCache:
+        source: response-field
+        jsonPath: $.expires_in
+        unit: seconds
+        skew: 30s
+      revocationOnUnauthorized: true
+
+    kc-password-tenant:
+      type: credentials-exchange
+      tokenEndpoint: "${KC_URL:http://localhost:8088}/realms/omnicore-test/protocol/openid-connect/token"
+      requestCodec: form-urlencoded
+      requestFields:
+        grant_type: password
+        client_id: "${KC_TENANT_CLIENT_ID:omnicore-users-client}"
+        client_secret: "${KC_TENANT_CLIENT_SECRET:test-secret-please-change}"
+        scope: openid
+      requestFieldsFromCtx:
+        username: tenant.username
+        password: tenant.password
+      responseTokenPath: $.access_token
+      tokenCache:
+        source: response-field
+        jsonPath: $.expires_in
+        unit: seconds
+        skew: 30s
+
+integration:
+  defaults:
+    consumerGroup: "${INTEGRATION_GROUP_ID:omnicore-example-users-integration}"
+    workers: 4
+    startFrom: latest
+
+shutdown:
+  drainTimeoutSeconds: 30
