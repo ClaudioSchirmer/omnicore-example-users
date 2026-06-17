@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
+	"github.com/ClaudioSchirmer/omnicore/criteria"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
@@ -31,11 +31,11 @@ import (
 // lookups, and the constraint-violation translation.
 //
 // FindByEmail and FindArchivedByEmail are the actual reason this Repository
-// exists. The /:email path identifier on the showcase routes cannot reuse
-// FindByID — pgx + the AggregateLoader only know how to find by primary key.
-// The custom Repository resolves the email → UUID with a small bespoke SELECT
-// and then delegates the aggregate hydration to the framework's loader, which
-// already knows how to assemble root + children via reflection.
+// exists. The /:email path identifier on the showcase routes is an alternate
+// key the by-id contract does not cover; the custom Repository resolves it
+// through the framework's entity search engine — criteria.Eq("Email", email)
+// handed to the AggregateLoader's FindOne, which compiles the WHERE, hydrates
+// root + children, and returns RecordNotFound on a miss. No bespoke SQL.
 type UserCustomRepository struct {
 	pg          *fwinfra.Postgres
 	loader      *fwinfra.AggregateLoader[*appdomain.User]
@@ -100,7 +100,7 @@ func (r *UserCustomRepository) Unarchive(ctx domain.Context, u domain.Unarchivab
 }
 
 func (r *UserCustomRepository) FindByID(id domain.ID) (*appdomain.User, error) {
-	return r.loader.Load(context.Background(), id)
+	return r.loader.FindOne(context.Background(), criteria.ByID(id))
 }
 
 func (r *UserCustomRepository) New() *appdomain.User {
@@ -110,54 +110,25 @@ func (r *UserCustomRepository) New() *appdomain.User {
 // ─── domain.ArchivedFinder[*User] ──────────────────────────────────────────
 
 func (r *UserCustomRepository) FindArchivedByID(id domain.ID) (*appdomain.User, error) {
-	return r.loader.LoadIncludingArchived(context.Background(), id)
+	return r.loader.FindOne(context.Background(), criteria.ByID(id).OnlyArchived())
 }
 
 // ─── Email-keyed lookups (this Repository's reason to exist) ────────────────
 
-// FindByEmail resolves the email to its UUID and then delegates the
-// aggregate hydration to the framework loader. Two queries instead of one,
-// but the second one reuses every benefit of AggregateLoader (auto-scan of
-// root + children, deleted_at filter, RecordNotFound on miss) — collapsing
-// both into a single hand-rolled SELECT would mean re-implementing all that
-// here. The miss case short-circuits with NotFoundError so the wire layer
-// sees the same 404 envelope as the canonical FindByID miss.
+// FindByEmail loads the active aggregate whose email matches, via the entity
+// search engine: criteria.Eq("Email", email) compiles to the WHERE clause and
+// FindOne hydrates root + children, returning RecordNotFound on a miss (same
+// 404 envelope as the canonical by-id miss). The old "SELECT id → Load(id)"
+// two-step is gone — the engine resolves the alternate key directly.
 func (r *UserCustomRepository) FindByEmail(email string) (*appdomain.User, error) {
-	id, err := r.lookupID(context.Background(), email, false)
-	if err != nil {
-		return nil, err
-	}
-	return r.loader.Load(context.Background(), id)
+	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)))
 }
 
-// FindArchivedByEmail is the symmetric inverse used by the Unarchive flow.
-// Same two-step shape, only the deleted_at filter flips.
+// FindArchivedByEmail is the symmetric inverse used by the Unarchive flow —
+// same criterion under the OnlyArchived scope (deleted_at IS NOT NULL), with
+// children loaded unfiltered so the cascade sees them.
 func (r *UserCustomRepository) FindArchivedByEmail(email string) (*appdomain.User, error) {
-	id, err := r.lookupID(context.Background(), email, true)
-	if err != nil {
-		return nil, err
-	}
-	return r.loader.LoadIncludingArchived(context.Background(), id)
-}
-
-// lookupID is the small bespoke SELECT. The deleted_at filter flips with
-// includeArchived: false → "find the active row with this email"; true →
-// "find the archived row" (semantic of Unarchive). pgx.ErrNoRows becomes a
-// domain RecordNotFoundNotification so the wire emits 404.
-func (r *UserCustomRepository) lookupID(ctx context.Context, email string, includeArchived bool) (domain.ID, error) {
-	sql := `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL`
-	if includeArchived {
-		sql = `SELECT id FROM users WHERE email = $1 AND deleted_at IS NOT NULL`
-	}
-	var id string
-	err := r.pg.Pool().QueryRow(ctx, sql, email).Scan(&id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return domain.ID{}, domain.NotFoundError(r.contextName, "email", email)
-		}
-		return domain.ID{}, err
-	}
-	return domain.NewID(id), nil
+	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)).OnlyArchived())
 }
 
 // ─── Constraint-violation translation ───────────────────────────────────────
