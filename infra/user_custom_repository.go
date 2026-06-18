@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
-	"github.com/ClaudioSchirmer/omnicore/criteria"
+	"github.com/ClaudioSchirmer/omnicore/infra/criteria"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
 	"github.com/jackc/pgx/v5/pgconn"

@@ -131,7 +131,7 @@ For day-to-day development where you want cross-module navigation in the IDE and
 
 `go.work` is the Go ≥1.18 canonical multi-module workspace mechanism. It overlays the published module with the local checkout so jump-to-def + `go build ./...` work across both without `replace`. The file is gitignored — every developer has their own.
 
-For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Auto Command Handlers`, `BaseRepository`/`ScopedRepository`, `AggregateLoader`, `NotificationSemantic`, `bootstrap.Run`, Migration manager, ViewReader, etc.), see the framework's [`CLAUDE.md`](https://github.com/ClaudioSchirmer/omnicore/blob/main/CLAUDE.md) (maintainer-side) or [`DOCS.html`](https://github.com/ClaudioSchirmer/omnicore/blob/main/DOCS.html) (consumer-side). This document describes only what is specific to this service.
+For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Auto Command Handlers`, `BaseRepository`/`ScopedRepository`, `AggregateLoader`, `NotificationSemantic`, `bootstrap.Run`, Migration manager, ViewReader, etc.), see the framework's [`CLAUDE.md`](https://github.com/ClaudioSchirmer/omnicore/blob/main/CLAUDE.md) (maintainer-side) or the [documentation site](https://claudioschirmer.github.io/omnicore/) (consumer-side). This document describes only what is specific to this service.
 
 ---
 
