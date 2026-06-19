@@ -31,7 +31,7 @@ func (eng) Translations() map[string]string {
 		// `context` field renders translated per Accept-Language.
 		"User": "User",
 		// Field labels — human-readable names for the fields the domain
-		// declares via the `label:"..."` struct tag. Mirrored across all
+		// declares via the `labelKey:"..."` struct tag. Mirrored across all
 		// seven catalogs; see ptbr.go for the per-locale rationale.
 		"UserNameField":            "Name",
 		"UserEmailField":           "Email",

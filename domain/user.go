@@ -16,16 +16,16 @@ import (
 // extra conversion.
 type User struct {
 	domain.AggregateRoot
-	// label:"..." declares the catalog key for the human-readable name of each
+	// labelKey:"..." declares the catalog key for the human-readable name of each
 	// field. The framework's Rules.AddNotification reads the tag at emit time
 	// via reflection and stamps MessageDTO.FieldLabel (rendered in the actor's
 	// locale) on every notification; the audit pipeline writes the catalog key
 	// on FieldChange.FieldLabelKey for render-at-read by future audit readers.
 	// Fields without a label tag stay invisible to the label surface — wire
 	// `fieldLabel` and audit `fieldLabelKey` are omitempty.
-	Name  string  `label:"UserNameField"`
-	Email string  `label:"UserEmailField"`
-	Phone *string `label:"UserPhoneField"`
+	Name  string  `labelKey:"UserNameField"`
+	Email string  `labelKey:"UserEmailField"`
+	Phone *string `labelKey:"UserPhoneField"`
 
 	// ─── Runtime-only authz fields ────────────────────────────────────────
 	//

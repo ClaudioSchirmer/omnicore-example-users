@@ -71,7 +71,11 @@
 >
 > **The closed loop the AI follows on every task:**
 >
-> 1. **At task start, create a feature branch with a coherent descriptor.** Prefix by intent (`feature/<slug>` for new behavior, `fix/<slug>` for bug fixes, `docs/<slug>` for doc-only edits, `refactor/<slug>` for internal cleanups). The slug is lowercase-kebab-case and names the *outcome*, not the file edited: `feature/keycloak-showcase-redact`, not `feature/edit-handler`. `git checkout -b <branch>` is the only git-write the AI runs — it is structural setup (local, reversible) so the maintainer's main tree stays clean from in-flight work.
+> 1. **At task start, get onto a coherent feature branch.** Prefix by intent (`feature/<slug>` for new behavior, `fix/<slug>` for bug fixes, `docs/<slug>` for doc-only edits, `refactor/<slug>` for internal cleanups). The slug is lowercase-kebab-case and names the *outcome*, not the file edited: `feature/keycloak-showcase-redact`, not `feature/edit-handler`.
+>    - **If the repo is on `main`** (or another already-merged base), create a fresh branch off it: `git checkout -b <branch>`.
+>    - **If the repo is already on an unmerged feature branch**, do NOT branch fresh off `main` (that would orphan the in-flight work) and do NOT stack a second branch on top. Rename the existing branch to a descriptor coherent with the work now landing on it — `git branch -m <newname>` — and continue on it.
+>
+>    `git checkout -b` and `git branch -m` are the only git-writes the AI runs — both are structural setup (local, reversible) so the maintainer's main tree stays clean from in-flight work.
 >
 > 2. **Apply the file changes for the task on that branch** via the `Edit` / `Read` / `Write` tools.
 >
@@ -140,7 +144,7 @@ For framework concepts (`BaseEntity`, `Rules DSL`, `Pipeline`, `Auto Command Han
 ```
 omnicore-example-users/
 ├── domain/                        # Pure DDD, zero IO
-│   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength"); User + Address fields carry `label:"<catalogKey>"` tags consumed by the framework's field-label resolver
+│   ├── notifications.go           # 9 custom notifications (Invalid*, *AlreadyExists with Semantic Conflict, NameMaxLengthExceededNotification with tvar:"maxLength"); User + Address fields carry `labelKey:"<catalogKey>"` tags consumed by the framework's field-label resolver
 │   ├── address.go                 # Address (AggregateValueObject)
 │   ├── user.go                    # User (AggregateRoot + AggregateRootProvider)
 │   └── user_custom_repository.go  # UserCustomRepository PORT (manual showcase: domain.Repository[*User] + FindByEmail/FindArchivedByEmail)
@@ -458,7 +462,7 @@ Translations: []translation.Module{apptrans.PTBR(), apptrans.ENG(), apptrans.ESP
 22 keys covered in each language:
 - 9 custom notifications (8 invariants + `NameMaxLengthExceededNotification` carrying the `{maxLength}` placeholder for the parameterized-notification showcase).
 - 1 context label entry (`"User"`) translated alongside notifications by the framework's convert.go.
-- 12 field labels (3 root: `UserNameField`/`UserEmailField`/`UserPhoneField`; 9 AVO: `AddressLabelField`/`AddressStreetField`/`AddressNumberField`/`AddressComplementField`/`AddressNeighborhoodField`/`AddressCityField`/`AddressStateField`/`AddressZipCodeField`/`AddressCountryField`). Declared via `label:"<catalogKey>"` struct tags on `domain/user.go` + `domain/address.go`. The framework's `Rules.AddNotification` resolves the tag at emit and surfaces the translated string on `MessageDTO.FieldLabel`; the auditor stamps the catalog key on `FieldChange.FieldLabelKey` for render-at-read. `RequiredFieldNotification` and other kernel keys are provided by the framework's seven `Core*` modules.
+- 12 field labels (3 root: `UserNameField`/`UserEmailField`/`UserPhoneField`; 9 AVO: `AddressLabelField`/`AddressStreetField`/`AddressNumberField`/`AddressComplementField`/`AddressNeighborhoodField`/`AddressCityField`/`AddressStateField`/`AddressZipCodeField`/`AddressCountryField`). Declared via `labelKey:"<catalogKey>"` struct tags on `domain/user.go` + `domain/address.go`. The framework's `Rules.AddNotification` resolves the tag at emit and surfaces the translated string on `MessageDTO.FieldLabel`; the auditor stamps the catalog key on `FieldChange.FieldLabelKey` for render-at-read. `RequiredFieldNotification` and other kernel keys are provided by the framework's seven `Core*` modules.
 
 ---
 
