@@ -1362,6 +1362,67 @@ fi
 rm -f "$TMP"
 
 ####################################
+sec "19. GET /users.csv — CSV export (hierarchical + labelKey headers + ?fields)"
+####################################
+# The CSV route reuses the same `users` view + FindUsersByParamsRequest as GET
+# /users, rendered as a hierarchical CSV: root columns at column A, addresses at
+# column B (one empty leading field per nesting level). Headers come from the
+# `labelKey:"…"` catalog rendered in Accept-Language; the route is mounted with
+# the ';' delimiter. By this section the Mongo view holds users (Jane = USER_A,
+# active) with addresses, so the export has hierarchical data to render.
+
+# csv_assert: name, query, expected_status, [must-contain], [must-NOT-contain]
+csv_assert() {
+  local name="$1" query="$2" expected="$3" want="${4:-}" absent="${5:-}"
+  title "$name"
+  local tmp; tmp=$(mktemp)
+  local status
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" "$BASE/users.csv$query" -H "Accept-Language: en-US")
+  echo "REQUEST : GET /users.csv$query"
+  echo "STATUS  : $status"
+  echo "BODY (first 8 lines):"; head -n 8 "$tmp"
+  local ok=1
+  [ "$status" = "$expected" ] || ok=0
+  if [ -n "$want" ] && ! grep -qF "$want" "$tmp"; then ok=0; echo "  (missing expected substring: $want)"; fi
+  if [ -n "$absent" ] && grep -qF "$absent" "$tmp"; then ok=0; echo "  (unexpected substring present: $absent)"; fi
+  if [ "$ok" = 1 ]; then
+    printf '\033[1;32mPASS\033[0m (status %s)\n' "$status"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected status %s, got %s)\n' "$expected" "$status"; FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
+title "19.1 GET /users.csv → 200 + text/csv + attachment;filename=\"users.csv\""
+TMP=$(mktemp); HDR=$(mktemp)
+STATUS=$(curl -sS -o "$TMP" -D "$HDR" -w "%{http_code}" "$BASE/users.csv" -H "Accept-Language: en-US")
+CT=$(grep -i '^content-type:' "$HDR" | tr -d '\r')
+CD=$(grep -i '^content-disposition:' "$HDR" | tr -d '\r')
+echo "STATUS  : $STATUS"; echo "$CT"; echo "$CD"; echo "HEAD:"; head -n 6 "$TMP"
+if [ "$STATUS" = "200" ] && echo "$CT" | grep -qi "text/csv" && echo "$CD" | grep -qi 'filename="users.csv"'; then
+  printf '\033[1;32mPASS\033[0m (200 text/csv attachment)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (status=%s ct=%s cd=%s)\n' "$STATUS" "$CT" "$CD"; FAIL=$((FAIL+1))
+fi
+rm -f "$TMP" "$HDR"
+
+# Root header carries the labelKey-rendered, ';'-separated column titles.
+csv_assert "19.2 root header rendered from labelKey (en-US: Name;Email)" "" 200 "Name;Email"
+# Nested address columns prove the hierarchy renders (the address header carries
+# the AddressZipCodeField label 'ZIP Code', offset one column to the right).
+csv_assert "19.3 nested address columns present (ZIP Code label, depth-1 offset)" "" 200 "ZIP Code"
+# A data value from USER_A (Jane Doe / jane@example.com) is in the export.
+csv_assert "19.4 export carries a known data row (jane@example.com)" "" 200 "jane@example.com"
+# ?fields=name narrows to a single column — no email column, no addresses.
+csv_assert "19.5 ?fields=name narrows columns (Jane Doe present, email column dropped)" "?fields=name" 200 "Jane Doe" "@example.com"
+# Filter passthrough — same allowlist as GET /users.
+csv_assert "19.6 filter passthrough ?name.startswith=Jane" "?name.startswith=Jane" 200 "Jane Doe"
+# Unknown ?fields token rejected with 400 (allowlist driven by the view schema).
+csv_assert "19.7 ?fields=bogus rejected (400)" "?fields=bogus" 400
+# Unknown query key rejected with 400.
+csv_assert "19.8 unknown query key rejected (400)" "?role=admin" 400
+
+####################################
 sec "Summary"
 ####################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

@@ -36,6 +36,7 @@ migrations:
 # discoverable in the yaml diff.
 query:
   maxLimit: 100
+  maxExportRows: 5000   # ceiling on rows a CSV/Excel export streams (GET /users.csv)
 
 openapi:
   uiPath: /docs           # default; change to e.g. /swagger or /admin/docs

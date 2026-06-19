@@ -496,6 +496,7 @@ Every route registers through `openapi.Mount` (canonical + manual with Pipeline)
 | PATCH | `/users/:id/unarchive` | `HandleCommandWithID` | — | `UnarchiveCommandHandler[*User, *UnarchiveUserCommand, fwresults.None]` — aggregate-aware (restores archived) | 200, no `data` |
 | DELETE | `/users/:id` | `HandleCommandWithID` | — | `DeleteCommandHandler[*User, *DeleteUserCommand, fwresults.None]` (hard) | 204, no `data` |
 | GET | `/users` | `HandleQueryWithParams` | `FindUsersByParamsRequest` + `fwresponses.AutoFromDoc[FindUsersByParamsResponse]` | `FindByParamsQueryHandler[*FindUserByParamsQuery]` (Mongo + pagination) | 200 with `[]FindUsersByParamsResponse` + `pagination` |
+| GET | `/users.csv` | `HandleQueryAsCSV` (via `MountRaw`, app-root path to avoid the `/users/:id` collision) | `FindUsersByParamsRequest` (reused) + `view.ExportPlan()` | `FindByParamsQueryHandler[*FindUserByParamsQuery]` (same handler as `GET /users`) | 200 `text/csv`, hierarchical (root cols at A, addresses at B), labelKey headers per `Accept-Language`, `?fields=` narrows; user pagination ignored, capped at `query.maxExportRows`; `;` delimiter |
 | GET | `/users/:id` | `HandleQueryWithID` | `FindUserByIDRequest` + `fwresponses.AutoFromDoc[FindUserByIDResponse]` | `FindByIDQueryHandler[*FindUserByIDQuery]` (Mongo via `d.ViewReader`) | 200 with `FindUserByIDResponse` / 404 |
 
 **Response projection — Insert/Update/Patch carry custom Result+Response (the consumer decides what comes back: `{id, name, email, phone}` snapshot). Archive/Unarchive/Delete use `fwresults.None` + `fwresponses.NoBody` defaults — the wrapper detects `responses.None` at runtime and emits the success envelope without a `data` field (matches the "204 No Content"-style shape for state-transition endpoints).
@@ -1087,7 +1088,7 @@ Six end-to-end scripts, all rely on `docker compose -f devops/docker-compose.yml
 
 ### `qa/e2e.sh` — endpoint + notification coverage
 
-Runs the service under `APP_PROFILE=dev` (auth disabled) and exercises every write/read route plus every custom notification declared in `domain/notifications.go`. Each case is bash-orchestrated via `show` — prints REQUEST/BODY/STATUS/RESPONSE and asserts. Per the critical rule at the top of this file, the expectations are an oracle and may not be edited to mask regressions.
+Runs the service under `APP_PROFILE=dev` (auth disabled) and exercises every write/read route plus every custom notification declared in `domain/notifications.go`. Each case is bash-orchestrated via `show` — prints REQUEST/BODY/STATUS/RESPONSE and asserts. Section 19 covers the `GET /users.csv` export (status + `text/csv` + `Content-Disposition`, labelKey-rendered headers, hierarchical address offset, `?fields=` narrowing, filter passthrough, and 400s on unknown `?fields`/query keys). Per the critical rule at the top of this file, the expectations are an oracle and may not be edited to mask regressions.
 
 ### `qa/auth.sh` — JWT middleware coverage across the four validator modes
 

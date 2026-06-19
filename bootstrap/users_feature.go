@@ -50,5 +50,5 @@ func (f *UsersFeature) Views() []*fwinfra.ViewDefinition {
 // routes. Only /users/* are registered here; the showcase + /echo/ +
 // /whoami routes are mounted by ShowcaseFeature.
 func (f *UsersFeature) Mount(app *fiber.App, d bootstrap.Deps) {
-	appweb.MountUsers(app, f.repo, f.svc, f.view.Name(), d)
+	appweb.MountUsers(app, f.repo, f.svc, f.view, d)
 }
