@@ -37,10 +37,10 @@ func UserView() *fwinfra.ViewDefinition {
 		Version(1).
 		Root("users").
 		Schema(UserSchema()).
-		EmbedMany("addresses", fwinfra.From("addresses").On("user_id").As("Addresses").Schema(AddressSchema())).
+		EmbedMany("addresses", fwinfra.FromSchema(AddressSchema())).
 		Indexes(
 			fwinfra.Index("email"),
 			fwinfra.Index("created_at").Desc(),
-			fwinfra.TextIndex("name", "email").DefaultLanguage("portuguese"),
+			fwinfra.TextIndex("name", "email").DefaultLanguage("english"),
 		)
 }

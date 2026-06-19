@@ -148,7 +148,7 @@ omnicore-example-users/
 │   ├── schema.go                  # UserSchema()/AddressSchema() — the explicit TableSchema Go↔column map; threaded into both repos + the view
 │   ├── user_repository.go         # BaseAggregateRepository[*User] — WithSchema(UserSchema()) + Scope + FindByID/FindArchivedByID via promotion
 │   ├── user_custom_repository.go  # Manual UserCustomRepository — WithSchema(UserSchema()) + Scope→boundWriter + FindByEmail/FindArchivedByEmail (search engine)
-│   ├── views.go                   # UserView ViewDefinition — Schema(UserSchema()) + EmbedMany(.As("Addresses").Schema(AddressSchema())) (called ONCE via UsersFeature)
+│   ├── views.go                   # UserView ViewDefinition — Schema(UserSchema()) + EmbedMany("addresses", FromSchema(AddressSchema())) (segment "Addresses" derived; called ONCE via UsersFeature)
 │   └── external/                  # Outbound HTTP adapters — wrap omnicore/infra/httpclient
 │       └── keycloak_service.go    # KeycloakService: GetRealmInfo, FetchUser, WhoamiTenant + vendor-neutral DTOs
 ├── migrations/                    # Schema contract of the domain (versioned with domain/*.go)
@@ -346,14 +346,14 @@ fwinfra.View("users").
     Version(1).
     Root("users").
     Schema(UserSchema()).
-    EmbedMany("addresses", fwinfra.From("addresses").On("user_id").As("Addresses").Schema(AddressSchema())).
+    EmbedMany("addresses", fwinfra.FromSchema(AddressSchema())).   // segment derived → "Addresses"
     Indexes(/* … */)
 ```
 
 - **Collection in Mongo:** `"users"`
 - **Root table in Postgres:** `users`
-- **Embed many in doc field `addresses`**: query `addresses WHERE user_id = root.id AND deleted_at IS NULL`
-- **Same schemas as the repository:** `.Schema(UserSchema())` on the root and `.Schema(AddressSchema())` on the embed source; `.As("Addresses")` declares the parent-side Go segment. The composer writes physical columns to Mongo and the reader translates each leaf back to its Go field name (`zip_code`→`ZipCode`) before the typed Response projects — so write and read agree on every name.
+- **Embed many in doc field `addresses`**: query `addresses WHERE user_id = root.id AND deleted_at IS NULL` — the table and the join FK (`user_id`) both come from `AddressSchema()`
+- **Same schemas as the repository:** `.Schema(UserSchema())` on the root and `fwinfra.FromSchema(AddressSchema())` on the embed (the single embed source constructor — schema mandatory on root + every embed). Because `AddressSchema()` is type-anchored (a local source), the parent-side Go segment `"Addresses"` is **derived** from the Go type (pluralized) — no `.As(...)` needed; it is only an optional override. The composer writes physical columns to Mongo and the reader translates each leaf back to its Go field name (`zip_code`→`ZipCode`) before the typed Response projects — so write and read agree on every name.
 
 `UserView()` is called **only once** in `bootstrap.NewUsersFeature(d)` (in `package main` at `bootstrap/users_feature.go`) and the pointer lives as a field of `UsersFeature`. The same pointer is consumed by `Views()` (which `bootstrap.Run` aggregates into `NewSyncEngine`) and by `Mount()` (passed to `web.MountUsers`).
 
