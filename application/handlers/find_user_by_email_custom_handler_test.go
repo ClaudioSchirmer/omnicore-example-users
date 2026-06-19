@@ -9,7 +9,7 @@ import (
 )
 
 // TestFindUserByEmailCustomQueryHandler_HappyPath proves the criteria the handler
-// hands to ViewReader: Filter[email]=<value>, Limit=1, IncludeArchived
+// hands to ViewReader: Filter[Email]=<value>, Limit=1, IncludeArchived
 // flag honored. Returns the single doc the reader returned, untouched —
 // projection to FindUserByEmailCustomResponse is the web layer's job.
 func TestFindUserByEmailCustomQueryHandler_HappyPath(t *testing.T) {
@@ -31,8 +31,8 @@ func TestFindUserByEmailCustomQueryHandler_HappyPath(t *testing.T) {
 	if reader.gotView != "users" {
 		t.Errorf("expected view 'users', got %q", reader.gotView)
 	}
-	if reader.gotCriteria.Filter["email"] != "jane@example.com" {
-		t.Errorf("expected Filter[email]=jane@example.com, got %v", reader.gotCriteria.Filter)
+	if reader.gotCriteria.Filter["Email"] != "jane@example.com" {
+		t.Errorf("expected Filter[Email]=jane@example.com, got %v", reader.gotCriteria.Filter)
 	}
 	if reader.gotCriteria.Limit != 1 {
 		t.Errorf("expected Limit=1, got %d", reader.gotCriteria.Limit)

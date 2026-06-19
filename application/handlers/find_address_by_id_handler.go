@@ -38,11 +38,13 @@ func (h *FindAddressByIDQueryHandler) Handle(
 	// ─── Custom filter seam (same as the manual showcase by-email read) ────
 	//
 	// The reader's ReadByID merges criteria.Filter into the {_id: id} +
-	// deleted_at gate. Use the seam for row-level access control:
+	// deleted_at gate. Filter keys are Go field names declared in the
+	// TableSchema (the reader translates them to physical columns). Use the
+	// seam for row-level access control:
 	//
 	//   if tenant, _ := ctx.Identity().Claims["tenant_id"].(string); tenant != "" {
 	//       if criteria.Filter == nil { criteria.Filter = map[string]any{} }
-	//       criteria.Filter["tenant_id"] = tenant
+	//       criteria.Filter["TenantID"] = tenant
 	//   }
 	//
 	// When the access filter rejects the requested user, ReadByID returns

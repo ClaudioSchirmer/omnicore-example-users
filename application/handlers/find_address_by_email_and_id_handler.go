@@ -30,8 +30,11 @@ func (h *FindAddressByEmailAndIDQueryHandler) Handle(
 
 	// ─── Custom filter seam — same shape as find_user_by_email_custom ─────
 	//
+	// Filter keys are Go field names declared in the TableSchema; the reader
+	// translates them to physical columns.
+	//
 	//   if tenant, _ := ctx.Identity().Claims["tenant_id"].(string); tenant != "" {
-	//       criteria.Filter["tenant_id"] = tenant
+	//       criteria.Filter["TenantID"] = tenant
 	//   }
 	//
 	// ──────────────────────────────────────────────────────────────────────

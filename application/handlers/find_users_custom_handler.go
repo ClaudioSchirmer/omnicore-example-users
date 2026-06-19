@@ -35,11 +35,13 @@ func (h *FindUsersCustomQueryHandler) Handle(
 	//
 	// Same row-level access-control seam as the by-email handler — for
 	// lists the filter narrows the visible set, for by-key lookups it
-	// gates a single document. Typical use cases — uncomment and adapt:
+	// gates a single document. Filter/Sort keys are Go field names declared
+	// in the TableSchema (the reader translates them to physical columns).
+	// Typical use cases — uncomment and adapt:
 	//
 	//   // Multi-tenant SaaS: scope every read to the requesting tenant.
 	//   if tenant, _ := ctx.Identity().Claims["tenant_id"].(string); tenant != "" {
-	//       criteria.Filter["tenant_id"] = tenant
+	//       criteria.Filter["TenantID"] = tenant
 	//   }
 	//
 	//   // Cap Limit so a hostile caller cannot drain the collection.
@@ -50,7 +52,7 @@ func (h *FindUsersCustomQueryHandler) Handle(
 	//   // Force a default Sort so pagination cursors stay stable across
 	//   // consumers that did not supply ?sort.
 	//   if len(criteria.Sort) == 0 {
-	//       criteria.Sort = []queries.SortField{{Field: "created_at", Desc: true}}
+	//       criteria.Sort = []queries.SortField{{Field: "CreatedAt", Desc: true}}
 	//   }
 	//
 	// Sort/pagination overlays belong on this seam — they shape the

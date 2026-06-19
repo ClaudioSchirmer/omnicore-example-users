@@ -36,7 +36,7 @@ func TestFindAddressByEmailAndIDQueryHandler_HappyPath(t *testing.T) {
 	if reader.readPageCalled != 1 {
 		t.Errorf("expected ReadPage called once, got %d", reader.readPageCalled)
 	}
-	if reader.gotCriteria.Filter["email"] != "jane@example.com" {
+	if reader.gotCriteria.Filter["Email"] != "jane@example.com" {
 		t.Errorf("expected email filter applied, got %+v", reader.gotCriteria.Filter)
 	}
 }

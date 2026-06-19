@@ -252,7 +252,7 @@ func MountUsersCustom(
 		fwopenapi.RouteSpecOf[requests.FindUserByEmailCustomRequest, requests.FindUserByEmailCustomResponse](fiber.StatusOK),
 		fwopenapi.Doc{
 			Summary:     "Get a user by email (manual showcase)",
-			Description: "Manual single-item lookup keyed by email. Translates to a `Filter[email]=<value>` + `Limit=1` ReadPage against the `users` Mongo view; empty result returns 404 `RecordNotFoundNotification`. Same reduced wire shape as the list endpoint. `?includeArchived=true` includes the archived document.",
+			Description: "Manual single-item lookup keyed by email. Translates to a `Filter[Email]=<value>` + `Limit=1` ReadPage against the `users` Mongo view; empty result returns 404 `RecordNotFoundNotification`. Same reduced wire shape as the list endpoint. `?includeArchived=true` includes the archived document.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("users:read"))
@@ -268,7 +268,7 @@ func MountUsersCustom(
 	// convention).
 	//
 	// GET /showcase/users-custom/:email/addresses/:addressId reads the
-	// view doc via ReadPage with Filter[email]+Limit:1, walks the embedded
+	// view doc via ReadPage with Filter[Email]+Limit:1, walks the embedded
 	// addresses[], and returns the matching sub-document — projecting to
 	// the reduced FindAddressByEmailAndIDResponse shape (id+street+city+
 	// country) as a deliberate twin of the manual user-by-email reduced
@@ -289,7 +289,7 @@ func MountUsersCustom(
 		fwopenapi.RouteSpecOf[requests.FindAddressByEmailAndIDRequest, requests.FindAddressByEmailAndIDResponse](fiber.StatusOK),
 		fwopenapi.Doc{
 			Summary: "Get one address of a user by email (manual showcase)",
-			Description: "Manual single-item lookup of one address. Resolves the user via `Filter[email]=<value>` + `Limit=1` ReadPage, walks the embedded `addresses[]`, returns the matching entry in the reduced shape `{id, street, city, country}` — twin of the manual user-by-email projection. 404 on missing user or missing address.",
+			Description: "Manual single-item lookup of one address. Resolves the user via `Filter[Email]=<value>` + `Limit=1` ReadPage, walks the embedded `addresses[]`, returns the matching entry in the reduced shape `{id, street, city, country}` — twin of the manual user-by-email projection. 404 on missing user or missing address.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("users:read"))
@@ -488,7 +488,7 @@ func customDeleteUser(
 // ─── GET /showcase/users-custom/:email ─────────────────────────────────────
 //
 // By-email lookup. Translates to a single-item ReadPage with
-// Filter[email]=<value>; the application handler holds the canonical seam
+// Filter[Email]=<value>; the application handler holds the canonical seam
 // for row-level access control (see find_user_by_email_custom_handler.go).
 // Returns the reduced wire shape (id + name + email) declared by
 // requests.FindUserByEmailCustomResponse — phone and addresses are

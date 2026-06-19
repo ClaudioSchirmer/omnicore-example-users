@@ -9,7 +9,7 @@ import (
 )
 
 // FindUserByEmailCustomQueryHandler resolves /showcase/users-custom/:email by issuing
-// a single-item ReadPage with Filter[email]=<value>. The canonical
+// a single-item ReadPage with Filter[Email]=<value>. The canonical
 // FindByIDQueryHandler cannot be reused — it only knows the document's
 // primary-key path via ViewReader.ReadByID; the by-email lookup needs an
 // arbitrary filter, which is what ReadPage already supports.
@@ -37,20 +37,24 @@ func (h *FindUserByEmailCustomQueryHandler) Handle(
 	//
 	// The framework's Auto FindByIDQueryHandler doesn't expose a hook for
 	// injecting filters; this manual handler is where row-level access
-	// control belongs. Typical use cases — uncomment and adapt:
+	// control belongs. Filter keys are the Go field names declared in the
+	// entity's TableSchema (e.g. "Email"); the MongoViewReader translates
+	// each to its physical column via the view schema, so a column rename is
+	// transparent here. Typical use cases — uncomment and adapt (each key
+	// below assumes a matching Field(...) on the schema):
 	//
 	//   // Multi-tenant SaaS: scope every read to the requesting tenant.
 	//   if tenant, _ := ctx.Identity().Claims["tenant_id"].(string); tenant != "" {
-	//       criteria.Filter["tenant_id"] = tenant
+	//       criteria.Filter["TenantID"] = tenant
 	//   }
 	//
 	//   // Owner-only: a regular user only sees their own row.
 	//   if sub := ctx.ActorSubject(); sub != "anonymous" && !isAdmin(ctx) {
-	//       criteria.Filter["owner_id"] = sub
+	//       criteria.Filter["OwnerID"] = sub
 	//   }
 	//
 	//   // Business overlay: hide internal accounts from every public read.
-	//   criteria.Filter["kind"] = map[string]any{"$ne": "internal"}
+	//   criteria.Filter["Kind"] = map[string]any{"$ne": "internal"}
 	//
 	// If the access filter rejects the requested row, ReadPage returns 0
 	// items and the handler emits the canonical 404 — same status the

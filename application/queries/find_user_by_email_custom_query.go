@@ -27,7 +27,7 @@ type FindUserByEmailQuery struct {
 
 func (q FindUserByEmailQuery) ToCriteria(_ *configuration.AppContext) fwqueries.ReadCriteria {
 	return fwqueries.ReadCriteria{
-		Filter:          map[string]any{"email": q.Email},
+		Filter:          map[string]any{"Email": q.Email},
 		Limit:           1,
 		IncludeArchived: q.IncludeArchived,
 	}

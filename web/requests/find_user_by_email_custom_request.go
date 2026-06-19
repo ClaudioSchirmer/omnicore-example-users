@@ -30,7 +30,7 @@ type FindUserByEmailCustomRequest struct {
 // (future JWT tenant id, etc.) layer onto the criteria inside
 // Query.ToCriteria(ctx), consumed by the handler. The Query then
 // translates Email + IncludeArchived into a ReadCriteria with
-// Filter[email] + Limit:1 — the wire never knows how the lookup is
+// Filter[Email] + Limit:1 — the wire never knows how the lookup is
 // actually shaped at the Mongo layer.
 func (r FindUserByEmailCustomRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindUserByEmailQuery {
 	return &queries.FindUserByEmailQuery{
