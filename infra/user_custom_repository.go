@@ -40,23 +40,25 @@ import (
 type UserCustomRepository struct {
 	pg          *fwinfra.Postgres
 	loader      *fwinfra.AggregateLoader[*appdomain.User]
+	schema      *fwinfra.TableSchema
 	contextName string
 	constraints map[string]fwinfra.ConstraintBinding
 }
 
 // NewUserCustomRepository wires the Repository over the shared *Postgres and
-// builds an AggregateLoader that knows how to scan *User + its Address
-// children via reflection. The same email-uniqueness constraint mapping is
+// builds an AggregateLoader that scans *User + its Address children driven by
+// the explicit UserSchema() (root + Address child). The same email-uniqueness constraint mapping is
 // copied from UserRepository so that a PG 23505 violation reaching this
 // surface emits EmailAlreadyExistsNotification (semantic Conflict → 409)
 // instead of leaking the raw pgErr.
 func NewUserCustomRepository(pg *fwinfra.Postgres) *UserCustomRepository {
 	newUser := func() *appdomain.User { return &appdomain.User{} }
-	loader := fwinfra.NewAggregateLoader[*appdomain.User](pg, newUser)
-	fwinfra.WithChild[appdomain.Address](loader)
+	schema := UserSchema()
+	loader := fwinfra.NewAggregateLoader[*appdomain.User](pg, newUser).WithSchema(schema)
 	return &UserCustomRepository{
 		pg:          pg,
 		loader:      loader,
+		schema:      schema,
 		contextName: "User",
 		constraints: map[string]fwinfra.ConstraintBinding{
 			"users_email_active_idx": {Notification: appdomain.EmailAlreadyExistsNotification{}, Field: "email"},
@@ -89,8 +91,8 @@ type scopedUserRepo struct {
 
 // userCustomBoundWriter is the request-scoped domain.Writer. Each write is the
 // same delegation BaseRepository performs internally; writing them out keeps
-// the manual contract visible. RepoConfig is left nil (zero value) — same as
-// the canonical repo — so table/column/FK come from convention. The captured
+// the manual contract visible. The explicit UserSchema() (held on the repo) is
+// threaded to the persister — same map the canonical repo uses. The captured
 // opts thread through fwinfra.AdaptWriteOptions so the typed afterBegin /
 // beforeCommit closures reach the persister identically to the canonical path.
 type userCustomBoundWriter struct {
@@ -100,7 +102,7 @@ type userCustomBoundWriter struct {
 }
 
 func (w userCustomBoundWriter) Insert(i domain.Insertable) (domain.ID, error) {
-	res, err := w.r.pg.Insert(w.ctx, i, nil, fwinfra.AdaptWriteOptions(w.opts))
+	res, err := w.r.pg.Insert(w.ctx, i, w.r.schema, fwinfra.AdaptWriteOptions(w.opts))
 	if err != nil {
 		return domain.ID{}, w.r.mapErr(err)
 	}
@@ -108,20 +110,20 @@ func (w userCustomBoundWriter) Insert(i domain.Insertable) (domain.ID, error) {
 }
 
 func (w userCustomBoundWriter) Update(u domain.Updatable) error {
-	_, err := w.r.pg.Update(w.ctx, u, nil, fwinfra.AdaptWriteOptions(w.opts))
+	_, err := w.r.pg.Update(w.ctx, u, w.r.schema, fwinfra.AdaptWriteOptions(w.opts))
 	return w.r.mapErr(err)
 }
 
 func (w userCustomBoundWriter) Delete(d domain.Deletable) error {
-	return w.r.mapErr(w.r.pg.Delete(w.ctx, d, nil, fwinfra.AdaptWriteOptions(w.opts)))
+	return w.r.mapErr(w.r.pg.Delete(w.ctx, d, w.r.schema, fwinfra.AdaptWriteOptions(w.opts)))
 }
 
 func (w userCustomBoundWriter) Archive(a domain.Archivable) error {
-	return w.r.mapErr(w.r.pg.Archive(w.ctx, a, nil, fwinfra.AdaptWriteOptions(w.opts)))
+	return w.r.mapErr(w.r.pg.Archive(w.ctx, a, w.r.schema, fwinfra.AdaptWriteOptions(w.opts)))
 }
 
 func (w userCustomBoundWriter) Unarchive(u domain.Unarchivable) error {
-	return w.r.mapErr(w.r.pg.Unarchive(w.ctx, u, nil, fwinfra.AdaptWriteOptions(w.opts)))
+	return w.r.mapErr(w.r.pg.Unarchive(w.ctx, u, w.r.schema, fwinfra.AdaptWriteOptions(w.opts)))
 }
 
 // ─── Reads (ctx-free, direct on the handle) ─────────────────────────────────

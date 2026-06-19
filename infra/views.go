@@ -2,21 +2,22 @@ package infra
 
 import (
 	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
-
-	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
 
 // UserView is the read-side projection of the User aggregate for MongoDB.
 //
-// Inferred from the Go type:
-//   - Mongo collection / root table = "users" (InferTableName(User))
-//   - EmbedMany of Address auto-registered via User.AggregateChildren():
-//     field "addresses" + table "addresses" + FK "user_id"
+//   - Mongo collection / root table = "users"
+//   - EmbedMany of Address under the doc field "addresses" (table "addresses",
+//     join key "user_id"); the parent-side Go segment is "Addresses" (.As) so
+//     the reader translates the embed back to the Go field name the typed
+//     Response refers to.
 //
-// Equivalent to the verbose fluent form:
-//
-//	fwinfra.View("users").Root("users").
-//	    EmbedMany("addresses", fwinfra.From("addresses").On("user_id"))
+// The view reuses the SAME schemas the repository declares — UserSchema() for
+// the root and AddressSchema() for the embed source. The composer writes
+// physical columns (mail/zip_code/...) to Mongo; the reader translates each leaf
+// back to its Go field name (Email/ZipCode/...) using these schemas, so the wire
+// surface speaks Go names while Mongo mirrors PostgreSQL physically. The view
+// also honors the schema's soft-delete column when DeleteOnArchive is set.
 //
 // On ARCHIVED/DELETED events the doc is removed; on UNARCHIVED it is
 // recomposed and re-upserted (SyncEngine logic, applicable to any
@@ -32,8 +33,11 @@ import (
 //
 // Called exactly once per process via bootstrap.NewUsersFeature.
 func UserView() *fwinfra.ViewDefinition {
-	return fwinfra.ViewOf[*appdomain.User]().
+	return fwinfra.View("users").
 		Version(1).
+		Root("users").
+		Schema(UserSchema()).
+		EmbedMany("addresses", fwinfra.From("addresses").On("user_id").As("Addresses").Schema(AddressSchema())).
 		Indexes(
 			fwinfra.Index("email"),
 			fwinfra.Index("created_at").Desc(),

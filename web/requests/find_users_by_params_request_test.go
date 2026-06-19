@@ -43,25 +43,26 @@ func TestFindUsersByParamsRequest_EmptyCriteriaRoundtrip(t *testing.T) {
 	}
 }
 
-// realComposerDocList returns a list-shaped fixture matching what
-// MongoViewReader.ReadPage hands the projector: each doc has snake_case keys
-// (the composer writes Postgres column names verbatim).
-func realComposerDocList() map[string]any {
+// readerGoDocList returns a list-shaped fixture matching what
+// MongoViewReader.ReadPage hands the projector: each doc is Go-keyed (the
+// reader translated the physical columns back via UserSchema()/AddressSchema()
+// and the embed doc field "addresses" → the Go segment "Addresses").
+func readerGoDocList() map[string]any {
 	return map[string]any{
-		"id":    "user-1",
-		"name":  "Jane",
-		"email": "jane@example.com",
-		"phone": "14155552671",
-		"addresses": []any{
+		"ID":    "user-1",
+		"Name":  "Jane",
+		"Email": "jane@example.com",
+		"Phone": "14155552671",
+		"Addresses": []any{
 			map[string]any{
-				"id":           "addr-1",
-				"street":       "1 Infinite Loop",
-				"number":       "1",
-				"neighborhood": "Mariani",
-				"city":         "Cupertino",
-				"state":        "CA",
-				"zip_code":     "95014",
-				"country":      "US",
+				"ID":           "addr-1",
+				"Street":       "1 Infinite Loop",
+				"Number":       "1",
+				"Neighborhood": "Mariani",
+				"City":         "Cupertino",
+				"State":        "CA",
+				"ZipCode":      "95014",
+				"Country":      "US",
 			},
 		},
 	}
@@ -78,7 +79,7 @@ func strDeref(p *string) string {
 }
 
 func TestFindUsersByParamsResponse_AutoFromDoc_AllRootFieldsPopulated(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](realComposerDocList())
+	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](readerGoDocList())
 	if strDeref(got.ID) != "user-1" {
 		t.Errorf("ID: want user-1, got %q", strDeref(got.ID))
 	}
@@ -94,7 +95,7 @@ func TestFindUsersByParamsResponse_AutoFromDoc_AllRootFieldsPopulated(t *testing
 }
 
 func TestFindUsersByParamsResponse_AutoFromDoc_AllAddressFieldsPopulated(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](realComposerDocList())
+	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](readerGoDocList())
 	if len(got.Addresses) != 1 {
 		t.Fatalf("expected 1 address, got %d", len(got.Addresses))
 	}
@@ -118,7 +119,7 @@ func TestFindUsersByParamsResponse_AutoFromDoc_AllAddressFieldsPopulated(t *test
 		t.Errorf("Addr.State: want CA, got %q", strDeref(a.State))
 	}
 	if strDeref(a.ZipCode) != "95014" {
-		t.Errorf("Addr.ZipCode (auto PascalToSnake → zip_code): want 95014, got %q", strDeref(a.ZipCode))
+		t.Errorf("Addr.ZipCode: want 95014, got %q", strDeref(a.ZipCode))
 	}
 	if strDeref(a.Country) != "US" {
 		t.Errorf("Addr.Country: want US, got %q", strDeref(a.Country))
@@ -126,7 +127,7 @@ func TestFindUsersByParamsResponse_AutoFromDoc_AllAddressFieldsPopulated(t *test
 }
 
 func TestFindUsersByParamsResponse_AutoFromDoc_FallsBackToUnderscoreID(t *testing.T) {
-	doc := map[string]any{"_id": "user-2", "name": "Bob", "email": "bob@example.com"}
+	doc := map[string]any{"_id": "user-2", "Name": "Bob", "Email": "bob@example.com"}
 	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](doc)
 	if strDeref(got.ID) != "user-2" {
 		t.Errorf("expected ID from _id fallback, got %q", strDeref(got.ID))
@@ -134,7 +135,7 @@ func TestFindUsersByParamsResponse_AutoFromDoc_FallsBackToUnderscoreID(t *testin
 }
 
 func TestFindUsersByParamsResponse_AutoFromDoc_NilAddressesBecomeEmptySlice(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](map[string]any{"id": "x"})
+	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](map[string]any{"ID": "x"})
 	if got.Addresses == nil {
 		t.Error("expected non-nil Addresses slice (normalizeSlices invariant — even though omitempty will elide it at the JSON wire layer)")
 	}

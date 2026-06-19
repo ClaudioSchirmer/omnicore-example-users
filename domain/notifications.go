@@ -52,12 +52,12 @@ type DuplicateAddressNotification struct{ domain.DomainNotificationBase }
 // InvalidPhone shape — the consumer sees both "what they sent" (value) and
 // "what the limit is" (substituted into the message).
 //
-// The MaxLength field is populated by the Cmd boundary
-// (InsertUserCommand.ToEntity / UpdateUserCommand.ApplyTo /
-// PatchUserCommand.ApplyPartiallyTo and their manual showcase twins) and
-// flows into User.NameMaxLength as a transient:"-" field. The example
-// hardcodes 100 at the Cmd boundary; production would resolve it from a
-// per-tenant config service.
+// The MaxLength field is set directly inside User.BuildRules from the
+// package-private domain constant nameMaxLength (domain/user.go) when
+// len(u.Name) overflows it. The example hardcodes 100; production would resolve
+// it from a per-tenant config service consulted via a domain.Service inside
+// BuildRules — same notification type, same wire shape, only the source of the
+// value changes.
 type NameMaxLengthExceededNotification struct {
 	domain.DomainNotificationBase
 	MaxLength int `tvar:"maxLength"`

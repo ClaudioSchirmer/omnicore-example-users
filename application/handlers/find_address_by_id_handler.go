@@ -60,7 +60,7 @@ func (h *FindAddressByIDQueryHandler) Handle(
 		return nil, domain.NotFoundError("User", "id", userID)
 	}
 
-	if addr, ok := pickAddressByID(doc["addresses"], q.AddressID); ok {
+	if addr, ok := pickAddressByID(doc["Addresses"], q.AddressID); ok {
 		return addr, nil
 	}
 	return nil, domain.NotFoundError("Address", "id", q.AddressID)
@@ -68,7 +68,10 @@ func (h *FindAddressByIDQueryHandler) Handle(
 
 // pickAddressByID walks any slice-like value (plain []any, []map[string]any,
 // or mongo-driver's named bson.A) carrying map-like elements and returns
-// the entry whose "id" field equals addressID. Uses reflection so the
+// the entry whose "ID" field equals addressID. The MongoViewReader returns a
+// Go-keyed document (each embed leaf translated from its physical column back
+// to its Go field name via the view's TableSchema), so the lookup keys on the
+// Go field name "ID", not the physical column "id". Uses reflection so the
 // application layer stays free of bson imports — the framework's
 // AutoFromDoc projector uses the same trick (asSliceOfMaps in
 // omnicore/web/responses/auto_from_doc.go) for the same reason.
@@ -93,7 +96,7 @@ func pickAddressByID(v any, addressID string) (map[string]any, bool) {
 				addr[iter.Key().String()] = iter.Value().Interface()
 			}
 		}
-		if id, _ := addr["id"].(string); id == addressID {
+		if id, _ := addr["ID"].(string); id == addressID {
 			return addr, true
 		}
 	}

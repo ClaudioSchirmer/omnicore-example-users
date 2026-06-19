@@ -27,22 +27,25 @@ type User struct {
 	Email string  `label:"UserEmailField"`
 	Phone *string `label:"UserPhoneField"`
 
-	// ─── Transient authz fields ───────────────────────────────────────────
+	// ─── Runtime-only authz fields ────────────────────────────────────────
 	//
 	// Populated by ArchiveUserCommand.ApplyTo from AppContext.Identity right
 	// before GetArchivable runs BuildRules in ModeUpdate with actionName=
 	// "GetArchivable". The owner-check is encoded as "the JWT's email claim
 	// must match this User's persisted email, unless the principal holds
-	// users:admin". Tag `transient:"-"` declares the fields as runtime-only
-	// state (request-scoped inputs read off the AppContext) so the framework's
-	// column-set inference skips them automatically — table users has no
-	// owner_email column; the principal IS the owner indicator.
+	// users:admin".
+	//
+	// No tag is needed: the explicit UserSchema() (infra/schema.go) simply does
+	// not declare these fields, so the framework never persists, scans, or
+	// audits them — table users has no owner_email column; the principal IS the
+	// owner indicator. An undeclared exported field is runtime-only by
+	// construction.
 	//
 	// Living on the root keeps the rule expressible without the framework
 	// shipping an entity-vs-identity bridge — same shape services would adopt
 	// for any per-resource Layer 2 invariant.
-	RequestingPrincipalEmail   string `transient:"-"`
-	RequestingPrincipalIsAdmin bool   `transient:"-"`
+	RequestingPrincipalEmail   string
+	RequestingPrincipalIsAdmin bool
 }
 
 // nameMaxLength is the User's hard cap on the Name field length — a pure
@@ -100,20 +103,16 @@ func (u *User) Modes() []domain.EntityMode {
 	}
 }
 
-// RequiresService omitted — inherits the default `false` from *BaseEntity
-// (via the AggregateRoot embed). User does not require a domain.Service
-// injected into BuildRules.
-
 // ─── domain.AggregateRootProvider ────────────────────────────────────────────
 //
-// Phase 19: opt-in for aggregate-aware persistence. Framework infra infers
-// the table "users" via PluralizeSnake(PascalToSnake("User")); columns from
-// the exported fields (Name, Email, Phone); the child Address FK is inferred
-// as "user_id" (PascalToSnake("User") + "_id"). Cascade root↔children is
-// symmetric and universal — no per-child flag.
+// Opt-in for aggregate-aware persistence. The physical table/column/FK names
+// are NOT inferred — they are declared explicitly in infra/schema.go via
+// UserSchema()/AddressSchema() (table "users"/"addresses", child FK "user_id").
+// The domain stays DDD-pure: it never pronounces a table or column. Cascade
+// root↔children is symmetric and universal — no per-child flag.
 //
-// Phase 20: AggregateChildren declares that Address belongs to this aggregate.
-// The framework's typed primitives (AddAggregateChild, ChangeAggregateChild,
+// AggregateChildren declares that Address belongs to this aggregate. The
+// framework's typed primitives (AddAggregateChild, ChangeAggregateChild,
 // RemoveAggregateChild, ReplaceAggregateChildrenOf) consult this list and
 // reject VOs of undeclared types. Address mutations go through the
 // AddAddress/ChangeAddress/RemoveAddress/ReplaceAddresses methods below —

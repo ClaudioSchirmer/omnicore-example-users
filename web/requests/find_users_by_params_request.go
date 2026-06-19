@@ -17,10 +17,10 @@ import (
 // Nested embed groups mirror the Response side: a struct-typed field
 // carrying a query:"prefix" tag (no filter:) is an embed group; each leaf
 // inside contributes a wire key prefixed by its parent (so City below
-// surfaces as ?addresses.city=Berlin and maps to the Mongo nested doc
-// path addresses.city automatically — the default doc segment is
-// domain.PascalToSnake of the wire name, override with view: only for
-// exotic schemas).
+// surfaces as ?addresses.city=Berlin). The wrapper maps the wire key to the
+// Go field path (Addresses.City); the MongoViewReader then translates that
+// Go path to the physical Mongo path (addresses.city) via the view's
+// TableSchema — no PascalToSnake, no view: tag at this layer.
 //
 // The fields are tag carriers — the wrapper parses the query string directly
 // into a ReadCriteria and hands it to ToQuery. AppContext-derived overlays
@@ -45,9 +45,9 @@ type FindUsersByParamsRequest struct {
 // AddressFilterParams is the embed-group counterpart of the Address output
 // — same vocabulary, filter side. Wire keys land prefixed by the parent
 // field's query tag, so ?addresses.city=Berlin and ?addresses.zipCode=10001
-// translate to Mongo Filter["addresses.city"] / Filter["addresses.zip_code"]
-// without any view: declaration (auto-snake on the leaf names matches the
-// composer's snake_case column output verbatim).
+// become Go field paths (Addresses.City / Addresses.ZipCode); the reader
+// translates them to the physical Mongo paths (addresses.city /
+// addresses.zip_code) via the view's TableSchema — no view: declaration.
 type AddressFilterParams struct {
 	City    *string `query:"city"    filter:"eq,istartswith,icontains"`
 	State   *string `query:"state"   filter:"eq,in"`
@@ -64,7 +64,7 @@ func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *quer
 // FindUsersByParamsResponse is the wire projection of one User view document
 // in the GET /users list. The route pairs it with
 // fwresponses.AutoFromDoc[FindUsersByParamsResponse]; see
-// FindUserByIDResponse for the json:/view: tag contract.
+// FindUserByIDResponse for the json: tag contract.
 //
 // Every field — at every depth — is *T (or a slice) and carries ,omitempty
 // because the Request DTO declares `?fields=` and the framework's boot
@@ -85,10 +85,10 @@ type FindUsersByParamsResponse struct {
 // inside a list item. Same pointer + omitempty rule applies recursively:
 // nested filters like `?fields=addresses.city` only populate City, and
 // every other field of the Address subdoc renders absent rather than as
-// the empty string. Doc-side keys are derived from each json: tag via
-// domain.PascalToSnake (zipCode → zip_code, matching the composer's
-// snake_case column output) — view: would only be needed for exotic
-// renames the convention doesn't cover.
+// the empty string. The MongoViewReader already translated each physical
+// column back to its Go field name via the view's AddressSchema (zip_code →
+// ZipCode), so AutoFromDoc keys by the Go field name and the json: tag is
+// only the outgoing wire name — no view: source-key override.
 type FindUsersByParamsAddressOutput struct {
 	ID           *string `json:"id,omitempty"           example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Label        *string `json:"label,omitempty"        example:"home"`
