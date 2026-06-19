@@ -1362,7 +1362,7 @@ fi
 rm -f "$TMP"
 
 ####################################
-sec "19. GET /users.csv — CSV export (hierarchical + labelKey headers + ?fields)"
+sec "19. GET /users.csv + /users.xlsx — tabular export (hierarchical + labelKey headers + ?fields)"
 ####################################
 # The CSV route reuses the same `users` view + FindUsersByParamsRequest as GET
 # /users, rendered as a hierarchical CSV: root columns at column A, addresses at
@@ -1421,6 +1421,36 @@ csv_assert "19.6 filter passthrough ?name.startswith=Jane" "?name.startswith=Jan
 csv_assert "19.7 ?fields=bogus rejected (400)" "?fields=bogus" 400
 # Unknown query key rejected with 400.
 csv_assert "19.8 unknown query key rejected (400)" "?role=admin" 400
+
+# XLSX export — same surface, different encoder. Binary (a ZIP), so assert the
+# status, the spreadsheet content-type, the attachment filename, and the ZIP
+# magic bytes (PK) rather than text content.
+title "19.9 GET /users.xlsx → 200 + xlsx content-type + attachment + ZIP magic"
+TMP=$(mktemp); HDR=$(mktemp)
+STATUS=$(curl -sS -o "$TMP" -D "$HDR" -w "%{http_code}" "$BASE/users.xlsx" -H "Accept-Language: en-US")
+CT=$(grep -i '^content-type:' "$HDR" | tr -d '\r')
+CD=$(grep -i '^content-disposition:' "$HDR" | tr -d '\r')
+MAGIC=$(head -c 2 "$TMP"); SIZE=$(wc -c < "$TMP" | tr -d ' ')
+echo "STATUS  : $STATUS"; echo "$CT"; echo "$CD"; echo "magic=$MAGIC size=$SIZE"
+if [ "$STATUS" = "200" ] && echo "$CT" | grep -qi "spreadsheetml.sheet" \
+   && echo "$CD" | grep -qi 'filename="users.xlsx"' && [ "$MAGIC" = "PK" ] && [ "$SIZE" -gt 0 ]; then
+  printf '\033[1;32mPASS\033[0m (xlsx workbook)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (status=%s ct=%s magic=%s)\n' "$STATUS" "$CT" "$MAGIC"; FAIL=$((FAIL+1))
+fi
+rm -f "$TMP" "$HDR"
+
+# Shared wrapper → same 400 on a bad ?fields token, regardless of encoder.
+title "19.10 GET /users.xlsx?fields=bogus rejected (400, shared wrapper path)"
+TMP=$(mktemp)
+STATUS=$(curl -sS -o "$TMP" -w "%{http_code}" "$BASE/users.xlsx?fields=bogus" -H "Accept-Language: en-US")
+echo "STATUS  : $STATUS"; head -c 200 "$TMP"; echo
+if [ "$STATUS" = "400" ]; then
+  printf '\033[1;32mPASS\033[0m (400)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected 400, got %s)\n' "$STATUS"; FAIL=$((FAIL+1))
+fi
+rm -f "$TMP"
 
 ####################################
 sec "Summary"

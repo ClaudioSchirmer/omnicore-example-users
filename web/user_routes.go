@@ -188,6 +188,32 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:read"))
 
+	// XLSX export — identical surface to /users.csv, different encoder. The
+	// format-neutral core (ExportPlan + Generate) is reused verbatim; only the
+	// encoder swaps. Headers are bold, numeric/typed cells stay typed, and the
+	// per-level offset becomes the spreadsheet's own column offset.
+	xlsxH := fwweb.HandleQueryAsXLSX(d.Pipeline,
+		requests.FindUsersByParamsRequest{},
+		view.ExportPlan(),
+		d.Translator,
+		view.ResolveMaxExportRows(d.Config.Query.MaxExportRows),
+		"users",
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		},
+		export.WithSheetName("Users"))
+	fwopenapi.MountRaw(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.xlsx",
+		xlsxH,
+		fwopenapi.RawSpec{
+			Summary:     "Export users as Excel (.xlsx)",
+			Description: "Same surface as `GET /users.csv` — same filter allowlist, `?fields=`, `?search`, `?sort`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook instead of CSV. Header rows are bold and numeric columns keep their numeric cell type. Demonstrates the format-pluggable export: only the encoder differs between this route and `/users.csv`.",
+			Tags:        []string{"Users"},
+			Responses: map[int]fwopenapi.ResponseSpec{
+				fiber.StatusOK: {Description: "XLSX workbook", ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+			},
+		},
+		fwopenapi.RequirePermission("users:read"))
+
 	byIDH, byIDSpec := fwweb.HandleQueryWithIDSpec(d.Pipeline,
 		requests.FindUserByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
