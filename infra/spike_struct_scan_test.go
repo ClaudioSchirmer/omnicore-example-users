@@ -67,7 +67,7 @@ func setupSpikeSchema(t *testing.T, pool *pgxpool.Pool) {
 			id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
 			name       VARCHAR(255) NOT NULL,
 			email      VARCHAR(255) NOT NULL,
-			cpf        VARCHAR(11)  NOT NULL,
+			username        VARCHAR(11)  NOT NULL,
 			phone      VARCHAR(20),
 			deleted_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -108,7 +108,7 @@ func insertSampleUser(t *testing.T, pool *pgxpool.Pool) string {
 	ctx := context.Background()
 	var userID string
 	err := pool.QueryRow(ctx, `
-		INSERT INTO spike_users (name, email, cpf, phone)
+		INSERT INTO spike_users (name, email, username, phone)
 		VALUES ('John', 'john@x.com', '12345678909', '11999998888')
 		RETURNING id
 	`).Scan(&userID)
@@ -130,12 +130,12 @@ func insertSampleUser(t *testing.T, pool *pgxpool.Pool) string {
 // SPIKE 1 — pgx.RowToAddrOfStructByName with User (embeds AggregateRoot/BaseEntity)
 //
 // Hypothesis: since AggregateRoot and BaseEntity only have private fields,
-// pgx reflection only "sees" Name/Email/CPF/Phone from User. If that is
+// pgx reflection only "sees" Name/Email/Username/Phone from User. If that is
 // true, the 17-line manual scanner can become a 1-liner without touching
 // the embedded fields.
 //
 // Success criterion: scan resolves without error, populates
-// Name/Email/CPF/Phone with the correct values. Failure expected if pgx
+// Name/Email/Username/Phone with the correct values. Failure expected if pgx
 // tries to map a column to an embedded private field.
 // ───────────────────────────────────────────────────────────────────────────────
 func TestSpike1_StructScanUserWithEmbeddedAggregateRoot(t *testing.T) {
@@ -150,7 +150,7 @@ func TestSpike1_StructScanUserWithEmbeddedAggregateRoot(t *testing.T) {
 	// Hypothesis: should work cleanly because each column maps to an
 	// exported User field.
 	t.Run("explicit_columns_domain_only", func(t *testing.T) {
-		rows, err := pool.Query(ctx, `SELECT name, email, cpf, phone FROM spike_users LIMIT 1`)
+		rows, err := pool.Query(ctx, `SELECT name, email, username, phone FROM spike_users LIMIT 1`)
 		if err != nil {
 			t.Fatalf("query: %v", err)
 		}
@@ -158,7 +158,7 @@ func TestSpike1_StructScanUserWithEmbeddedAggregateRoot(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RowToAddrOfStructByName falhou: %v", err)
 		}
-		if user.Name != "John" || user.Email != "john@x.com" || user.CPF != "12345678909" || user.Phone != "11999998888" {
+		if user.Name != "John" || user.Email != "john@x.com" || user.Username != "12345678909" || user.Phone != "11999998888" {
 			t.Fatalf("incorrect values: %+v", user)
 		}
 		t.Logf("OK — User scan via reflection: %+v", *user)
@@ -253,7 +253,7 @@ func TestSpike3_StructScanAddressValueType(t *testing.T) {
 type spikeUserWithTags struct {
 	Name  string `db:"name"`
 	Email string `db:"email"`
-	CPF   string `db:"cpf"`
+	Username   string `db:"username"`
 	Phone string `db:"phone"`
 }
 
@@ -278,7 +278,7 @@ func TestSpike1_3_TaggedStructs(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("tagged_user", func(t *testing.T) {
-		rows, _ := pool.Query(ctx, `SELECT name, email, cpf, phone FROM spike_users LIMIT 1`)
+		rows, _ := pool.Query(ctx, `SELECT name, email, username, phone FROM spike_users LIMIT 1`)
 		u, err := pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[spikeUserWithTags])
 		if err != nil {
 			t.Fatalf("tagged user failed: %v", err)
@@ -319,7 +319,7 @@ func scanUserRowManual(row pgx.Row) (*appdomain.User, error) {
 		createdAt time.Time
 		updatedAt time.Time
 	)
-	if err := row.Scan(&id, &u.Name, &u.Email, &u.CPF, &phone, &deletedAt, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &u.Name, &u.Email, &u.Username, &phone, &deletedAt, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	if phone != nil {
@@ -368,7 +368,7 @@ func BenchmarkSpike2_StructScan_ExplicitCols(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rows, err := pool.Query(ctx, `SELECT name, email, cpf, phone FROM spike_users LIMIT 1`)
+		rows, err := pool.Query(ctx, `SELECT name, email, username, phone FROM spike_users LIMIT 1`)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -418,7 +418,7 @@ func setupSpikeSchemaB(b *testing.B, pool *pgxpool.Pool) {
 			id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
 			name       VARCHAR(255) NOT NULL,
 			email      VARCHAR(255) NOT NULL,
-			cpf        VARCHAR(11)  NOT NULL,
+			username        VARCHAR(11)  NOT NULL,
 			phone      VARCHAR(20),
 			deleted_at TIMESTAMP,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -440,7 +440,7 @@ func cleanupSpikeSchema(pool *pgxpool.Pool) {
 func insertSampleUserB(b *testing.B, pool *pgxpool.Pool) {
 	b.Helper()
 	_, err := pool.Exec(context.Background(), `
-		INSERT INTO spike_users (name, email, cpf, phone)
+		INSERT INTO spike_users (name, email, username, phone)
 		VALUES ('John', 'john@x.com', '12345678909', '11999998888')
 	`)
 	if err != nil {

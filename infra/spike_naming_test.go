@@ -28,9 +28,9 @@ type pCamelCase struct {
 	ZipCode string
 }
 
-// Scenario D — uppercase acronym (CPF ↔ cpf): common case in BR domains.
-type pSigla struct {
-	CPF string
+// Scenario D — uppercase acronym (URL ↔ url).
+type pAcronym struct {
+	URL string
 }
 
 // Scenario E — field with a name that doesn't follow any convention
@@ -54,12 +54,12 @@ func TestSpikeNaming_PgxAutoMapping(t *testing.T) {
 	}{
 		{
 			name: "lowercase_match",
-			sql:  `SELECT 'joao' AS name`,
+			sql:  `SELECT 'john' AS name`,
 			runFn: func(rows pgx.Rows) (any, error) {
 				return pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[pNameOnly])
 			},
 			getter:  func(v any) string { return v.(*pNameOnly).Name },
-			want:    "joao",
+			want:    "john",
 			comment: "Name (PascalCase) vs 'name' — expected match because pgx normalizes to lowercase",
 		},
 		{
@@ -83,14 +83,14 @@ func TestSpikeNaming_PgxAutoMapping(t *testing.T) {
 			comment: "ZipCode vs quoted zipCode (case-sensitive PG) — check tolerance",
 		},
 		{
-			name: "uppercase_sigla",
-			sql:  `SELECT '123' AS cpf`,
+			name: "uppercase_acronym",
+			sql:  `SELECT '123' AS url`,
 			runFn: func(rows pgx.Rows) (any, error) {
-				return pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[pSigla])
+				return pgx.CollectOneRow(rows, pgx.RowToAddrOfStructByName[pAcronym])
 			},
-			getter:  func(v any) string { return v.(*pSigla).CPF },
+			getter:  func(v any) string { return v.(*pAcronym).URL },
 			want:    "123",
-			comment: "CPF (acronym) vs cpf",
+			comment: "URL (acronym) vs url",
 		},
 		{
 			name: "weird_naming",

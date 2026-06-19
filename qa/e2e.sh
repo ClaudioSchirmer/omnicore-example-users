@@ -310,9 +310,8 @@ show "3.1 EmailAlreadyExistsNotification (retry bob@example.com)" POST /users '{
 # 3.2 demonstrates that the unique index is soft-delete-aware
 # (`WHERE deleted_at IS NULL` in migration 0002): after archiving the record
 # that holds the email, a POST with the same email MUST be accepted (201)
-# because the previous value is logically deleted. Replaces the old
-# CPFAlreadyExists case — same test shape (unique constraint), now showing
-# the full semantic: reserved while active, free when archived.
+# because the previous value is logically deleted — the unique constraint is
+# reserved while the record is active, free again once it is archived.
 title "3.2 Soft-delete-aware uniqueness — archive USER_C, reuse of anna@example.com allowed"
 echo "Pre-step: PATCH USER_C/archive (then reuse the email)"
 ARCH_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/users/$USER_C/archive" -H "Content-Type: application/json")
