@@ -1368,7 +1368,8 @@ sec "19. GET /users.csv + /users.xlsx — tabular export (hierarchical + labelKe
 # /users, rendered as a hierarchical CSV: root columns at column A, addresses at
 # column B (one empty leading field per nesting level). Headers come from the
 # `labelKey:"…"` catalog rendered in Accept-Language; the route is mounted with
-# the ';' delimiter. By this section the Mongo view holds users (Jane = USER_A,
+# the ',' delimiter. A blank line separates each user's aggregate block. By this
+# section the Mongo view holds users (Jane = USER_A,
 # active) with addresses, so the export has hierarchical data to render.
 
 # csv_assert: name, query, expected_status, [must-contain], [must-NOT-contain]
@@ -1406,8 +1407,8 @@ else
 fi
 rm -f "$TMP" "$HDR"
 
-# Root header carries the labelKey-rendered, ';'-separated column titles.
-csv_assert "19.2 root header rendered from labelKey (en-US: Name;Email)" "" 200 "Name;Email"
+# Root header carries the labelKey-rendered, ','-separated column titles.
+csv_assert "19.2 root header rendered from labelKey (en-US: Name,Email)" "" 200 "Name,Email"
 # Nested address columns prove the hierarchy renders (the address header carries
 # the AddressZipCodeField label 'ZIP Code', offset one column to the right).
 csv_assert "19.3 nested address columns present (ZIP Code label, depth-1 offset)" "" 200 "ZIP Code"

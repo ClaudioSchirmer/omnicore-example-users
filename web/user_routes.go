@@ -175,7 +175,7 @@ func MountUsers(
 		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
 			Reader: d.ViewReader, View: viewName,
 		},
-		export.WithDelimiter(';'))
+		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.csv",
 		csvH, csvSpec,
 		fwopenapi.Doc{
