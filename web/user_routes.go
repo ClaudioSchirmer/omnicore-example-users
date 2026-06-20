@@ -166,7 +166,7 @@ func MountUsers(
 	// the full filtered set capped at the resolved maxExportRows. Registered at
 	// the app root (`/users.csv`) to avoid colliding with `/users/:id`. The ';'
 	// delimiter is a showcase of the mount-time CSV option.
-	csvH := fwweb.HandleQueryAsCSV(d.Pipeline,
+	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
 		view.ExportPlan(),
 		d.Translator,
@@ -176,15 +176,12 @@ func MountUsers(
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithDelimiter(';'))
-	fwopenapi.MountRaw(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.csv",
-		csvH,
-		fwopenapi.RawSpec{
+	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.csv",
+		csvH, csvSpec,
+		fwopenapi.Doc{
 			Summary:     "Export users as CSV",
-			Description: "Streams the same `users` view read as GET /users — same filter allowlist, `?search`, `?sort`, `?includeArchived` — rendered as a hierarchical CSV: root columns start at column A, each address at column B (one column per nesting level). Column headers are the fields' `labelKey` catalog entries rendered in the request's `Accept-Language`. `?fields=` narrows the columns (e.g. `?fields=name,addresses.zipCode`). User pagination (`?limit`/`?after`/`?before`) is ignored — the export returns the full filtered set capped at `query.maxExportRows`. Field separator is `;`.",
+			Description: "Streams the same `users` view read as GET /users — same filter allowlist, `?search`, `?sort`, `?includeArchived`, `?fields=` — rendered as a hierarchical CSV: root columns start at column A, each address at column B (one column per nesting level). Column headers are the fields' `labelKey` catalog entries rendered in the request's `Accept-Language`. User pagination (`?limit`/`?after`/`?before`/`?onlyTotal`) is ignored — the export returns the full filtered set capped at `query.maxExportRows`. Field separator is `;`.",
 			Tags:        []string{"Users"},
-			Responses: map[int]fwopenapi.ResponseSpec{
-				fiber.StatusOK: {Description: "CSV file", ContentType: "text/csv"},
-			},
 		},
 		fwopenapi.RequirePermission("users:read"))
 
@@ -192,7 +189,7 @@ func MountUsers(
 	// format-neutral core (ExportPlan + Generate) is reused verbatim; only the
 	// encoder swaps. Headers are bold, numeric/typed cells stay typed, and the
 	// per-level offset becomes the spreadsheet's own column offset.
-	xlsxH := fwweb.HandleQueryAsXLSX(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
 		view.ExportPlan(),
 		d.Translator,
@@ -202,15 +199,12 @@ func MountUsers(
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithSheetName("Users"))
-	fwopenapi.MountRaw(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.xlsx",
-		xlsxH,
-		fwopenapi.RawSpec{
+	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.xlsx",
+		xlsxH, xlsxSpec,
+		fwopenapi.Doc{
 			Summary:     "Export users as Excel (.xlsx)",
 			Description: "Same surface as `GET /users.csv` — same filter allowlist, `?fields=`, `?search`, `?sort`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook instead of CSV. Header rows are bold and numeric columns keep their numeric cell type. Demonstrates the format-pluggable export: only the encoder differs between this route and `/users.csv`.",
 			Tags:        []string{"Users"},
-			Responses: map[int]fwopenapi.ResponseSpec{
-				fiber.StatusOK: {Description: "XLSX workbook", ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
-			},
 		},
 		fwopenapi.RequirePermission("users:read"))
 
