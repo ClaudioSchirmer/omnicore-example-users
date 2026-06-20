@@ -38,8 +38,10 @@ func (r FindAddressByIDRequest) ToQuery() *queries.FindAddressByIDQuery {
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
 // FindAddressByIDResponse is the wire projection of one address sub-document.
-// Mirrors the shape of FindUserByIDAddressOutput — the same fields, same
-// JSON names, same view: tag on ZipCode for the multi-word column.
+// Mirrors the shape of FindUserByIDAddressOutput. The MongoViewReader already
+// translated every physical column back to its Go field name (zip_code →
+// ZipCode) using AddressSchema(), so AutoFromDoc keys by the Go field name and
+// the json tag is purely the outgoing wire name — no view: source-key override.
 type FindAddressByIDResponse struct {
 	ID           string  `json:"id"                   example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Label        *string `json:"label,omitempty"      example:"home"`
@@ -49,6 +51,6 @@ type FindAddressByIDResponse struct {
 	Neighborhood string  `json:"neighborhood"         example:"Mariani"`
 	City         string  `json:"city"                 example:"Cupertino"`
 	State        string  `json:"state"                example:"CA"`
-	ZipCode      string  `json:"zipCode"              example:"95014" view:"zip_code"`
+	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
 }

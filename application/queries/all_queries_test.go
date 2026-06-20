@@ -9,8 +9,8 @@ import (
 func TestFindUserByEmailQuery_ToCriteria(t *testing.T) {
 	q := FindUserByEmailQuery{Email: "alice@x", IncludeArchived: true}
 	crit := q.ToCriteria(nil)
-	if crit.Filter["email"] != "alice@x" {
-		t.Errorf("Filter[email] = %v, want alice@x", crit.Filter["email"])
+	if crit.Filter["Email"] != "alice@x" {
+		t.Errorf("Filter[Email] = %v, want alice@x", crit.Filter["Email"])
 	}
 	if crit.Limit != 1 {
 		t.Errorf("Limit = %d, want 1", crit.Limit)
@@ -62,8 +62,8 @@ func TestFindAddressByEmailAndIDQuery_ToCriteria(t *testing.T) {
 		IncludeArchived: true,
 	}
 	crit := q.ToCriteria(nil)
-	if crit.Filter["email"] != "owner@x" {
-		t.Errorf("Filter[email] = %v", crit.Filter["email"])
+	if crit.Filter["Email"] != "owner@x" {
+		t.Errorf("Filter[Email] = %v", crit.Filter["Email"])
 	}
 	if crit.Limit != 1 {
 		t.Errorf("Limit = %d, want 1", crit.Limit)

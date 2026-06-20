@@ -21,11 +21,11 @@ func queryWithUser(userID, addressID string, includeArchived bool) *appqueries.F
 func TestFindAddressByIDQueryHandler_HappyPath(t *testing.T) {
 	reader := &fakeViewReader{
 		docToReturn: map[string]any{
-			"id":   "user-1",
-			"name": "Jane",
-			"addresses": []any{
-				map[string]any{"id": "addr-1", "street": "1 Audit Way"},
-				map[string]any{"id": "addr-2", "street": "2 Other"},
+			"ID":   "user-1",
+			"Name": "Jane",
+			"Addresses": []any{
+				map[string]any{"ID": "addr-1", "Street": "1 Audit Way"},
+				map[string]any{"ID": "addr-2", "Street": "2 Other"},
 			},
 		},
 		docFound: true,
@@ -37,7 +37,7 @@ func TestFindAddressByIDQueryHandler_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got["street"] != "2 Other" {
+	if got["Street"] != "2 Other" {
 		t.Errorf("expected addr-2's payload, got %+v", got)
 	}
 	if reader.readByIDCalled != 1 {
@@ -70,9 +70,9 @@ func TestFindAddressByIDQueryHandler_UserNotFound(t *testing.T) {
 func TestFindAddressByIDQueryHandler_AddressNotFoundInDoc(t *testing.T) {
 	reader := &fakeViewReader{
 		docToReturn: map[string]any{
-			"id": "user-1",
-			"addresses": []any{
-				map[string]any{"id": "addr-1", "street": "x"},
+			"ID": "user-1",
+			"Addresses": []any{
+				map[string]any{"ID": "addr-1", "Street": "x"},
 			},
 		},
 		docFound: true,
@@ -95,7 +95,7 @@ func TestFindAddressByIDQueryHandler_AddressNotFoundInDoc(t *testing.T) {
 
 func TestFindAddressByIDQueryHandler_NoAddressesArray(t *testing.T) {
 	reader := &fakeViewReader{
-		docToReturn: map[string]any{"id": "user-1"},
+		docToReturn: map[string]any{"ID": "user-1"},
 		docFound:    true,
 	}
 	h := &FindAddressByIDQueryHandler{Reader: reader, View: "users"}

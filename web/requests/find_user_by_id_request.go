@@ -30,13 +30,13 @@ func (r FindUserByIDRequest) ToQuery() *queries.FindUserByIDQuery {
 // FindUserByIDResponse is the wire projection of the User view document for
 // GET /users/:id. The route pairs it with fwresponses.AutoFromDoc[
 // FindUserByIDResponse], so the projection is tag-driven and the per-Response
-// FromDoc boilerplate is gone. Two tags govern the mapping:
-//
-//   - json:"<wire>"  — outgoing JSON name (encoding/json contract).
-//   - view:"<key>"   — optional source-key override; declared only where the
-//                      view doc and the wire shape diverge. The composer
-//                      writes Postgres column names verbatim, so multi-word
-//                      columns (zip_code, created_at, …) need the override.
+// FromDoc boilerplate is gone. The MongoViewReader already translates every
+// physical column back to its Go field name using UserSchema()/AddressSchema()
+// (mail → Email, zip_code → ZipCode, the embed doc field "addresses" → the Go
+// segment "Addresses"), so AutoFromDoc keys by the Go field name and the only
+// tag that governs the mapping is json:"<wire>" — the outgoing JSON name. No
+// view: source-key override is needed; the three-name model (json ↔ Go ↔
+// column) is resolved at the two membranes (web json↔Go, infra Go↔column).
 //
 // Co-location convention: Response and Request live in the same file; the
 // nested address shape stays per-endpoint to keep the by-id and list
@@ -50,8 +50,10 @@ type FindUserByIDResponse struct {
 }
 
 // FindUserByIDAddressOutput is the nested wire shape of one Address inside
-// the by-id response. ZipCode is the only field whose doc key (zip_code)
-// differs from its wire name (zipCode) — the view: tag bridges the gap.
+// the by-id response. The reader translates each physical column back to its
+// Go field name via AddressSchema (zip_code → ZipCode) before projection, so
+// AutoFromDoc keys by the Go field name and the json: tag is only the outgoing
+// wire name — no view: source-key override.
 type FindUserByIDAddressOutput struct {
 	ID           string  `json:"id"                   example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Label        *string `json:"label,omitempty"      example:"home"`

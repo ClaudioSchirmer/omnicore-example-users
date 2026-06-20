@@ -6,7 +6,9 @@ import (
 	fwresults "github.com/ClaudioSchirmer/omnicore/application/results"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
+	"github.com/ClaudioSchirmer/omnicore/web/export"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
@@ -48,10 +50,11 @@ func MountUsers(
 	app *fiber.App,
 	repo persistence.ScopedRepository[*appdomain.User],
 	svc domain.Service,
-	viewName string,
+	view *fwinfra.ViewDefinition,
 	d bootstrap.Deps,
 ) {
 	users := app.Group("/users")
+	viewName := view.Name()
 
 	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
 		requests.InsertUserRequest{},
@@ -151,6 +154,52 @@ func MountUsers(
 		fwopenapi.Doc{
 			Summary: "List users (paged + filter)",
 			Description: "Paged read against the `users` Mongo view. Filter operators are declared by struct tag (e.g. `filter:\"eq,in,startswith\"`); unknown query keys or operators outside the allowlist return 400 `SchemaViolationNotification`. Multiple operators on the same field AND-combine. Pass `?includeArchived=true` to include archived users; default hides them.",
+			Tags:        []string{"Users"},
+		},
+		fwopenapi.RequirePermission("users:read"))
+
+	// CSV export — same Request DTO, same view query handler as GET /users,
+	// rendered as a hierarchical CSV (root columns at A, addresses at B…).
+	// Headers come from the `labelKey:"…"` tags on User/Address resolved per
+	// Accept-Language; `?fields=` narrows columns; filters/`?search`/`?sort`
+	// work like the JSON list. User pagination is ignored — the export streams
+	// the full filtered set capped at the resolved maxExportRows. Registered at
+	// the app root (`/users.csv`) to avoid colliding with `/users/:id`. The ';'
+	// delimiter is a showcase of the mount-time CSV option.
+	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+		requests.FindUsersByParamsRequest{},
+		view,
+		d.Export,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		},
+		export.WithDelimiter(','))
+	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.csv",
+		csvH, csvSpec,
+		fwopenapi.Doc{
+			Summary:     "Export users as CSV",
+			Description: "Streams the same `users` view read as GET /users — same filter allowlist, `?search`, `?sort`, `?includeArchived`, `?fields=` — rendered as a hierarchical CSV: root columns start at column A, each address at column B (one column per nesting level). Column headers are the fields' `labelKey` catalog entries rendered in the request's `Accept-Language`. User pagination (`?limit`/`?after`/`?before`/`?onlyTotal`) is ignored — the export returns the full filtered set capped at `query.maxExportRows`. Field separator is `;`.",
+			Tags:        []string{"Users"},
+		},
+		fwopenapi.RequirePermission("users:read"))
+
+	// XLSX export — identical surface to /users.csv, different encoder. The
+	// format-neutral core (ExportPlan + Generate) is reused verbatim; only the
+	// encoder swaps. Headers are bold, numeric/typed cells stay typed, and the
+	// per-level offset becomes the spreadsheet's own column offset.
+	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+		requests.FindUsersByParamsRequest{},
+		view,
+		d.Export,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		},
+		export.WithSheetName("Users"))
+	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/users.xlsx",
+		xlsxH, xlsxSpec,
+		fwopenapi.Doc{
+			Summary:     "Export users as Excel (.xlsx)",
+			Description: "Same surface as `GET /users.csv` — same filter allowlist, `?fields=`, `?search`, `?sort`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook instead of CSV. Header rows are bold and numeric columns keep their numeric cell type. Demonstrates the format-pluggable export: only the encoder differs between this route and `/users.csv`.",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:read"))

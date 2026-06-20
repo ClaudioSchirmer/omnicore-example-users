@@ -61,7 +61,7 @@ type spike4UserWithTags struct {
 	appdomain.User `db:"-"` // embedded but explicitly ignored
 	Name           string   `db:"name"`
 	Email          string   `db:"email"`
-	CPF            string   `db:"cpf"`
+	Username            string   `db:"username"`
 	Phone          string   `db:"phone"`
 }
 
@@ -81,11 +81,11 @@ func TestSpike4_ExtractTags_UserWithTags(t *testing.T) {
 	type taggedUser struct {
 		Name  string `db:"name"`
 		Email string `db:"email"`
-		CPF   string `db:"cpf"`
+		Username   string `db:"username"`
 		Phone string `db:"phone"`
 	}
 	cols := extractDBTags(reflect.TypeOf(taggedUser{}))
-	expect := []string{"name", "email", "cpf", "phone"}
+	expect := []string{"name", "email", "username", "phone"}
 	if !reflect.DeepEqual(cols, expect) {
 		t.Fatalf("expected %v, got %v", expect, cols)
 	}

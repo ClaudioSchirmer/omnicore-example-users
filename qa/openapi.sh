@@ -250,6 +250,35 @@ assert_spec "GET /users/ declares limit query"    '[.paths["/users/"].get.parame
 assert_spec "GET /users/ declares name.eq query"  '[.paths["/users/"].get.parameters[]? | select(.in == "query" and .name == "name")] | length' "1"
 assert_spec "GET /users/{id} declares includeArchived query" '[.paths["/users/{id}"].get.parameters[]? | select(.in == "query" and .name == "includeArchived")] | length' "1"
 
+# ─── Tabular export (/users.csv, /users.xlsx) parameter honesty ──────────
+# The export routes reuse FindUsersByParamsRequest but accept-and-ignore
+# pagination (limit/after/before/onlyTotal) — the *Spec wrappers list those on
+# RouteSpec.OmittedQueryParams so the generator strips them. The HONORED knobs
+# (filters + fields/sort/search/includeArchived) must still render, and the 200
+# must be a file download, not the JSON envelope. A route that renders a knob it
+# silently ignores is a contract lie; these cases pin the omission.
+assert_spec "/users.csv is documented"                   '.paths | has("/users.csv")' "true"
+assert_spec "/users.xlsx is documented"                  '.paths | has("/users.xlsx")' "true"
+# Honored filters/controls still render on the export.
+assert_spec "GET /users.csv declares name filter"        '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "name")] | length' "1"
+assert_spec "GET /users.csv declares name.startswith"    '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "name.startswith")] | length' "1"
+assert_spec "GET /users.csv declares email.in filter"    '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "email.in")] | length' "1"
+assert_spec "GET /users.csv declares fields control"     '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "fields")] | length' "1"
+assert_spec "GET /users.csv declares sort control"       '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "sort")] | length' "1"
+assert_spec "GET /users.csv declares search control"     '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "search")] | length' "1"
+assert_spec "GET /users.csv declares includeArchived"    '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "includeArchived")] | length' "1"
+# Ignored pagination knobs are STRIPPED — Swagger must not advertise them.
+assert_spec "GET /users.csv omits limit param"           '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "limit")] | length' "0"
+assert_spec "GET /users.csv omits after param"           '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "after")] | length' "0"
+assert_spec "GET /users.csv omits before param"          '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "before")] | length' "0"
+assert_spec "GET /users.csv omits onlyTotal param"       '[.paths["/users.csv"].get.parameters[]? | select(.in == "query" and .name == "onlyTotal")] | length' "0"
+assert_spec "GET /users.xlsx omits limit param too"      '[.paths["/users.xlsx"].get.parameters[]? | select(.in == "query" and .name == "limit")] | length' "0"
+assert_spec "GET /users.xlsx declares name filter too"   '[.paths["/users.xlsx"].get.parameters[]? | select(.in == "query" and .name == "name")] | length' "1"
+# 200 is a file download (FileResponse), not the JSON envelope.
+assert_spec "GET /users.csv 200 is a text/csv download"  '[.paths["/users.csv"].get.responses["200"].content | keys[] | select(startswith("text/csv"))] | length' "1"
+assert_spec "GET /users.csv 200 is NOT a JSON envelope"  '.paths["/users.csv"].get.responses["200"].content | has("application/json")' "false"
+assert_spec "GET /users.xlsx 200 is a spreadsheet download" '[.paths["/users.xlsx"].get.responses["200"].content | keys[] | select(startswith("application/vnd.openxmlformats"))] | length' "1"
+
 # ─── Tag coverage ────────────────────────────────────────────────────────
 # Three distinct tag groups expected: Users, Whoami, Manual Users.
 assert_spec "GET /whoami carries Auth tag" '.paths["/whoami"].get.tags[0]' "Auth"

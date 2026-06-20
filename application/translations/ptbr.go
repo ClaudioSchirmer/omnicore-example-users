@@ -33,7 +33,7 @@ func (ptbr) Translations() map[string]string {
 		"User": "Usuário",
 		// Field labels — humanizam o identificador do campo na superfície
 		// reativa (MessageDTO.FieldLabel + render-at-read no audit via
-		// FieldChange.FieldLabelKey). Mapeamento 1:1 com as tags `label:"..."`
+		// FieldChange.FieldLabelKey). Mapeamento 1:1 com as tags `labelKey:"..."`
 		// declaradas em domain/user.go e domain/address.go. Lidos pelo
 		// framework no momento da emissão da notification e no audit_builder;
 		// canais sem frontend (e-mail, SMS, push, leitura de auditoria) leem

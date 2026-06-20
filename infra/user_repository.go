@@ -14,9 +14,9 @@ import (
 //   - BaseRepository[*User]: Insert/Update/Archive/Unarchive/Delete + New()
 //     via factory. Unique violations (PG 23505) become typed notifications
 //     via the Constraints map.
-//   - *AggregateLoader[*User]: FindByID/FindArchivedByID via auto-scan
-//     (reflection over the exported fields of *User and *Address). Children
-//     registered via fwinfra.WithChild[V](r.Loader).
+//   - *AggregateLoader[*User]: FindByID/FindArchivedByID via auto-scan driven
+//     by the explicit UserSchema() (root + Address child). WithSchema threads
+//     the same map into the write binding, the criteria engine, and the scan.
 //
 // ContextName not declared — derived from the Go type T via TypeName[T](),
 // default "User". Override only for custom magic patterns (legacy / two Repos
@@ -35,7 +35,7 @@ func NewUserRepository(pg *fwinfra.Postgres) *UserRepository {
 	r.Constraints = map[string]fwinfra.ConstraintBinding{
 		"users_email_active_idx": {Notification: appdomain.EmailAlreadyExistsNotification{}, Field: "email"},
 	}
-	fwinfra.WithChild[appdomain.Address](r.Loader)
+	r.WithSchema(UserSchema())
 	return r
 }
 

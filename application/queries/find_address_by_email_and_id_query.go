@@ -10,7 +10,7 @@ import (
 // FindAddressByIDQuery. Same projection — one address sub-document of one
 // User view doc — exposed under
 // /showcase/users-custom/:email/addresses/:addressId. The route resolves
-// the parent via Email (Filter[email]=<value> + Limit:1 ReadPage), then
+// the parent via Email (Filter[Email]=<value> + Limit:1 ReadPage), then
 // walks the embedded addresses[] for the matching ID, matching the
 // canonical handler's shape.
 //
@@ -26,7 +26,7 @@ type FindAddressByEmailAndIDQuery struct {
 
 func (q FindAddressByEmailAndIDQuery) ToCriteria(_ *configuration.AppContext) fwqueries.ReadCriteria {
 	return fwqueries.ReadCriteria{
-		Filter:          map[string]any{"email": q.Email},
+		Filter:          map[string]any{"Email": q.Email},
 		Limit:           1,
 		IncludeArchived: q.IncludeArchived,
 	}

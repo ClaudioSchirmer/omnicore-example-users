@@ -327,9 +327,9 @@ for forbidden in ("sub","iss","aud","exp","iat","azp","sid","jti"):
 
 assert_audit "1.2 Insert audit — snapshot block + children op=added" '
 snap = a.get("snapshot") or {}
-eq(snap.get("name"),  "Jane Doe",        "snapshot.name")
-eq(snap.get("email"), "alice@omnicore.test", "snapshot.email")
-eq(snap.get("phone"), "14155552671",     "snapshot.phone")
+eq(snap.get("Name"),  "Jane Doe",        "snapshot.name")
+eq(snap.get("Email"), "alice@omnicore.test", "snapshot.email")
+eq(snap.get("Phone"), "14155552671",     "snapshot.phone")
 expect("changes" not in a, "kind=snapshot must NOT carry changes (got " + repr(a.get("changes")) + ")")
 children = a.get("children") or {}
 addrs = children.get("Address") or []
@@ -337,7 +337,7 @@ eq(len(addrs), 1, "children.Address length")
 if addrs:
     e = addrs[0]
     eq(e.get("op"), "inserted", "children.Address[0].op (SQL-grounded: INSERT INTO addresses)")
-    eq((e.get("snapshot") or {}).get("street"), "1 Audit Way", "children.Address[0].snapshot.street")
+    eq((e.get("snapshot") or {}).get("Street"), "1 Audit Way", "children.Address[0].snapshot.street")
     expect("changes" not in e, "inserted child must not carry changes")
 '
 
@@ -362,7 +362,7 @@ changes = a.get("changes") or []
 eq(len(changes), 1, "changes length (only name changed)")
 if changes:
     c = changes[0]
-    eq(c.get("field"), "name",                "changes[0].field")
+    eq(c.get("field"), "Name",                "changes[0].field")
     eq(c.get("from"),  "Jane Doe",            "changes[0].from")
     eq(c.get("to"),    "Jane Doe (patched)",  "changes[0].to")
 # Address children were not touched — all carry status=Constructor and the auditor skips them on Update.
@@ -399,7 +399,7 @@ eq(a.get("actionName"), "GetUpdatable", "actionName")
 expect("snapshot" not in a, "kind=delta must NOT carry root snapshot")
 changes = a.get("changes") or []
 # Only phone was actually changed (name same, email same).
-phone_changes = [c for c in changes if c.get("field") == "phone"]
+phone_changes = [c for c in changes if c.get("field") == "Phone"]
 eq(len(phone_changes), 1, "expected exactly one change on phone")
 if phone_changes:
     eq(phone_changes[0].get("from"), "14155552671", "phone.from")
@@ -414,11 +414,11 @@ inserted = [e for e in addrs if e.get("op") == "inserted"]
 eq((len(archived), len(inserted)), (1, 2), "(archived,inserted) counts")
 if archived:
     # archived entry carries snapshot of the value that was archived (pre-mutation state).
-    eq((archived[0].get("snapshot") or {}).get("street"), "1 Audit Way",
+    eq((archived[0].get("snapshot") or {}).get("Street"), "1 Audit Way",
        "archived.snapshot.street")
     expect("changes" not in archived[0], "archived entry must not carry changes")
 if inserted:
-    streets = sorted((e.get("snapshot") or {}).get("street","") for e in inserted)
+    streets = sorted((e.get("snapshot") or {}).get("Street","") for e in inserted)
     eq(streets, ["2 Updated Ave","3 Office Pl"], "inserted streets via snapshot")
     for e in inserted:
         expect("changes" not in e, "inserted entry must not carry changes")
@@ -441,7 +441,7 @@ addrs = (a.get("children") or {}).get("Address") or []
 eq(len(addrs), 2, "children.Address length")
 for e in addrs:
     eq(e.get("op"), "archived", "child op")
-    expect((e.get("snapshot") or {}).get("street"), "archived child must carry snapshot of the cascaded address")
+    expect((e.get("snapshot") or {}).get("Street"), "archived child must carry snapshot of the cascaded address")
 '
 
 ##############################################################################
@@ -464,7 +464,7 @@ addrs = (a.get("children") or {}).get("Address") or []
 # archived children for that root_id. Lowering the count would mask a
 # regression where some archived children silently stay archived.
 eq(len(addrs), 3, "children.Address length")
-streets = sorted((e.get("snapshot") or {}).get("street","") for e in addrs)
+streets = sorted((e.get("snapshot") or {}).get("Street","") for e in addrs)
 eq(streets, ["1 Audit Way","2 Updated Ave","3 Office Pl"], "addresses restored")
 for e in addrs:
     eq(e.get("op"), "unarchived", "address op")
@@ -485,7 +485,7 @@ eq(a.get("entityId"),   os.environ["USER_ID"],   "entityId")
 # Delete kind=snapshot carries the entity state at deletion moment (captured
 # by Old() at GetDeletable entry; no mutation step on Delete).
 snap = a.get("snapshot") or {}
-eq(snap.get("name"), "Jane Doe (patched)", "snapshot.name")
+eq(snap.get("Name"), "Jane Doe (patched)", "snapshot.name")
 expect("changes" not in a, "kind=snapshot must NOT carry changes")
 # Case 5 (Unarchive) restored all 3 archived addresses to active. Delete now
 # loads the aggregate via FindByID (deleted_at IS NULL filter), finds all 3
@@ -614,15 +614,15 @@ if addrs:
     # neighborhood/city/state/country were sent identical to the prior row
     # so they must NOT appear among the deltas.
     fields = sorted(c.get("field","") for c in deltas)
-    eq(fields, ["label","number","street","zip_code"],
+    eq(fields, ["Label","Number","Street","ZipCode"],
        "changes fields must enumerate ONLY the mutated columns")
     by_field = {c.get("field"): c for c in deltas}
-    eq(by_field["street"].get("from"), "1 Audit Way",  "street.from")
-    eq(by_field["street"].get("to"),   "100 Market St", "street.to")
-    eq(by_field["label"].get("from"),  "home",   "label.from")
-    eq(by_field["label"].get("to"),    "office", "label.to")
-    eq(by_field["zip_code"].get("from"), "94103", "zip_code.from")
-    eq(by_field["zip_code"].get("to"),   "94105", "zip_code.to")
+    eq(by_field["Street"].get("from"), "1 Audit Way",  "street.from")
+    eq(by_field["Street"].get("to"),   "100 Market St", "street.to")
+    eq(by_field["Label"].get("from"),  "home",   "label.from")
+    eq(by_field["Label"].get("to"),    "office", "label.to")
+    eq(by_field["ZipCode"].get("from"), "94103", "zip_code.from")
+    eq(by_field["ZipCode"].get("to"),   "94105", "zip_code.to")
 # The untouched address (Constructor-status) must NEVER appear, even by id.
 for e in addrs:
     if e.get("id") == UNTOUCHED:
@@ -671,13 +671,13 @@ if addrs:
     deltas = e.get("changes") or []
     fields = sorted(c.get("field","") for c in deltas)
     # Mutated this round: label (office→home), street, number, zip_code
-    eq(fields, ["label","number","street","zip_code"],
+    eq(fields, ["Label","Number","Street","ZipCode"],
        "changes fields must enumerate ONLY the mutated columns")
     by_field = {c.get("field"): c for c in deltas}
-    eq(by_field["street"].get("from"), "100 Market St",  "street.from")
-    eq(by_field["street"].get("to"),   "500 Mission St", "street.to")
-    eq(by_field["label"].get("from"), "office", "label.from")
-    eq(by_field["label"].get("to"),   "home",   "label.to")
+    eq(by_field["Street"].get("from"), "100 Market St",  "street.from")
+    eq(by_field["Street"].get("to"),   "500 Mission St", "street.to")
+    eq(by_field["Label"].get("from"), "office", "label.from")
+    eq(by_field["Label"].get("to"),   "home",   "label.to")
 '
 
 ##############################################################################
@@ -782,12 +782,12 @@ capture_audit PATCH "/users/$MULTI_USER_ID" '{"name":"Multi Probe (renamed)","ph
 assert_audit "13.1 PATCH on name+phone → changes array carries both, sorted by field" '
 changes = a.get("changes") or []
 fields = sorted(c.get("field","") for c in changes)
-eq(fields, ["name","phone"], "fields in changes (sorted)")
+eq(fields, ["Name","Phone"], "fields in changes (sorted)")
 by_field = {c.get("field"): c for c in changes}
-eq(by_field["name"].get("from"),  "Multi Probe",            "name.from")
-eq(by_field["name"].get("to"),    "Multi Probe (renamed)", "name.to")
-eq(by_field["phone"].get("from"), "14155554444",            "phone.from")
-eq(by_field["phone"].get("to"),   "14155557777",            "phone.to")
+eq(by_field["Name"].get("from"),  "Multi Probe",            "name.from")
+eq(by_field["Name"].get("to"),    "Multi Probe (renamed)", "name.to")
+eq(by_field["Phone"].get("from"), "14155554444",            "phone.from")
+eq(by_field["Phone"].get("to"),   "14155557777",            "phone.to")
 # email was NOT in the body — must NOT appear in changes.
 expect("email" not in by_field, "email must NOT appear in changes when not in PATCH body")
 '
@@ -816,7 +816,7 @@ eq(a.get("kind"),       "snapshot",      "kind")
 eq(a.get("actionName"), "GetInsertable", "actionName")
 eq(a.get("actor"),      os.environ["ALICE_SUB"], "actor")
 snap = a.get("snapshot") or {}
-eq(snap.get("name"), "Custom Probe", "snapshot.name")
+eq(snap.get("Name"), "Custom Probe", "snapshot.name")
 '
 
 # Custom PATCH
@@ -829,7 +829,7 @@ eq(a.get("actionName"), "GetPartialUpdatable",   "actionName (manual showcase pr
 changes = a.get("changes") or []
 eq(len(changes), 1, "changes length")
 if changes:
-    eq(changes[0].get("field"), "name", "changes[0].field")
+    eq(changes[0].get("field"), "Name", "changes[0].field")
 '
 
 # Custom Archive
@@ -949,13 +949,13 @@ assert_audit "17.1 PATCH Name → FieldChange.fieldLabelKey=UserNameField" '
 eq(a.get("verb"), "update", "verb")
 eq(a.get("kind"), "delta",  "kind")
 ch = a.get("changes") or []
-hits = [c for c in ch if c.get("field") == "name"]
+hits = [c for c in ch if c.get("field") == "Name"]
 eq(len(hits), 1, "name change count")
 if hits:
   eq(hits[0].get("fieldLabelKey"), "UserNameField", "name fieldLabelKey")
 # Untagged columns (updated_at) carry no label tag — fieldLabelKey omitted.
 for c in ch:
-  if c.get("field") != "name":
+  if c.get("field") != "Name":
     expect("fieldLabelKey" not in c or c.get("fieldLabelKey") == "",
            "untagged column " + repr(c.get("field")) + " must omit fieldLabelKey, got " + repr(c.get("fieldLabelKey")))
 '
@@ -984,7 +984,7 @@ addrs = (a.get("children") or {}).get("Address") or []
 eq(len(addrs), 1, "children.Address length")
 if addrs:
   ch = addrs[0].get("changes") or []
-  hits = [c for c in ch if c.get("field") == "zip_code"]
+  hits = [c for c in ch if c.get("field") == "ZipCode"]
   eq(len(hits), 1, "zip_code change count")
   if hits:
     eq(hits[0].get("fieldLabelKey"), "AddressZipCodeField", "zip_code fieldLabelKey")

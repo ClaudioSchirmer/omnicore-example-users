@@ -14,11 +14,11 @@ func TestFindAddressByEmailAndIDQueryHandler_HappyPath(t *testing.T) {
 	reader := &fakeViewReader{
 		pageToReturn: fwqueries.Page{Items: []map[string]any{
 			{
-				"id":    "user-1",
+				"ID":    "user-1",
 				"email": "jane@example.com",
-				"addresses": []any{
-					map[string]any{"id": "addr-1", "street": "1 Audit Way"},
-					map[string]any{"id": "addr-2", "street": "2 Other"},
+				"Addresses": []any{
+					map[string]any{"ID": "addr-1", "Street": "1 Audit Way"},
+					map[string]any{"ID": "addr-2", "Street": "2 Other"},
 				},
 			},
 		}},
@@ -30,13 +30,13 @@ func TestFindAddressByEmailAndIDQueryHandler_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got["street"] != "2 Other" {
+	if got["Street"] != "2 Other" {
 		t.Errorf("expected addr-2's payload, got %+v", got)
 	}
 	if reader.readPageCalled != 1 {
 		t.Errorf("expected ReadPage called once, got %d", reader.readPageCalled)
 	}
-	if reader.gotCriteria.Filter["email"] != "jane@example.com" {
+	if reader.gotCriteria.Filter["Email"] != "jane@example.com" {
 		t.Errorf("expected email filter applied, got %+v", reader.gotCriteria.Filter)
 	}
 }
@@ -62,10 +62,10 @@ func TestFindAddressByEmailAndIDQueryHandler_UserMissing(t *testing.T) {
 func TestFindAddressByEmailAndIDQueryHandler_AddressMissingInDoc(t *testing.T) {
 	reader := &fakeViewReader{
 		pageToReturn: fwqueries.Page{Items: []map[string]any{{
-			"id":    "user-1",
+			"ID":    "user-1",
 			"email": "jane@example.com",
-			"addresses": []any{
-				map[string]any{"id": "addr-1", "street": "x"},
+			"Addresses": []any{
+				map[string]any{"ID": "addr-1", "Street": "x"},
 			},
 		}}},
 	}

@@ -6,8 +6,10 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 )
 
-// Address is an AggregateValueObject of User. It lives in the addresses table,
-// linked back via user_id (handled by the framework's aggregate persister).
+// Address is an AggregateValueObject of User. It is persisted in a child table
+// linked back to the root by a foreign key — both declared in infra/schema.go
+// (AddressSchema) and handled by the framework's aggregate persister; the
+// domain itself names no table or column.
 //
 // Value type (not pointer) so reflect.DeepEqual inside the framework's typed
 // primitives (AddAggregateChild / ChangeAggregateChild) compares by field
@@ -17,15 +19,15 @@ import (
 // addresses are nullable. Same convention as User.Phone: nil → NULL.
 type Address struct {
 	ID           string
-	Label        *string `label:"AddressLabelField"`
-	Street       string  `label:"AddressStreetField"`
-	Number       string  `label:"AddressNumberField"`
-	Complement   *string `label:"AddressComplementField"`
-	Neighborhood string  `label:"AddressNeighborhoodField"`
-	City         string  `label:"AddressCityField"`
-	State        string  `label:"AddressStateField"`
-	ZipCode      string  `label:"AddressZipCodeField"`
-	Country      string  `label:"AddressCountryField"`
+	Label        *string `labelKey:"AddressLabelField"`
+	Street       string  `labelKey:"AddressStreetField"`
+	Number       string  `labelKey:"AddressNumberField"`
+	Complement   *string `labelKey:"AddressComplementField"`
+	Neighborhood string  `labelKey:"AddressNeighborhoodField"`
+	City         string  `labelKey:"AddressCityField"`
+	State        string  `labelKey:"AddressStateField"`
+	ZipCode      string  `labelKey:"AddressZipCodeField"`
+	Country      string  `labelKey:"AddressCountryField"`
 }
 
 func (a Address) GetID() string { return a.ID }
@@ -42,9 +44,10 @@ func (a Address) sameBusinessIdentity(other Address) bool {
 		a.Number == other.Number
 }
 
-// Framework infra extracts columns via reflection on the exported fields;
-// "ID" and tag `transient:"-"` are skipped automatically; FK "user_id" is
-// injected by infra (it does not belong to the struct).
+// The physical columns are declared explicitly in infra/schema.go via
+// AddressSchema() (Go field ↔ column, e.g. ZipCode ↔ zip_code); "ID" is the PK
+// and the FK "user_id" is injected by the persister (it does not belong to the
+// struct). The domain never pronounces a column name.
 
 // BuildRules has the same shape as User.BuildRules so root and child read the
 // same way: r.IfInsertOrUpdate dispatches by mode, r.AddNotification emits
