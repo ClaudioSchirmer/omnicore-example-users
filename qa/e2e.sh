@@ -1362,7 +1362,7 @@ fi
 rm -f "$TMP"
 
 ####################################
-sec "19. GET /users.csv + /users.xlsx — tabular export (hierarchical + labelKey headers + ?fields)"
+sec "19. GET /users.csv + /users.xlsx — tabular export (hierarchical + labelKey headers + ?fields + filters/search/sort/archive)"
 ####################################
 # The CSV route reuses the same `users` view + FindUsersByParamsRequest as GET
 # /users, rendered as a hierarchical CSV: root columns at column A, addresses at
@@ -1452,6 +1452,92 @@ else
   printf '\033[1;31mFAIL\033[0m (expected 400, got %s)\n' "$STATUS"; FAIL=$((FAIL+1))
 fi
 rm -f "$TMP"
+
+####################################
+# 19.11+ — the export HONORS filters / search / sort / ?fields / archive.
+# Seeds two uniquely-named fixtures ("…Exportprobe") so the assertions stay
+# deterministic regardless of the tangled multi-user state earlier sections
+# leave behind, then drives each query knob through /users.csv and asserts the
+# OUTPUT actually changes — proving the knob is honored, not silently ignored
+# (the way pagination is). XLSX shares the wrapper, so a status smoke per knob
+# covers the second encoder.
+####################################
+title "19.11 Seed export fixtures (Zelda/Yuri Exportprobe) + wait for the Mongo view"
+EXP1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
+  --data '{"name":"Zelda Exportprobe","email":"zelda.exp@example.com","phone":"14155550001","addresses":[{"label":"home","street":"1 Export St","number":"1","neighborhood":"Probe","city":"Exportville","state":"CA","zipCode":"94000","country":"US"}]}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
+EXP2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
+  --data '{"name":"Yuri Exportprobe","email":"yuri.exp@example.com","phone":"14155550002","addresses":[{"label":"home","street":"2 Export Ave","number":"2","neighborhood":"Probe","city":"Exporton","state":"CA","zipCode":"94001","country":"US"}]}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
+echo "EXP1=$EXP1 (Zelda)  EXP2=$EXP2 (Yuri)"
+if wait_for_view "$EXP1" "200" 15 && wait_for_view "$EXP2" "200" 15; then
+  printf '\033[1;32mPASS\033[0m (both fixtures materialized in the view)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (CDC timeout seeding export fixtures)\n'; FAIL=$((FAIL+1))
+fi
+
+# Filter — positive selects only the match; a no-match query returns 200 with
+# neither probe, proving the filter is applied (not dropped like pagination).
+csv_assert "19.12 filter ?email.eq selects Zelda only" "?email.eq=zelda.exp@example.com" 200 "zelda.exp@example.com" "yuri.exp@example.com"
+csv_assert "19.13 filter no-match → 200 with neither probe" "?email.eq=nobody.nomatch@example.com" 200 "" "exp@example.com"
+
+# Search — the view's TextIndex(name,email) backs ?search; a matching term
+# surfaces both probes, a non-matching term surfaces neither.
+csv_assert "19.14 ?search=Exportprobe surfaces Zelda" "?search=Exportprobe" 200 "zelda.exp@example.com"
+csv_assert "19.15 ?search=Exportprobe surfaces Yuri"  "?search=Exportprobe" 200 "yuri.exp@example.com"
+csv_assert "19.16 ?search no-match surfaces neither"  "?search=zzznomatchqqq" 200 "" "exp@example.com"
+
+# ?fields — nested + scalar projection narrows the columns end to end.
+csv_assert "19.17 ?fields=addresses.city keeps the city, drops email" "?fields=addresses.city&name.icontains=Exportprobe" 200 "Exportville" "exp@example.com"
+csv_assert "19.18 ?fields=email keeps the email, drops the name"      "?fields=email&name.icontains=Exportprobe" 200 "zelda.exp@example.com" "Exportprobe"
+
+# Sort — honored value accepted; undeclared value rejected; asc vs desc reversed.
+csv_assert "19.19 ?sort=email honored (200)" "?sort=email&name.icontains=Exportprobe" 200 "zelda.exp@example.com"
+csv_assert "19.20 ?sort=bogus rejected (400)" "?sort=bogus" 400
+title "19.21 ?sort=email ascending vs ?sort=-email descending — ordering is observable"
+ASC=$(curl -sS "$BASE/users.csv?fields=email&name.icontains=Exportprobe&sort=email"  -H "Accept-Language: en-US" | grep -F '@example.com' | head -1)
+DESC=$(curl -sS "$BASE/users.csv?fields=email&name.icontains=Exportprobe&sort=-email" -H "Accept-Language: en-US" | grep -F '@example.com' | head -1)
+echo "asc_first=$ASC  desc_first=$DESC"
+if echo "$ASC" | grep -q "yuri.exp@example.com" && echo "$DESC" | grep -q "zelda.exp@example.com"; then
+  printf '\033[1;32mPASS\033[0m (asc=yuri…, desc=zelda… — sort drives the order)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (ordering not honored: asc=%s desc=%s)\n' "$ASC" "$DESC"; FAIL=$((FAIL+1))
+fi
+
+# Archive — default export hides the archived row (the default reader still
+# filters deleted_at on the keep-by-default view); ?includeArchived=true shows it.
+title "19.22 Archive EXP2 (Yuri) + wait for the view to reflect it (default by-id → 404)"
+curl -sS -o /dev/null -X PATCH "$BASE/users/$EXP2/archive" -H "Content-Type: application/json"
+if wait_for_view "$EXP2" "404" 15; then
+  printf '\033[1;32mPASS\033[0m (EXP2 archived; hidden from the default reader)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (CDC timeout archiving EXP2)\n'; FAIL=$((FAIL+1))
+fi
+csv_assert "19.23 default export hides archived Yuri" "?name.icontains=Exportprobe" 200 "zelda.exp@example.com" "yuri.exp@example.com"
+csv_assert "19.24 ?includeArchived=true surfaces archived Yuri" "?includeArchived=true&name.icontains=Exportprobe" 200 "yuri.exp@example.com"
+
+# XLSX shares the wrapper — the same honored knobs must be accepted (200) and the
+# same undeclared sort rejected (400), regardless of the encoder.
+xlsx_status() {
+  local name="$1" query="$2" expected="$3"
+  title "$name"
+  local s; s=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users.xlsx$query" -H "Accept-Language: en-US")
+  echo "GET /users.xlsx$query → $s"
+  if [ "$s" = "$expected" ]; then printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1));
+  else printf '\033[1;31mFAIL\033[0m (expected %s)\n' "$expected"; FAIL=$((FAIL+1)); fi
+}
+xlsx_status "19.25 xlsx honors ?name.icontains (200)"       "?name.icontains=Exportprobe" 200
+xlsx_status "19.26 xlsx honors ?search (200)"               "?search=Exportprobe" 200
+xlsx_status "19.27 xlsx honors ?sort=email (200)"           "?sort=email" 200
+xlsx_status "19.28 xlsx honors ?fields=email (200)"         "?fields=email" 200
+xlsx_status "19.29 xlsx honors ?includeArchived=true (200)" "?includeArchived=true" 200
+xlsx_status "19.30 xlsx rejects ?sort=bogus (400)"          "?sort=bogus" 400
+
+title "19.31 Cleanup export fixtures (unarchive EXP2, delete both)"
+curl -sS -o /dev/null -X PATCH  "$BASE/users/$EXP2/unarchive" -H "Content-Type: application/json"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$EXP1"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$EXP2"
+echo "deleted EXP1=$EXP1 EXP2=$EXP2 (EXP2 unarchived first so DELETE resolves)"
 
 ####################################
 sec "Summary"
