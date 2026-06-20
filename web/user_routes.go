@@ -168,10 +168,8 @@ func MountUsers(
 	// delimiter is a showcase of the mount-time CSV option.
 	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
-		view.ExportPlan(),
-		d.Translator,
-		view.ResolveMaxExportRows(d.Config.Query.MaxExportRows),
-		"users",
+		view,
+		d.Export,
 		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
 			Reader: d.ViewReader, View: viewName,
 		},
@@ -191,10 +189,8 @@ func MountUsers(
 	// per-level offset becomes the spreadsheet's own column offset.
 	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
-		view.ExportPlan(),
-		d.Translator,
-		view.ResolveMaxExportRows(d.Config.Query.MaxExportRows),
-		"users",
+		view,
+		d.Export,
 		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
 			Reader: d.ViewReader, View: viewName,
 		},
