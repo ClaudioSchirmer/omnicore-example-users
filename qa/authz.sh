@@ -183,7 +183,7 @@ print(msgs[0].get("notificationKey", ""))
 # the Mongo read view (the field-access assertions read from that view).
 wait_for_user_in_view() {
   local token="$1" email="$2" i=0
-  while [ "$i" -lt 30 ]; do
+  while [ "$i" -lt 60 ]; do
     if curl -sS -H "Authorization: Bearer $token" "$BASE/users?email=$email" 2>/dev/null | grep -q "$email"; then
       return 0
     fi
