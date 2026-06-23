@@ -382,16 +382,16 @@ In `infra/user_repository.go` you need to import `omnicore/domain` (framework) A
 
 ### Commands (`application/commands/`)
 
-Each file co-locates input + output of the same use case: Command + hydration method (`ToEntity`/`ApplyTo`/`ApplyPartiallyTo`) on the way in AND `Cmd.FromEntity(ctx, T) Result` on the way out — both methods sit on the **Command** struct. Result is a pure data struct (no methods) declared in the same file. Commands do not carry JSON tags — wire format lives in `web/requests/`.
+Each file co-locates input + output of the same use case: Command + hydration method (`ToEntity`/`ApplyTo`/`ApplyPartiallyTo`) on the way in AND `Cmd.FromEntity(ctx, T) (Result, error)` on the way out — both methods sit on the **Command** struct. Result is a pure data struct (no methods) declared in the same file. Commands do not carry JSON tags — wire format lives in `web/requests/`.
 
-| File | Command | Type | Hydration (input) | `FromEntity(ctx, *User) Result` (output, on Cmd) |
+| File | Command | Type | Hydration (input) | `FromEntity(ctx, *User) (Result, error)` (output, on Cmd) |
 |---|---|---|---|---|
-| `insert_user.go` | `InsertUserCommand` | `pipeline.CommandBase` | `ToEntity(ctx) *User` — creates User + `u.AddAddress(addr, nil)` per address | `InsertUserResult{ID, Name, Email, Phone}` |
-| `update_user.go` | `UpdateUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User)` — replace root fields + `u.ReplaceAddresses(addrs)` | `UpdateUserResult{ID, Name, Email, Phone}` |
-| `patch_user.go` | `PatchUserCommand` | `pipeline.CommandBaseWithID` | `ApplyPartiallyTo(ctx, *User)` — apply only non-nil fields | `PatchUserResult{ID, Name, Email, Phone}` |
-| `archive_user.go` | `ArchiveUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User)` — no-op in this showcase; hook for ctx→authz translation | none — endpoint uses `fwresults.None` default |
-| `unarchive_user.go` | `UnarchiveUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User)` — no-op in this showcase; hook for ctx→authz translation | none — endpoint uses `fwresults.None` default |
-| `delete_user.go` | `DeleteUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User)` — no-op in this showcase; hook for ctx→authz translation | none — endpoint uses `fwresults.None` default |
+| `insert_user.go` | `InsertUserCommand` | `pipeline.CommandBase` | `ToEntity(ctx) (*User, error)` — creates User + `u.AddAddress(addr, nil)` per address | `InsertUserResult{ID, Name, Email, Phone}` |
+| `update_user.go` | `UpdateUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User) error` — replace root fields + `u.ReplaceAddresses(addrs)` | `UpdateUserResult{ID, Name, Email, Phone}` |
+| `patch_user.go` | `PatchUserCommand` | `pipeline.CommandBaseWithID` | `ApplyPartiallyTo(ctx, *User) error` — apply only non-nil fields | `PatchUserResult{ID, Name, Email, Phone}` |
+| `archive_user.go` | `ArchiveUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User) error` — no-op in this showcase; hook for ctx→authz translation | none — endpoint uses `fwresults.None` default |
+| `unarchive_user.go` | `UnarchiveUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User) error` — no-op in this showcase; hook for ctx→authz translation | none — endpoint uses `fwresults.None` default |
+| `delete_user.go` | `DeleteUserCommand` | `pipeline.CommandBaseWithID` | `ApplyTo(ctx, *User) error` — no-op in this showcase; hook for ctx→authz translation | none — endpoint uses `fwresults.None` default |
 
 **ctx flow into the application layer:** `Request.ToCommand()` is body-only (no ctx). The application layer receives the request `*AppContext` via the handler's `Handle(ctx, cmd)` and forwards it to the Command's mapper method (`ToEntity(ctx)`, `ApplyTo(ctx, t)`, `ApplyPartiallyTo(ctx, t)`). The Command is the only layer that may translate ctx into business-named entity fields. This example **does** exercise the Layer-2 authz hook: `archive_user.go::ApplyTo(ctx, u)` reads `ctx.Identity()` and populates `u.RequestingPrincipalEmail` / `u.RequestingPrincipalIsAdmin` (runtime-only fields not declared in `UserSchema()`); `BuildRules.IfUpdate` then validates the owner-check when `actionName == "GetArchivable"`. The other verbs' `ApplyTo` accept ctx and currently ignore it — the same hook is available to them when a rule needs it.
 
@@ -405,7 +405,7 @@ Full description in [`../omnicore/CLAUDE.md`](../omnicore/CLAUDE.md) section "Au
 
 `AddressInput` (DTO shared between the canonical Insert/Update Commands) lives in `application/dtos/address_input.go` — co-located with the application layer, separated from the Commands that use it to anticipate other shared DTOs such as PaginationInput, FilterInput, etc. The manual showcase has its own `AddressInputCustom` in `address_input_custom.go` — the two surfaces share nothing above `domain/`.
 
-None of these Commands has `Handle`. They are consumed by the framework's **Auto Command Handlers** (`handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]`, `handlers.PartialUpdateCommandHandler[*User, *PatchUserCommand, commands.PatchUserResult]`, etc.) wired in `web/user_routes.go`. Each handler struct just carries `Repo` and an optional `Service` — no `Auditor`, no `Project` field. Audit emission is automatic via `infra.Postgres` (configured at boot from `audit.destinations`); handlers never thread an auditor. The projection lives on the Cmd as `cmd.FromEntity(ctx, T) TResult` (symmetric with `cmd.ToEntity`/`ApplyTo` on the input side); bodyless verbs (Archive/Unarchive/Delete) declare `FromEntity` returning `fwresults.None{}`. **Zero manual handlers** — all update/patch/archive logic fits in commands + Entity.
+None of these Commands has `Handle`. They are consumed by the framework's **Auto Command Handlers** (`handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]`, `handlers.PartialUpdateCommandHandler[*User, *PatchUserCommand, commands.PatchUserResult]`, etc.) wired in `web/user_routes.go`. Each handler struct just carries `Repo` and an optional `Service` — no `Auditor`, no `Project` field. Audit emission is automatic via `infra.Postgres` (configured at boot from `audit.destinations`); handlers never thread an auditor. The projection lives on the Cmd as `cmd.FromEntity(ctx, T) (TResult, error)` (symmetric with `cmd.ToEntity`/`ApplyTo` on the input side); bodyless verbs (Archive/Unarchive/Delete) declare `FromEntity` returning `fwresults.None{}`. **Zero manual handlers** — all update/patch/archive logic fits in commands + Entity.
 
 ### Request DTOs (`web/requests/`)
 
@@ -980,12 +980,12 @@ The script registers the connector via the Kafka Connect REST API — POST if ne
    3b. Type mismatch (wrong field type) → 400 with SchemaViolationNotification (field from the JSON path, context "Schema")
    3c. (PUT only: FullBody marker) missing required field → 400 with RequiredFieldNotification (semantic Schema)
 3.5. appCtx := fwweb.AppContext(c); appCtx.SetParent(c)
-3.6. cmd := req.ToCommand(appCtx) — web→application boundary (1:1 assignment; appCtx exposed for future JWT overlays)
+3.6. cmd := req.ToCommand() — web→application boundary (pure 1:1 body assignment; no ctx — identity-derived translation belongs to the application layer, reached via Handle(ctx, cmd) + cmd.ToEntity(ctx) below)
 4. pipeline.Dispatch(pipe, ctx, cmd, InsertCommandHandler)
    └─ pipeline.Run wraps in defer/recover
       └─ Auto handler.Handle(ctx, *cmd)
-         └─ user := cmd.ToEntity() — creates User + u.AddAddress(addr, nil) per address
-         └─ domain.GetInsertable(user, nil)
+         └─ user, err := cmd.ToEntity(ctx) — creates User + u.AddAddress(addr, nil) per address; non-nil err short-circuits to Result.Failure
+         └─ domain.GetInsertable(user, nil, "GetInsertable")
             └─ BuildRules: validates root fields (children auto-iterated afterwards)
             └─ runAggregateValidations: Address.IsValid on each
             └─ checkAllNotifications → *DomainError if any
