@@ -16,7 +16,7 @@ func TestFindUserByParamsQuery_ToCriteriaIsIdentity(t *testing.T) {
 	}
 	q := FindUserByParamsQuery{Criteria: want}
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	got := q.ToCriteria(ctx)
+	got, _ := q.ToCriteria(ctx)
 
 	if got.Limit != 20 || !got.IncludeArchived {
 		t.Errorf("scalar fields not preserved: %+v", got)
@@ -26,5 +26,54 @@ func TestFindUserByParamsQuery_ToCriteriaIsIdentity(t *testing.T) {
 	}
 	if len(got.Sort) != 1 || got.Sort[0].Field != "name" || !got.Sort[0].Desc {
 		t.Errorf("sort not preserved: %+v", got.Sort)
+	}
+}
+
+func ctxWithPermissions(perms ...string) *configuration.AppContext {
+	ctx := configuration.NewAppContextWithRandomID(configuration.LangENG)
+	ctx.SetIdentity(&configuration.Identity{
+		Subject: "u1",
+		Claims:  map[string]any{"permissions": perms},
+	})
+	return ctx
+}
+
+func TestFindUserByParamsQuery_PhoneRestrictedForNonAdmin(t *testing.T) {
+	got, err := FindUserByParamsQuery{}.ToCriteria(ctxWithPermissions("users:read"))
+	if err != nil {
+		t.Fatalf("passive read should not 403, got %v", err)
+	}
+	if v, ok := got.Projection["Phone"]; !ok || v != 0 {
+		t.Errorf("Phone should be excluded for a non-admin, got Projection=%v", got.Projection)
+	}
+}
+
+func TestFindUserByParamsQuery_PhoneVisibleForAdmin(t *testing.T) {
+	got, err := FindUserByParamsQuery{}.ToCriteria(ctxWithPermissions("users:admin"))
+	if err != nil {
+		t.Fatalf("admin read should not error, got %v", err)
+	}
+	if _, ok := got.Projection["Phone"]; ok {
+		t.Errorf("Phone must not be restricted for an admin, got Projection=%v", got.Projection)
+	}
+}
+
+func TestFindUserByParamsQuery_PhoneVisibleWhenAuthDisabled(t *testing.T) {
+	// nil Identity (auth-disabled dev) trusts everyone — Phone stays.
+	got, err := FindUserByParamsQuery{}.ToCriteria(configuration.NewAppContextWithRandomID(configuration.LangENG))
+	if err != nil {
+		t.Fatalf("auth-disabled read should not error, got %v", err)
+	}
+	if _, ok := got.Projection["Phone"]; ok {
+		t.Errorf("Phone must not be restricted under auth-disabled, got Projection=%v", got.Projection)
+	}
+}
+
+func TestFindUserByParamsQuery_ActivePhoneRequestIs403ForNonAdmin(t *testing.T) {
+	// ?fields=phone → Projection{Phone:1}; a non-admin actively asking for the
+	// restricted field is refused with a 403.
+	q := FindUserByParamsQuery{Criteria: fwqueries.ReadCriteria{Projection: map[string]int{"Phone": 1, "Name": 1}}}
+	if _, err := q.ToCriteria(ctxWithPermissions("users:read")); err == nil {
+		t.Fatal("expected 403 when a non-admin actively requests Phone")
 	}
 }

@@ -35,7 +35,7 @@ type PatchUserCommand struct {
 // ApplyPartiallyTo receives *AppContext alongside the loaded entity. Same ctx
 // semantics as Update's ApplyTo — today the showcase doesn't consume ctx; a
 // future authz field on User would be populated here.
-func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appdomain.User) {
+func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	if c.Name != nil {
 		u.Name = *c.Name
 	}
@@ -45,6 +45,7 @@ func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appd
 	if c.Phone != nil {
 		u.Phone = c.Phone
 	}
+	return nil
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -52,13 +53,13 @@ func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appd
 // FromEntity is the symmetric inverse of ApplyPartiallyTo — Entity → Result.
 // Same root snapshot the PUT path returns; only the mutation rule (partial vs
 // full) differs on the input side.
-func (c *PatchUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) PatchUserResult {
+func (c *PatchUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (PatchUserResult, error) {
 	return PatchUserResult{
 		ID:    *u.GetID(),
 		Name:  u.Name,
 		Email: u.Email,
 		Phone: u.Phone,
-	}
+	}, nil
 }
 
 // PatchUserResult is the application-layer projection. Pure data shape — no

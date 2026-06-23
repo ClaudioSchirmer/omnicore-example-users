@@ -16,9 +16,8 @@ func TestFindUsersCustomRequest_ToQuery_PassesCriteriaThrough(t *testing.T) {
 	}
 	q := r.ToQuery(crit)
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	got := q.ToCriteria(ctx)
+	got, _ := q.ToCriteria(ctx)
 	if got.Filter["name"] != "Jane" || got.Limit != 20 || !got.IncludeArchived {
 		t.Errorf("criteria not carried through ToQuery: %+v", got)
 	}
 }
-

@@ -32,17 +32,18 @@ type PatchUserCustomCommand struct {
 // ApplyPartiallyTo carries *AppContext alongside the loaded entity — same
 // shape as the canonical PatchUserCommand. Manual handlers wrap this call
 // into a `func(T)` closure to feed domain.GetPartialUpdatable.
-func (c *PatchUserCustomCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appdomain.User) {
+func (c *PatchUserCustomCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	if c.Name != nil {
 		u.Name = *c.Name
 	}
 	if c.Phone != nil {
 		u.Phone = c.Phone
 	}
+	return nil
 }
 
 // FromEntity projects the post-patch User into the shared UserCustomResult.
 // Manual handler calls this AFTER orch.Update via GetPartialUpdatable.
-func (c *PatchUserCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) UserCustomResult {
-	return userCustomResultFromUser(u)
+func (c *PatchUserCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (UserCustomResult, error) {
+	return userCustomResultFromUser(u), nil
 }

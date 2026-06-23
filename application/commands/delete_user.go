@@ -16,10 +16,12 @@ type DeleteUserCommand struct{ pipeline.CommandBaseWithID }
 // Runs AFTER FindByID and BEFORE GetDeletable runs BuildRules in ModeDelete
 // (where the service uses IfDelete for delete-specific rules). No-op today;
 // future authz would populate the transient identity field here.
-func (*DeleteUserCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) {}
+func (*DeleteUserCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
+	return nil
+}
 
 // FromEntity returns fwresults.None — bodyless verb shape. Symmetric with
 // the other Auto verbs (Archive/Unarchive) on this surface.
-func (*DeleteUserCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) fwresults.None {
-	return fwresults.None{}
+func (*DeleteUserCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) (fwresults.None, error) {
+	return fwresults.None{}, nil
 }

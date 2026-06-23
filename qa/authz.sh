@@ -178,6 +178,49 @@ print(msgs[0].get("notificationKey", ""))
   rm -f "$tmp"
 }
 
+# wait_for_user_in_view <bearer> <email> — polls GET /users?email= until the
+# Debezium → Kafka → SyncEngine pipeline materializes the just-created user into
+# the Mongo read view (the field-access assertions read from that view).
+wait_for_user_in_view() {
+  local token="$1" email="$2" i=0
+  while [ "$i" -lt 60 ]; do
+    if curl -sS -H "Authorization: Bearer $token" "$BASE/users?email=$email" 2>/dev/null | grep -q "$email"; then
+      return 0
+    fi
+    sleep 1; i=$((i+1))
+  done
+  return 1
+}
+
+# assert_phone_visibility <name> <bearer> <present|absent> — GET /users and
+# assert whether any returned row carries a "phone" field. Anchors the
+# field-level read-access showcase (Phone is admin-only via ReadCriteria.Restrict).
+assert_phone_visibility() {
+  local name="$1" token="$2" expect="$3"
+  title "$name"
+  local tmp status has
+  tmp=$(mktemp)
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" -H "Accept-Language: en-US" \
+    -H "Authorization: Bearer $token" "$BASE/users?limit=100")
+  has=$(python3 -c '
+import sys, json
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print("error"); sys.exit(0)
+data = d.get("data") or []
+print("present" if any(isinstance(u, dict) and "phone" in u for u in data) else "absent")
+' "$tmp")
+  echo "STATUS  : $status   phone in payload: $has"
+  if [ "$status" = "200" ] && [ "$has" = "$expect" ]; then
+    printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected phone %s at 200, got %s at %s)\n' "$expect" "$has" "$status"
+    FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
 # extract_id_from <tmp_path> — pulls .data.id from a JSON envelope. Used after
 # POST /users so the rest of the suite knows what to archive/delete.
 extract_id_from() {
@@ -516,6 +559,31 @@ show_case "GET /docs without bearer → 200" \
 
 show_case "GET /docs with noperm bearer → 200" \
   GET /docs "$TOK_NOPERM" "" 200
+
+sec "15. Field-level read access — Phone is admin-only (ReadCriteria.Restrict)"
+
+# FindUserByParamsQuery.ToCriteria restricts the Phone field to principals
+# carrying users:admin: a non-admin gets Phone scrubbed from the read (absent in
+# JSON + CSV/XLSX), and an active ?fields=phone returns 403. Create a user (with
+# a phone) and wait for the CDC pipeline to materialize it into the read view.
+FA_EMAIL="fieldaccess-${RANDOM}@authz.test"
+if capture_post "$TOK_BOB" "$FA_EMAIL"; then
+  if wait_for_user_in_view "$TOK_BOB" "$FA_EMAIL"; then
+    # bob carries *:* → HasPermission("users:admin") → Phone is NOT restricted.
+    assert_phone_visibility "GET /users as bob (admin via *:*) → phone PRESENT" "$TOK_BOB" present
+    # alice lacks users:admin → Phone scrubbed from the read (passive omission).
+    assert_phone_visibility "GET /users as alice (non-admin) → phone ABSENT" "$TOK_ALICE" absent
+    # alice ACTIVELY asking for the restricted field → 403.
+    show_case "GET /users?fields=phone as alice (non-admin) → 403 FieldAccessForbiddenNotification" \
+      GET "/users?fields=phone" "$TOK_ALICE" "" 403 FieldAccessForbiddenNotification
+  else
+    title "15 — CDC did not materialize the field-access user in time"
+    printf '\033[1;31mFAIL\033[0m\n'; FAIL=$((FAIL+1))
+  fi
+else
+  title "15 — could not create the field-access user"
+  printf '\033[1;31mFAIL\033[0m\n'; FAIL=$((FAIL+1))
+fi
 
 sec "Summary"
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

@@ -7,7 +7,7 @@ import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 
-	apphandlers "github.com/ClaudioSchirmer/omnicore-example-users/application/handlers"
+	appquery "github.com/ClaudioSchirmer/omnicore-example-users/application/queries/handlers"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
 
 	"github.com/gofiber/fiber/v3"
@@ -121,7 +121,7 @@ func findAuditByAggregateHandler(
 		}
 
 		q := req.ToQuery()
-		h := &apphandlers.FindAuditByAggregateQueryHandler{
+		h := &appquery.FindAuditByAggregateQueryHandler{
 			Pool:       pool,
 			Translator: translator,
 		}

@@ -20,7 +20,7 @@ func TestFindUsersByParamsRequest_ToQueryReturnsCriteria(t *testing.T) {
 		t.Fatal("expected non-nil Query")
 	}
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	got := q.ToCriteria(ctx)
+	got, _ := q.ToCriteria(ctx)
 	if got.Filter["name"] != "Jane" {
 		t.Errorf("expected filter[name]=Jane, got %v", got.Filter["name"])
 	}
@@ -34,7 +34,7 @@ func TestFindUsersByParamsRequest_EmptyCriteriaRoundtrip(t *testing.T) {
 
 	q := r.ToQuery(fwqueries.ReadCriteria{Filter: map[string]any{}})
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	got := q.ToCriteria(ctx)
+	got, _ := q.ToCriteria(ctx)
 	if got.Filter == nil {
 		t.Error("expected non-nil Filter map even when empty")
 	}

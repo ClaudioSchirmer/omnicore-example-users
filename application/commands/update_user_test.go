@@ -13,7 +13,7 @@ func TestUpdateUserCommand_FromEntity(t *testing.T) {
 	u := &appdomain.User{Name: "Bob", Email: "b@x.com"}
 	u.SetID(id)
 
-	got := UpdateUserCommand{}.FromEntity(nil, u)
+	got, _ := UpdateUserCommand{}.FromEntity(nil, u)
 
 	if got.ID != id {
 		t.Errorf("ID mismatch: got %v, want %v", got.ID, id)

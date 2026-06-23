@@ -308,7 +308,7 @@ func TestUserCustomRepository_WriteDelegations(t *testing.T) {
 	}
 
 	// Update.
-	upd, err := domain.GetUpdatable(loaded, func(u *appdomain.User) { u.Name = "C2" }, stubUserService{}, "GetUpdatable")
+	upd, err := domain.GetUpdatable(loaded, func(u *appdomain.User) error { u.Name = "C2"; return nil }, stubUserService{}, "GetUpdatable")
 	if err != nil {
 		t.Fatalf("GetUpdatable: %v", err)
 	}

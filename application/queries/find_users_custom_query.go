@@ -22,6 +22,6 @@ type FindUsersCustomQuery struct {
 	Criteria fwqueries.ReadCriteria
 }
 
-func (q FindUsersCustomQuery) ToCriteria(_ *configuration.AppContext) fwqueries.ReadCriteria {
-	return q.Criteria
+func (q FindUsersCustomQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
+	return q.Criteria, nil
 }

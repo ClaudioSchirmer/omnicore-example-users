@@ -9,7 +9,8 @@ import (
 func TestFindUserByIDQuery_ToCriteria_IncludeArchivedFalseByDefault(t *testing.T) {
 	q := FindUserByIDQuery{}
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	if q.ToCriteria(ctx).IncludeArchived {
+	crit, _ := q.ToCriteria(ctx)
+	if crit.IncludeArchived {
 		t.Error("expected zero-value IncludeArchived to yield IncludeArchived=false")
 	}
 }
@@ -17,7 +18,8 @@ func TestFindUserByIDQuery_ToCriteria_IncludeArchivedFalseByDefault(t *testing.T
 func TestFindUserByIDQuery_ToCriteria_IncludeArchivedFlagPropagates(t *testing.T) {
 	q := FindUserByIDQuery{IncludeArchived: true}
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	if !q.ToCriteria(ctx).IncludeArchived {
+	crit, _ := q.ToCriteria(ctx)
+	if !crit.IncludeArchived {
 		t.Error("expected IncludeArchived=true to set IncludeArchived=true")
 	}
 }

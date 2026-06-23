@@ -31,7 +31,7 @@ type InsertUserCustomCommand struct {
 // *AppContext so future identity-derived fields (JWT subject, tenant id,
 // custom claims) translate into business-named entity fields here without
 // touching the handler/wrapper signatures.
-func (c InsertUserCustomCommand) ToEntity(_ *configuration.AppContext) *appdomain.User {
+func (c InsertUserCustomCommand) ToEntity(_ *configuration.AppContext) (*appdomain.User, error) {
 	u := &appdomain.User{
 		Name:  c.Name,
 		Email: c.Email,
@@ -40,13 +40,13 @@ func (c InsertUserCustomCommand) ToEntity(_ *configuration.AppContext) *appdomai
 	for _, a := range c.Addresses {
 		u.AddAddress(a.ToAddress(), nil)
 	}
-	return u
+	return u, nil
 }
 
 // FromEntity projects the post-insert User into the shared UserCustomResult
 // shape. Symmetric inverse of ToEntity — Cmd owns both input + output of
 // the use case. Manual handlers call this AFTER orch.Insert + SetID, same
 // as the canonical Auto path.
-func (c InsertUserCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) UserCustomResult {
-	return userCustomResultFromUser(u)
+func (c InsertUserCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (UserCustomResult, error) {
+	return userCustomResultFromUser(u), nil
 }

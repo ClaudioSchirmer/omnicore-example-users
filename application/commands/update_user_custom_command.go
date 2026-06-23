@@ -37,7 +37,7 @@ type UpdateUserCustomCommand struct {
 // canonical UpdateUserCommand. Manual handlers wrap this call into a `func(T)`
 // closure to feed domain.GetUpdatable; consumers that need ctx → business
 // translation populate it here.
-func (c *UpdateUserCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) {
+func (c *UpdateUserCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	u.Name = c.Name
 	u.Phone = c.Phone
 
@@ -46,11 +46,12 @@ func (c *UpdateUserCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdom
 		addrs[i] = a.ToAddress()
 	}
 	u.ReplaceAddresses(addrs)
+	return nil
 }
 
 // FromEntity projects the post-update User into the shared UserCustomResult.
 // Symmetric inverse of ApplyTo — Cmd owns both input + output. Manual handler
 // calls this AFTER orch.Update completes.
-func (c *UpdateUserCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) UserCustomResult {
-	return userCustomResultFromUser(u)
+func (c *UpdateUserCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (UserCustomResult, error) {
+	return userCustomResultFromUser(u), nil
 }

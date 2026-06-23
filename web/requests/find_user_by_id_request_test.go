@@ -11,7 +11,8 @@ func TestFindUserByIDRequest_IncludeArchivedNilDefaultsFalse(t *testing.T) {
 	r := FindUserByIDRequest{}
 	q := r.ToQuery()
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	if q.ToCriteria(ctx).IncludeArchived {
+	crit, _ := q.ToCriteria(ctx)
+	if crit.IncludeArchived {
 		t.Error("expected IncludeArchived=false when IncludeArchived is nil")
 	}
 }
@@ -21,7 +22,8 @@ func TestFindUserByIDRequest_IncludeArchivedTrue(t *testing.T) {
 	r := FindUserByIDRequest{IncludeArchived: &tr}
 	q := r.ToQuery()
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	if !q.ToCriteria(ctx).IncludeArchived {
+	crit, _ := q.ToCriteria(ctx)
+	if !crit.IncludeArchived {
 		t.Error("expected IncludeArchived=true when IncludeArchived=*true")
 	}
 }
@@ -31,7 +33,8 @@ func TestFindUserByIDRequest_IncludeArchivedFalseIsExplicitFalse(t *testing.T) {
 	r := FindUserByIDRequest{IncludeArchived: &fl}
 	q := r.ToQuery()
 	ctx := configuration.NewAppContextWithRandomID(configuration.LangPTBR)
-	if q.ToCriteria(ctx).IncludeArchived {
+	crit, _ := q.ToCriteria(ctx)
+	if crit.IncludeArchived {
 		t.Error("expected IncludeArchived=false when IncludeArchived=*false")
 	}
 }

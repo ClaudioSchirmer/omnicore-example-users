@@ -19,7 +19,7 @@ func TestInsertUserCommand_FromEntity(t *testing.T) {
 	u := &appdomain.User{Name: "Alice", Email: "a@x.com", Phone: &phone}
 	u.SetID(id)
 
-	got := InsertUserCommand{}.FromEntity(nil, u)
+	got, _ := InsertUserCommand{}.FromEntity(nil, u)
 
 	if got.ID != id {
 		t.Errorf("ID mismatch: got %v, want %v", got.ID, id)
@@ -36,7 +36,7 @@ func TestInsertUserCommand_FromEntity_NilPhone(t *testing.T) {
 	u := &appdomain.User{Name: "x", Email: "y@z.w"} // Phone nil
 	u.SetID(domain.NewRandomID())
 
-	got := InsertUserCommand{}.FromEntity(nil, u)
+	got, _ := InsertUserCommand{}.FromEntity(nil, u)
 
 	if got.Phone != nil {
 		t.Errorf("expected nil Phone, got %v", got.Phone)

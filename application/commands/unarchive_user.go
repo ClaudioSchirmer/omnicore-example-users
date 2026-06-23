@@ -16,10 +16,12 @@ type UnarchiveUserCommand struct{ pipeline.CommandBaseWithID }
 // aggregate is hydrated and BEFORE GetUnarchivable runs BuildRules in
 // ModeUpdate with actionName="GetUnarchivable". No-op today; future authz
 // would populate the transient identity field here.
-func (*UnarchiveUserCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) {}
+func (*UnarchiveUserCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
+	return nil
+}
 
 // FromEntity returns fwresults.None — bodyless verb shape. Symmetric with
 // the other Auto verbs (Archive/Delete) on this surface.
-func (*UnarchiveUserCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) fwresults.None {
-	return fwresults.None{}
+func (*UnarchiveUserCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) (fwresults.None, error) {
+	return fwresults.None{}, nil
 }

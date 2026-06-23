@@ -32,7 +32,10 @@ type InsertUserCustomCommandHandler struct {
 func (h *InsertUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.InsertUserCustomCommand,
 ) (commands.UserCustomResult, error) {
-	user := cmd.ToEntity(ctx)
+	user, err := cmd.ToEntity(ctx)
+	if err != nil {
+		return commands.UserCustomResult{}, err
+	}
 
 	insertable, err := domain.GetInsertable(user, h.Service, "GetInsertable")
 	if err != nil {
@@ -46,7 +49,11 @@ func (h *InsertUserCustomCommandHandler) Handle(
 	}
 
 	user.SetID(id)
-	return cmd.FromEntity(ctx, user), nil
+	result, err := cmd.FromEntity(ctx, user)
+	if err != nil {
+		return commands.UserCustomResult{}, err
+	}
+	return result, nil
 }
 
 // ─── LIFECYCLE HOOKS — FICTITIOUS EXAMPLE ───────────────────────────────────

@@ -27,7 +27,7 @@ type InsertUserCommand struct {
 // the entity. Today this showcase doesn't consume ctx — the framework wires
 // the parameter so a future authz field on User would be populated here
 // without touching the handler/wrapper signatures.
-func (c InsertUserCommand) ToEntity(_ *configuration.AppContext) *appdomain.User {
+func (c InsertUserCommand) ToEntity(_ *configuration.AppContext) (*appdomain.User, error) {
 	u := &appdomain.User{
 		Name:  c.Name,
 		Email: c.Email,
@@ -40,7 +40,7 @@ func (c InsertUserCommand) ToEntity(_ *configuration.AppContext) *appdomain.User
 	for _, a := range c.Addresses {
 		u.AddAddress(a.ToAddress(), nil)
 	}
-	return u
+	return u, nil
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -51,13 +51,13 @@ func (c InsertUserCommand) ToEntity(_ *configuration.AppContext) *appdomain.User
 // future authz overlay (project only fields the requesting principal is
 // allowed to see) would consume it here. The framework calls this AFTER
 // orchestrator.Insert + SetID.
-func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) InsertUserResult {
+func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (InsertUserResult, error) {
 	return InsertUserResult{
 		ID:    *u.GetID(),
 		Name:  u.Name,
 		Email: u.Email,
 		Phone: u.Phone,
-	}
+	}, nil
 }
 
 // InsertUserResult is the application-layer projection returned by FromEntity.

@@ -29,7 +29,7 @@ func (h *UpdateUserCustomCommandHandler) Handle(
 		return commands.UserCustomResult{}, err
 	}
 
-	apply := func(u *appdomain.User) { cmd.ApplyTo(ctx, u) }
+	apply := func(u *appdomain.User) error { return cmd.ApplyTo(ctx, u) }
 	updatable, err := domain.GetUpdatable(user, apply, h.Service, "GetUpdatable")
 	if err != nil {
 		return commands.UserCustomResult{}, err
@@ -38,5 +38,9 @@ func (h *UpdateUserCustomCommandHandler) Handle(
 	if err := repo.Update(updatable); err != nil {
 		return commands.UserCustomResult{}, err
 	}
-	return cmd.FromEntity(ctx, user), nil
+	result, err := cmd.FromEntity(ctx, user)
+	if err != nil {
+		return commands.UserCustomResult{}, err
+	}
+	return result, nil
 }

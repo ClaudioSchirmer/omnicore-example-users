@@ -23,7 +23,10 @@ type FindAddressByEmailAndIDQueryHandler struct {
 func (h *FindAddressByEmailAndIDQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindAddressByEmailAndIDQuery,
 ) (map[string]any, error) {
-	criteria := q.ToCriteria(ctx)
+	criteria, err := q.ToCriteria(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if criteria.Filter == nil {
 		criteria.Filter = map[string]any{}
 	}

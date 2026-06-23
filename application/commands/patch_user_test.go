@@ -14,7 +14,7 @@ func TestPatchUserCommand_FromEntity(t *testing.T) {
 	u := &appdomain.User{Name: "Carol", Email: "c@x.com", Phone: &phone}
 	u.SetID(id)
 
-	got := (&PatchUserCommand{}).FromEntity(nil, u)
+	got, _ := (&PatchUserCommand{}).FromEntity(nil, u)
 
 	if got.ID != id {
 		t.Errorf("ID mismatch: got %v, want %v", got.ID, id)

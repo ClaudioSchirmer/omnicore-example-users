@@ -38,8 +38,9 @@ type ChangeAddressCommand struct {
 // ApplyTo delegates to the addressed-by-id domain method. The domain
 // encapsulates the lookup + not-found notification + ChangeAggregateChild
 // cascade.
-func (c *ChangeAddressCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) {
+func (c *ChangeAddressCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	u.ChangeAddressByID(c.AddressID, c.Address.ToAddress())
+	return nil
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ func (c *ChangeAddressCommand) ApplyTo(_ *configuration.AppContext, u *appdomain
 // Walks the aggregate's current children for the one whose ID matches
 // cmd.AddressID — the receiver gives this projection direct access to the
 // cmd-side identifier, no transient field needed on the entity.
-func (c *ChangeAddressCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) ChangeAddressResult {
+func (c *ChangeAddressCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (ChangeAddressResult, error) {
 	out := ChangeAddressResult{UserID: *u.GetID()}
 	for _, addr := range domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot) {
 		if addr.GetID() == c.AddressID {
@@ -67,7 +68,7 @@ func (c *ChangeAddressCommand) FromEntity(_ *configuration.AppContext, u *appdom
 			break
 		}
 	}
-	return out
+	return out, nil
 }
 
 // ChangeAddressResult is the application-layer projection. Pure data shape.

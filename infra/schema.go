@@ -23,7 +23,7 @@ import (
 // DEFAULT it does not own.
 func UserSchema() *fwinfra.TableSchema {
 	return fwinfra.NewTableSchema[*appdomain.User]("users").
-		PK("ID", "id").
+		PK("id").
 		Field("Name", "name").
 		Field("Email", "email").
 		Field("Phone", "phone").
@@ -40,7 +40,7 @@ func UserSchema() *fwinfra.TableSchema {
 // declared via FK; it is injected by the persister and is not a struct field.
 func AddressSchema() *fwinfra.TableSchema {
 	return fwinfra.NewTableSchema[appdomain.Address]("addresses").
-		PK("ID", "id").
+		PK("id").
 		FK("user_id").
 		Field("Label", "label").
 		Field("Street", "street").

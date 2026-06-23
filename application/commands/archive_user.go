@@ -31,22 +31,23 @@ type ArchiveUserCommand struct{ pipeline.CommandBaseWithID }
 // admin override. This mirrors the "authz-on dev" trade-off; running the
 // showcase with auth.mode=jwt + authorization.enabled=true is the canonical
 // path.
-func (*ArchiveUserCommand) ApplyTo(ctx *configuration.AppContext, u *appdomain.User) {
+func (*ArchiveUserCommand) ApplyTo(ctx *configuration.AppContext, u *appdomain.User) error {
 	if ctx == nil {
-		return
+		return nil
 	}
 	id := ctx.Identity()
 	if id == nil {
-		return
+		return nil
 	}
 	if email, _ := id.Claims["email"].(string); email != "" {
 		u.RequestingPrincipalEmail = email
 	}
 	u.RequestingPrincipalIsAdmin = id.HasPermission("users:admin")
+	return nil
 }
 
 // FromEntity returns fwresults.None — Archive verb emits the success envelope
 // without a "data" field, matching the canonical bodyless verb shape.
-func (*ArchiveUserCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) fwresults.None {
-	return fwresults.None{}
+func (*ArchiveUserCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) (fwresults.None, error) {
+	return fwresults.None{}, nil
 }
