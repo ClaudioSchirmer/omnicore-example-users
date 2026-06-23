@@ -24,10 +24,12 @@ type FindUserByParamsQuery struct {
 // nil and everyone is trusted, so Phone is not restricted there.
 func (q FindUserByParamsQuery) ToCriteria(ctx *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	crit := q.Criteria
+	// Restrict mutates crit in place (scrubbing Phone from projection/sort/filter)
+	// and returns the 403 only on an active reference. Threading its error straight
+	// into the single return keeps the refusal impossible to drop by accident.
+	var err error
 	if id := ctx.Identity(); id != nil && !id.HasPermission("users:admin") {
-		if err := crit.Restrict("Phone"); err != nil {
-			return crit, err
-		}
+		err = crit.Restrict("Phone")
 	}
-	return crit, nil
+	return crit, err
 }
