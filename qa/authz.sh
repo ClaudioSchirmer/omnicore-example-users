@@ -178,6 +178,49 @@ print(msgs[0].get("notificationKey", ""))
   rm -f "$tmp"
 }
 
+# show_gql_case <name> <bearer_or_empty> <graphql_query> <expected_key|ALLOW>
+#
+# POSTs a GraphQL operation to /graphql and asserts the Layer-1 gate outcome.
+# GraphQL always answers HTTP 200; the gate result travels in errors[].extensions
+# (NOT the REST messages[] shape show_case parses), so this twin reads
+# errors[0].extensions.notificationKey. expected_key="ALLOW" asserts the gate
+# passed (no errors[] → the field resolved); otherwise it asserts the first
+# error's notificationKey equals expected_key (e.g. MissingPermissionNotification).
+show_gql_case() {
+  local name="$1" token="$2" query="$3" expected_key="$4"
+  title "$name"
+  local tmp; tmp=$(mktemp)
+  local payload; payload=$(python3 -c 'import json,sys; print(json.dumps({"query": sys.argv[1]}))' "$query")
+  local curl_args=(-sS -o "$tmp" -w "%{http_code}" -X POST "$BASE/graphql"
+    -H "Accept-Language: en-US" -H "Content-Type: application/json" -d "$payload")
+  [ -n "$token" ] && curl_args+=(-H "Authorization: Bearer $token")
+  local status; status=$(curl "${curl_args[@]}")
+  echo "STATUS  : $status"
+  echo "RESPONSE:"
+  python3 -m json.tool < "$tmp" 2>/dev/null || cat "$tmp"; echo
+  local ok=1
+  if [ "$status" != "200" ]; then
+    ok=0; printf '\033[1;31mFAIL\033[0m (expected status 200, got %s)\n' "$status"
+  fi
+  local got
+  got=$(python3 -c '
+import sys, json
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print("PARSE_ERR"); sys.exit(0)
+errs = d.get("errors") or []
+if not errs:
+    print("ALLOW"); sys.exit(0)
+print((errs[0].get("extensions") or {}).get("notificationKey", ""))
+' "$tmp")
+  if [ "$got" != "$expected_key" ]; then
+    ok=0; printf '\033[1;31mFAIL\033[0m (expected %s, got %s)\n' "$expected_key" "$got"
+  fi
+  if [ "$ok" = "1" ]; then printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
+  rm -f "$tmp"
+}
+
 # wait_for_user_in_view <bearer> <email> — polls GET /users?email= until the
 # Debezium → Kafka → SyncEngine pipeline materializes the just-created user into
 # the Mongo read view (the field-access assertions read from that view).
@@ -584,6 +627,42 @@ else
   title "15 — could not create the field-access user"
   printf '\033[1;31mFAIL\033[0m\n'; FAIL=$((FAIL+1))
 fi
+
+sec "16. GraphQL surface carries the same Layer-1 permission gate"
+
+# GraphQL is its own web surface (POST /graphql) but reuses the same handlers
+# AND the same declarative gate: each field declares fwgraphql.RequirePermission
+# (web/graphql_routes.go), enforced under the SAME auth.authorization.enabled
+# switch. The endpoint is authenticated by AuthMiddleware (no bearer → 401, REST
+# envelope) and then gated per field (denied → HTTP 200 with
+# MissingPermissionNotification in errors[].extensions). Matrix mirrors REST:
+# users(read) / createUser(write) / deleteUser(delete).
+
+# Authentication layer first: no bearer → 401 from AuthMiddleware (REST shape),
+# the gate is never reached — so the existing show_case (status + messages[] key)
+# is the right tool here.
+show_case "POST /graphql without bearer → 401 (AuthMiddleware, before the gate)" \
+  POST /graphql "" '{"query":"{ users(first: 1) { totalCount } }"}' \
+  401 MissingAuthorizationNotification
+
+# Layer-1 gate: noperm authenticates but carries no permission claim.
+show_gql_case "GraphQL users query with noperm → MissingPermissionNotification (needs users:read)" \
+  "$TOK_NOPERM" 'query { users(first: 1) { totalCount } }' \
+  MissingPermissionNotification
+
+show_gql_case "GraphQL createUser with noperm → MissingPermissionNotification (needs users:write)" \
+  "$TOK_NOPERM" 'mutation { createUser(input: { name: "x", email: "x@e.test", phone: "14155550000", addresses: [] }) { id } }' \
+  MissingPermissionNotification
+
+# alice carries users:read → the read field resolves (gate passes).
+show_gql_case "GraphQL users query with alice → ALLOW (alice has users:read)" \
+  "$TOK_ALICE" 'query { users(first: 1) { totalCount } }' \
+  ALLOW
+
+# alice lacks users:delete → deleteUser is gated even though she can read/write.
+show_gql_case "GraphQL deleteUser with alice → MissingPermissionNotification (alice lacks users:delete)" \
+  "$TOK_ALICE" 'mutation { deleteUser(id: "00000000-0000-0000-0000-000000000000") { success } }' \
+  MissingPermissionNotification
 
 sec "Summary"
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

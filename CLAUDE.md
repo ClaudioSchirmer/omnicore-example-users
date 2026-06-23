@@ -219,7 +219,7 @@ omnicore-example-users/
 │   ├── showcase_routes.go         # MountShowcase — /showcase/keycloak/* + /showcase/httpclient/* via openapi.MountRaw (Public: true)
 │   ├── echo_routes.go             # MountEcho — /echo/* in-process upstream via openapi.MountRaw (Hidden: true — excluded from spec)
 │   ├── cache_routes.go            # MountCacheShowcase — /showcase/cache/{info,private,shared}/* via openapi.MountRaw (Hidden + Public; drives Deps.Cache + Deps.SharedCache for qa/cache.sh)
-│   ├── graphql_routes.go          # MountUsersGraphQL(reg, repo, svc, view, d) — contributes the User fields (users Query + the 6 verbs: createUser/updateUser/patchUser/archiveUser/unarchiveUser/deleteUser) to the single GraphQL registry; reuses the SAME handlers as MountUsers. GraphQL is its own surface (never in Swagger)
+│   ├── graphql_routes.go          # MountUsersGraphQL(reg, repo, svc, view, d) — contributes the User fields (users Query + the 6 verbs: createUser/updateUser/patchUser/archiveUser/unarchiveUser/deleteUser) to the single GraphQL registry; reuses the SAME handlers as MountUsers. Each field carries fwgraphql.RequirePermission mirroring the REST matrix (read/write/archive/delete). GraphQL is its own surface (never in Swagger)
 │   ├── respond.go                 # respondWithError shared helper
 │   ├── requests/                  # Request DTOs + co-located Response DTOs (JSON wire format)
 │   │   ├── address_request.go              # AddressRequest + ToAddressInput() (canonical)
@@ -487,7 +487,7 @@ Routes are split across files by responsibility so each file stays focused on on
 | `showcase_routes.go` | `MountShowcase(app, kc, echo, deps)` | `/showcase/keycloak/*` + `/showcase/httpclient/*` |
 | `echo_routes.go` | `MountEcho(app, deps)` | `/echo/*` in-process upstream for `/showcase/httpclient/*` |
 | `cache_routes.go` | `MountCacheShowcase(app, deps)` | `/showcase/cache/{info,private,shared}/*` minimal CRUD over `Deps.Cache` + `Deps.SharedCache` — the QA driver for `qa/cache.sh`; all routes Hidden + Public |
-| `graphql_routes.go` | `MountUsersGraphQL(reg, repo, svc, view, deps)` | Contributes the User aggregate's fields to the single GraphQL registry (built in `Wire`) — `users` Query + `createUser`/`archiveUser`/`deleteUser` mutations, reusing the SAME handlers as `MountUsers`. Cumulative (each aggregate adds its fields); GraphQL is its own surface served at `POST /graphql`, never in the Swagger document |
+| `graphql_routes.go` | `MountUsersGraphQL(reg, repo, svc, view, deps)` | Contributes the User aggregate's fields to the single GraphQL registry (built in `Wire`) — `users` Query + all 6 write verbs, reusing the SAME handlers as `MountUsers`. Each field declares `fwgraphql.RequirePermission` mirroring the REST matrix (`users:read`/`write`/`archive`/`delete`), enforced under `auth.authorization.enabled`. Cumulative (each aggregate adds its fields); GraphQL is its own surface served at `POST /graphql`, never in the Swagger document |
 | `respond.go` | _(shared helper)_ | `respondWithError` envelope for non-domain failures |
 
 `UsersFeature.Mount` calls `MountUsers` and nothing else; `ShowcaseFeature.Mount` calls `MountWhoami` + `MountEcho` + `MountShowcase` + `MountUsersCustom` + `MountCacheShowcase`. The default bootstrap injects the `Recover`, `Logger`, `AppContextMiddleware` middlewares (plus `AuthMiddleware` when `auth.mode: jwt`), the `GET /health` route, and — when `Wiring.OpenAPI != nil` — the `GET /openapi.json` + `GET /docs` documentation routes. None of those appear in this table.
@@ -1247,7 +1247,7 @@ Test subjects (defined in `devops/keycloak/realm-export.json`):
 | `bob` | `[*:*]` | `bob@omnicore.test` | super-admin; Layer-2 bypass via `HasPermission("users:admin")` |
 | `noperm` | (no claim emitted) | `noperm@omnicore.test` | negative tests; every gated route returns 403 |
 
-Scenarios — 17 cases, each asserting both HTTP status AND the `notificationKey` on the error envelope (so a 403 from the wrong cause does not silently pass):
+Scenarios cover the full canonical + manual + GraphQL matrix, each asserting both HTTP status AND the `notificationKey` on the error envelope (so a 403 from the wrong cause does not silently pass):
 
 - **Public bypass** — `GET /health`, `GET /openapi.json` 200 without bearer.
 - **Layer 1 — missing bearer** — POST/GET `/users` 401 with `MissingAuthorizationNotification` (from `AuthMiddleware`, not the gate).
@@ -1258,6 +1258,7 @@ Scenarios — 17 cases, each asserting both HTTP status AND the `notificationKey
   - alice archives a stranger (email differs, not admin) → 403 `ArchiveNotAllowedNotification`.
   - bob (super-admin via `*:*`) archives the same stranger → 200 (Layer-2 bypass).
 - **Manual showcase** — `GET /showcase/users-custom` carries the same matrix (noperm 403, alice 200).
+- **GraphQL surface (§16)** — `POST /graphql` carries the identical Layer-1 gate: no bearer → 401 `MissingAuthorizationNotification` (AuthMiddleware, before the gate); `noperm` → `MissingPermissionNotification` in `errors[].extensions` for `users` (read) and `createUser` (write); alice's `users` read resolves (has `users:read`); alice's `deleteUser` → `MissingPermissionNotification` (lacks `users:delete`). Asserted via a `show_gql_case` twin that reads `errors[0].extensions.notificationKey` (the GraphQL error shape) instead of the REST `messages[]` envelope.
 
 ```bash
 docker compose -f devops/docker-compose.yml up -d

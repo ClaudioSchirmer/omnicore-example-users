@@ -28,6 +28,13 @@ import (
 // through openapi.Mount, never appears in the Swagger document, and is not
 // policed by the REST route scans. The feature owns the repo/service/view it
 // passes in; web owns the field attachment.
+//
+// Each field carries the same Layer-1 permission as its REST twin via
+// fwgraphql.RequirePermission (the GraphQL twin of fwopenapi.RequirePermission):
+// users → users:read; createUser/updateUser/patchUser → users:write;
+// archiveUser/unarchiveUser → users:archive; deleteUser → users:delete. The
+// gate enforces under auth.authorization.enabled (prd-authz) and is inert
+// otherwise, exactly like the REST matrix.
 func MountUsersGraphQL(
 	reg *fwgraphql.Registry,
 	repo persistence.ScopedRepository[*appdomain.User],
@@ -44,7 +51,8 @@ func MountUsersGraphQL(
 		"users", "User",
 		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
 			Reader: d.ViewReader, View: view.Name(),
-		}))
+		},
+		fwgraphql.RequirePermission("users:read")))
 
 	// WRITE insert → Mutation `createUser(input)` (input object reflected from
 	// the Request DTO; NonNull fields follow the strict/lenient rule).
@@ -58,7 +66,8 @@ func MountUsersGraphQL(
 		"createUser", requests.InsertUserResponse{}.FromResult,
 		&handlers.InsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
 			Repo: repo, Service: svc,
-		}))
+		},
+		fwgraphql.RequirePermission("users:write")))
 
 	// WRITE full update → MutationWithID `updateUser(id, input)` (PUT). The
 	// UpdateCommandHandler embeds pipeline.FullBody, so the input object is
@@ -73,7 +82,8 @@ func MountUsersGraphQL(
 		"updateUser", requests.UpdateUserResponse{}.FromResult,
 		&handlers.UpdateCommandHandler[*appdomain.User, *commands.UpdateUserCommand, commands.UpdateUserResult]{
 			Repo: repo, Service: svc,
-		}))
+		},
+		fwgraphql.RequirePermission("users:write")))
 
 	// WRITE partial update → MutationWithID `patchUser(id, input)` (PATCH). The
 	// PartialUpdateCommandHandler is lenient, so the input fields are nullable
@@ -88,7 +98,8 @@ func MountUsersGraphQL(
 		"patchUser", requests.PatchUserResponse{}.FromResult,
 		&handlers.PartialUpdateCommandHandler[*appdomain.User, *commands.PatchUserCommand, commands.PatchUserResult]{
 			Repo: repo, Service: svc,
-		}))
+		},
+		fwgraphql.RequirePermission("users:write")))
 
 	// WRITE bodyless → MutationByID → MutationResult{success, id}.
 	reg.Register(fwgraphql.MutationByID[
@@ -97,7 +108,8 @@ func MountUsersGraphQL(
 		"archiveUser",
 		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
-		}))
+		},
+		fwgraphql.RequirePermission("users:archive")))
 
 	reg.Register(fwgraphql.MutationByID[
 		commands.UnarchiveUserCommand, *commands.UnarchiveUserCommand, fwresults.None,
@@ -105,7 +117,8 @@ func MountUsersGraphQL(
 		"unarchiveUser",
 		&handlers.UnarchiveCommandHandler[*appdomain.User, *commands.UnarchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
-		}))
+		},
+		fwgraphql.RequirePermission("users:archive")))
 
 	reg.Register(fwgraphql.MutationByID[
 		commands.DeleteUserCommand, *commands.DeleteUserCommand, fwresults.None,
@@ -113,5 +126,6 @@ func MountUsersGraphQL(
 		"deleteUser",
 		&handlers.DeleteCommandHandler[*appdomain.User, *commands.DeleteUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
-		}))
+		},
+		fwgraphql.RequirePermission("users:delete")))
 }
