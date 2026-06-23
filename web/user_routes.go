@@ -13,7 +13,7 @@ import (
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/commands"
-	apphandlers "github.com/ClaudioSchirmer/omnicore-example-users/application/handlers"
+	appquery "github.com/ClaudioSchirmer/omnicore-example-users/application/queries/handlers"
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
@@ -253,7 +253,7 @@ func MountUsers(
 	findAddrH, findAddrSpec := fwweb.HandleQueryWithIDSpec(d.Pipeline,
 		requests.FindAddressByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindAddressByIDResponse],
-		&apphandlers.FindAddressByIDQueryHandler{
+		&appquery.FindAddressByIDQueryHandler{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodGet, "/:id/addresses/:addressId",

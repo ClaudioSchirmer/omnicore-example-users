@@ -182,22 +182,29 @@ omnicore-example-users/
 │   │   ├── archive_user_custom_command.go  # ArchiveUserCustomCommand (manual, EmailKey only)
 │   │   ├── unarchive_user_custom_command.go# UnarchiveUserCustomCommand (manual, EmailKey only)
 │   │   ├── delete_user_custom_command.go   # DeleteUserCustomCommand (manual, EmailKey only)
-│   │   └── user_custom_result.go           # UserCustomResult + AddressCustomResult (pure data) + userCustomResultFromUser helper consumed by each Cmd.FromEntity on the manual showcase
-│   ├── handlers/                  # Manual application handlers for /showcase/users-custom/*
-│   │   ├── ports_custom.go                        # ScopedUserRepository provider (Scope→appdomain.UserCustomRepository); the read+write PORT lives in domain/user_custom_repository.go
-│   │   ├── insert_user_custom_handler.go          # ToEntity → GetInsertable → repo.Scope(ctx).Insert → SetID → cmd.FromEntity(ctx, user); returns UserCustomResult
-│   │   ├── update_user_custom_handler.go          # FindByEmail → GetUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
-│   │   ├── patch_user_custom_handler.go           # FindByEmail → GetPartialUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
-│   │   ├── archive_user_custom_handler.go         # FindByEmail → GetArchivable → repo.Scope(ctx).Archive; returns fwresults.None
-│   │   ├── unarchive_user_custom_handler.go       # FindArchivedByEmail → GetUnarchivable → repo.Scope(ctx).Unarchive; returns fwresults.None
-│   │   ├── delete_user_custom_handler.go          # FindByEmail → GetDeletable → repo.Scope(ctx).Delete; returns struct{}
-│   │   ├── find_user_by_email_custom_handler.go   # ReadPage with Filter[Email]=<value> Limit=1; carries access-control filter seam
-│   │   └── find_users_custom_handler.go           # ReadPage with parsed criteria; same access-control seam
+│   │   ├── user_custom_result.go           # UserCustomResult + AddressCustomResult (pure data) + userCustomResultFromUser helper consumed by each Cmd.FromEntity on the manual showcase
+│   │   └── handlers/              # package handlers — manual command (write) handlers for /showcase/users-custom/*, co-located with the commands they drive
+│   │       ├── doc.go                              # package doc (write-side twin of queries/handlers)
+│   │       ├── ports_custom.go                     # ScopedUserRepository provider (Scope→appdomain.UserCustomRepository); the read+write PORT lives in domain/user_custom_repository.go
+│   │       ├── insert_user_custom_handler.go       # ToEntity → GetInsertable → repo.Scope(ctx).Insert → SetID → cmd.FromEntity(ctx, user); returns UserCustomResult
+│   │       ├── update_user_custom_handler.go       # FindByEmail → GetUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
+│   │       ├── patch_user_custom_handler.go        # FindByEmail → GetPartialUpdatable → repo.Scope(ctx).Update → cmd.FromEntity(ctx, user); returns UserCustomResult
+│   │       ├── change_address_custom_handler.go    # FindByEmail → GetUpdatable (snapshot via domain.Old) + ChangeAddress → repo.Scope(ctx).Update; returns UserCustomResult
+│   │       ├── archive_user_custom_handler.go      # FindByEmail → GetArchivable → repo.Scope(ctx).Archive; returns fwresults.None
+│   │       ├── unarchive_user_custom_handler.go    # FindArchivedByEmail → GetUnarchivable → repo.Scope(ctx).Unarchive; returns fwresults.None
+│   │       └── delete_user_custom_handler.go       # FindByEmail → GetDeletable → repo.Scope(ctx).Delete; returns struct{}
 │   ├── queries/                   # Query types
 │   │   ├── find_user_by_params_query.go    # FindUserByParamsQuery + ToCriteria(ctx) (canonical)
 │   │   ├── find_user_by_id_query.go        # FindUserByIDQuery + ToCriteria(ctx) returning ReadCriteria{IncludeArchived: q.Archived} (canonical)
 │   │   ├── find_user_by_email_custom_query.go     # FindUserByEmailQuery + ToCriteria(ctx) (manual showcase)
-│   │   └── find_users_custom_query.go      # FindUsersCustomQuery embeds ReadCriteria (manual showcase)
+│   │   ├── find_users_custom_query.go      # FindUsersCustomQuery embeds ReadCriteria (manual showcase)
+│   │   └── handlers/              # package handlers — manual query (read) handlers, co-located with the queries they resolve
+│   │       ├── doc.go                                  # package doc (read-side twin of commands/handlers)
+│   │       ├── find_user_by_email_custom_handler.go    # ReadPage with Filter[Email]=<value> Limit=1; carries access-control filter seam
+│   │       ├── find_users_custom_handler.go            # ReadPage with parsed criteria; same access-control seam
+│   │       ├── find_address_by_id_handler.go           # ReadByID then projects one address sub-doc from the embedded addresses[]
+│   │       ├── find_address_by_email_and_id_handler.go # ReadPage by email (Limit:1) then projects one address sub-doc
+│   │       └── find_audit_by_aggregate_handler.go      # GET /audit/:aggregateId — reads the audit_events trail
 │   ├── dtos/                      # DTOs consumed by Commands (no JSON tags)
 │   │   ├── address_input.go       # AddressInput — canonical Insert/Update commands
 │   │   └── address_input_custom.go # AddressInputCustom — manual showcase Insert/Update commands
@@ -259,16 +266,16 @@ omnicore-example-users/
 
 ### Feature struct convention
 
-A `bootstrap/<name>_feature.go` struct holds **infra-level adapters that need configuration or domain wrapping** — and ONLY those. Application-layer handlers (anything under `application/handlers/`) are NEVER cached on the feature struct; they are constructed inline inside the per-request closure of each Fiber handler in `web/`.
+A `bootstrap/<name>_feature.go` struct holds **infra-level adapters that need configuration or domain wrapping** — and ONLY those. Application-layer handlers (anything under `application/commands/handlers` or `application/queries/handlers`) are NEVER cached on the feature struct; they are constructed inline inside the per-request closure of each Fiber handler in `web/`.
 
 | Field on a feature struct? | Examples |
 |---|---|
 | ✅ Yes | `repo` (`NewUserRepository(d.Postgres)` wraps with NewEntity factory + ConstraintBindings), `svc` (`NewUserService(...)` configures a domain service), `view` (`UserView()` declares the Mongo view shape consumed by Views() AND Mount()), `kc` / `echo` (vendor adapter structs `NewKeycloakService(d.HttpClient)` / `NewEchoService(d.HttpClient)` configure the per-vendor httpclient surface). |
 | ❌ No | `*pgxpool.Pool`, `*translation.Translator`, `*pipeline.Pipeline`, `bootstrap.Deps` itself, application handlers (`InsertCommandHandler[*User, ...]`, `FindAuditByAggregateQueryHandler{Pool, Translator}`, etc.). These are read straight from `d` at `Mount` time or built inline inside the route's closure. |
 
-**Decision rule:** if the constructor you would call is `appinfra.NewXxx(...)` (a configured infra adapter) or `appexternal.NewXxx(...)` (a configured vendor surface), it belongs on the feature struct. If the constructor is `&apphandlers.YyyHandler{...}` (an application handler that just wraps Deps fields verbatim), it goes inside the per-request closure. When a feature has nothing in the first category (admin / audit / pure mount-only routes), the struct is empty (`type AuditFeature struct{}`, `NewAuditFeature() *AuditFeature`) and `Mount(app, d)` reads everything off `d` — same shape `AdminFeature` follows.
+**Decision rule:** if the constructor you would call is `appinfra.NewXxx(...)` (a configured infra adapter) or `appexternal.NewXxx(...)` (a configured vendor surface), it belongs on the feature struct. If the constructor is `&appcmd.YyyCommandHandler{...}` / `&appquery.YyyQueryHandler{...}` (an application handler that just wraps Deps fields verbatim), it goes inside the per-request closure. When a feature has nothing in the first category (admin / audit / pure mount-only routes), the struct is empty (`type AuditFeature struct{}`, `NewAuditFeature() *AuditFeature`) and `Mount(app, d)` reads everything off `d` — same shape `AdminFeature` follows.
 
-Mirrors how the framework's Auto Command Handlers are constructed: each Fiber wrapper in `web/user_routes.go` builds the handler struct (e.g. `&handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]{Repo: repo}`) at the per-request closure level; only the underlying `repo` is the persistent piece. The manual showcase (`web/user_custom_routes.go::customInsertUser`) follows the same convention with `&apphandlers.InsertUserCustomCommandHandler{Repo: repo, Service: svc}` built inside the closure.
+Mirrors how the framework's Auto Command Handlers are constructed: each Fiber wrapper in `web/user_routes.go` builds the handler struct (e.g. `&handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]{Repo: repo}`) at the per-request closure level; only the underlying `repo` is the persistent piece. The manual showcase (`web/user_custom_routes.go::customInsertUser`) follows the same convention with `&appcmd.InsertUserCustomCommandHandler{Repo: repo, Service: svc}` built inside the closure.
 
 ---
 
@@ -585,7 +592,7 @@ The motivation is to **explode** the wrapper internals into visible Fiber-handle
 | `domain/` | User, Address, BuildRules, AggregateRoot | **same code — domain is invariant across both surfaces** |
 | `application/commands/` | `Insert/Update/Patch/Archive/Unarchive/DeleteUserCommand` (+ per-endpoint `Insert/Update/PatchUserResult` co-located in the same files) | All six have `*CustomCommand` twins. Insert mirrors the canonical shape; the other five add an `EmailKey` slot (path identifier) and the PUT/PATCH twins drop `Email` from the mutable surface. A SHARED `UserCustomResult` (+ `AddressCustomResult`) in `user_custom_result.go` carries the snapshot returned by Insert/Update/Patch — the canonical's per-endpoint Result granularity already covers that pattern, so the manual showcase collapses it to one struct to demonstrate that the Result-intermediate principle composes with a shared shape |
 | `application/dtos/` | `AddressInput` (DTO consumed by canonical Insert/Update commands) | `AddressInputCustom` — dedicated twin so only `domain/` is reused across surfaces |
-| `application/handlers/` | framework's generic `handlers.InsertCommandHandler[T,*Cmd,TResult]` etc. | `apphandlers.{Insert,Update,Patch,Archive,Unarchive,Delete}UserHandler` written out |
+| `application/handlers/` | framework's generic `handlers.InsertCommandHandler[T,*Cmd,TResult]` etc. | written out and co-located with each side: `application/commands/handlers` (`appcmd.{Insert,Update,Patch,ChangeAddress,Archive,Unarchive,Delete}…Handler`) and `application/queries/handlers` (`appquery.Find…QueryHandler`) |
 | `infra/user_repository.go` | `BaseAggregateRepository[*User]` (Scope + FindByID/FindArchivedByID via promotion) | — |
 | `infra/user_custom_repository.go` | — | `UserCustomRepository` — Scope→boundWriter (1-line write delegations) + `FindByEmail` / `FindArchivedByEmail` via the search engine |
 | `web/user_routes.go` | `fwweb.HandleCommandWithBody{,ID}` + `HandleCommandWithID` | — |
@@ -597,7 +604,7 @@ The motivation is to **explode** the wrapper internals into visible Fiber-handle
 | `infra/` read side | `MongoViewReader` via `d.ViewReader` (canonical) | **same** — manual surface consumes the same reader; lookup by email is a `Filter[Email]=<value>` + `Limit=1` ReadPage; list is a normal paged ReadPage |
 | `bootstrap/` | `UsersFeature` mounts via `MountUsers` | `ShowcaseFeature` also constructs `UserCustomRepository` + a second `UserService` and mounts via `MountUsersCustom` |
 
-The read+write repository PORT is `appdomain.UserCustomRepository` in `domain/user_custom_repository.go` — `domain.Repository[*User]` (pure Reader+Writer) extended with `FindByEmail` / `FindArchivedByEmail`. `application/handlers/ports_custom.go` declares the `ScopedUserRepository` provider (`Scope(ctx, opts...) appdomain.UserCustomRepository`) the handlers hold to bind the request scope. Handlers depend on these interfaces (not the concrete `*appinfra.UserCustomRepository`), keeping the dependency direction application → domain.
+The read+write repository PORT is `appdomain.UserCustomRepository` in `domain/user_custom_repository.go` — `domain.Repository[*User]` (pure Reader+Writer) extended with `FindByEmail` / `FindArchivedByEmail`. `application/commands/handlers/ports_custom.go` declares the `ScopedUserRepository` provider (`Scope(ctx, opts...) appdomain.UserCustomRepository`) the command handlers hold to bind the request scope. Handlers depend on these interfaces (not the concrete `*appinfra.UserCustomRepository`), keeping the dependency direction application → domain.
 
 
 ### Email as the public identifier

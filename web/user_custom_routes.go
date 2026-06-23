@@ -10,7 +10,8 @@ import (
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/commands"
-	apphandlers "github.com/ClaudioSchirmer/omnicore-example-users/application/handlers"
+	appcmd "github.com/ClaudioSchirmer/omnicore-example-users/application/commands/handlers"
+	appquery "github.com/ClaudioSchirmer/omnicore-example-users/application/queries/handlers"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/responses"
 
@@ -51,8 +52,8 @@ const usersViewName = "users"
 //   7. on Failure / Exception → delegate to RespondFromResult, which honors
 //      semanticToStatus (422/404/409/500) on the Result.Notifications.
 //
-// Parameters are interfaces — apphandlers.ScopedUserRepository (the port
-// declared by application/handlers/) and domain.Service (framework
+// Parameters are interfaces — appcmd.ScopedUserRepository (the port
+// declared by application/commands/handlers/) and domain.Service (framework
 // abstraction over an injectable domain service). This file imports
 // nothing from `appinfra`. The concrete *appinfra.UserCustomRepository
 // and *appinfra.UserService are constructed by ShowcaseFeature (in
@@ -62,7 +63,7 @@ const usersViewName = "users"
 // asks for.
 func MountUsersCustom(
 	app *fiber.App,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 	d bootstrap.Deps,
 ) {
@@ -305,7 +306,7 @@ func MountUsersCustom(
 
 func customInsertUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -318,7 +319,7 @@ func customInsertUser(
 		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
-		h := &apphandlers.InsertUserCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.InsertUserCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
@@ -332,7 +333,7 @@ func customInsertUser(
 
 func customUpdateUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -348,7 +349,7 @@ func customUpdateUser(
 		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
-		h := &apphandlers.UpdateUserCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.UpdateUserCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
@@ -365,7 +366,7 @@ func customUpdateUser(
 
 func customPatchUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -383,7 +384,7 @@ func customPatchUser(
 		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
-		h := &apphandlers.PatchUserCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.PatchUserCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
@@ -407,7 +408,7 @@ func customPatchUser(
 
 func customArchiveUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -420,7 +421,7 @@ func customArchiveUser(
 		appCtx.SetParent(c)
 
 		cmd := &commands.ArchiveUserCustomCommand{EmailKey: req.Email}
-		h := &apphandlers.ArchiveUserCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.ArchiveUserCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
@@ -434,7 +435,7 @@ func customArchiveUser(
 
 func customUnarchiveUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -447,7 +448,7 @@ func customUnarchiveUser(
 		appCtx.SetParent(c)
 
 		cmd := &commands.UnarchiveUserCustomCommand{EmailKey: req.Email}
-		h := &apphandlers.UnarchiveUserCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.UnarchiveUserCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
@@ -465,7 +466,7 @@ func customUnarchiveUser(
 
 func customDeleteUser(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -478,7 +479,7 @@ func customDeleteUser(
 		appCtx.SetParent(c)
 
 		cmd := &commands.DeleteUserCustomCommand{EmailKey: req.Email}
-		h := &apphandlers.DeleteUserCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.DeleteUserCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		return fwweb.RespondFromResult(c, result, fiber.StatusNoContent)
@@ -519,7 +520,7 @@ func customGetUserByEmail(
 		}
 
 		q := req.ToQuery(crit)
-		h := &apphandlers.FindUserByEmailCustomQueryHandler{Reader: reader, View: usersViewName}
+		h := &appquery.FindUserByEmailCustomQueryHandler{Reader: reader, View: usersViewName}
 
 		result := pipeline.Dispatch(pipe, appCtx, q, h)
 		if result.IsSuccess() {
@@ -573,7 +574,7 @@ func customListUsers(
 		}
 
 		q := req.ToQuery(crit)
-		h := &apphandlers.FindUsersCustomQueryHandler{Reader: reader, View: usersViewName}
+		h := &appquery.FindUsersCustomQueryHandler{Reader: reader, View: usersViewName}
 
 		result := pipeline.Dispatch(pipe, appCtx, q, h)
 		if !result.IsSuccess() {
@@ -594,7 +595,7 @@ func customListUsers(
 
 func customChangeAddress(
 	pipe *pipeline.Pipeline,
-	repo apphandlers.ScopedUserRepository,
+	repo appcmd.ScopedUserRepository,
 	svc domain.Service,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -610,7 +611,7 @@ func customChangeAddress(
 		appCtx.SetParent(c)
 
 		cmd := req.ToCommand()
-		h := &apphandlers.ChangeAddressCustomCommandHandler{Repo: repo, Service: svc}
+		h := &appcmd.ChangeAddressCustomCommandHandler{Repo: repo, Service: svc}
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
@@ -647,7 +648,7 @@ func customGetAddressByEmailAndID(
 		}
 
 		q := req.ToQuery(crit)
-		h := &apphandlers.FindAddressByEmailAndIDQueryHandler{Reader: reader, View: usersViewName}
+		h := &appquery.FindAddressByEmailAndIDQueryHandler{Reader: reader, View: usersViewName}
 
 		result := pipeline.Dispatch(pipe, appCtx, q, h)
 		if result.IsSuccess() {
