@@ -664,6 +664,20 @@ show_gql_case "GraphQL deleteUser with alice → MissingPermissionNotification (
   "$TOK_ALICE" 'mutation { deleteUser(id: "00000000-0000-0000-0000-000000000000") { success } }' \
   MissingPermissionNotification
 
+# Field-level read access (Layer-3-adjacent) on GraphQL: ToCriteria restricts
+# Phone to admins. alice has users:read (Layer-1 passes) but NOT users:admin, so
+# EXPLICITLY selecting `phone` in the node now trips the same
+# FieldAccessForbiddenNotification the REST ?fields=phone returns — the GraphQL
+# selection set is mapped to ReadCriteria.Projection before ToCriteria. NOT
+# selecting it resolves (the field is passively scrubbed, never leaked).
+show_gql_case "GraphQL users{phone} with alice (non-admin) → FieldAccessForbiddenNotification" \
+  "$TOK_ALICE" 'query { users(first: 1) { edges { node { phone } } } }' \
+  FieldAccessForbiddenNotification
+
+show_gql_case "GraphQL users{name} with alice → ALLOW (no restricted field selected)" \
+  "$TOK_ALICE" 'query { users(first: 1) { edges { node { name } } } }' \
+  ALLOW
+
 sec "Summary"
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi
