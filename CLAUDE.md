@@ -38,7 +38,7 @@
 >    cd ../omnicore && go build ./... && go vet ./... && go test ./... -count=1
 >    ```
 >    A green suite is a precondition of "done".
-> 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds eight scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage with the in-process memory cache, ~3s), `qa/cache.sh` (framework cache subsystem end-to-end — both `Deps.Cache` (private) and `Deps.SharedCache` (shared) exercised via `/showcase/cache/*` routes, plus httpclient delegation, cross-process persistence, TTL, failOpen — ~30s; needs the `redis` container up), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all eight**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all eight" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/cache/authz also need Keycloak ready; cache additionally needs the `redis` container up) — wait for the maintainer's reply before executing.
+> 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds nine scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage with the in-process memory cache, ~3s), `qa/cache.sh` (framework cache subsystem end-to-end — both `Deps.Cache` (private) and `Deps.SharedCache` (shared) exercised via `/showcase/cache/*` routes, plus httpclient delegation, cross-process persistence, TTL, failOpen — ~30s; needs the `redis` container up), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s), `qa/graphql.sh` (GraphQL endpoint end-to-end — introspection, GraphiQL playground, Relay reads with the `where` filter + per-item cursor, mutations, validation errors in `errors[]`, and absent-from-Swagger; ~10s, server running + CDC pipeline). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all nine**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all nine" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/cache/authz also need Keycloak ready; cache additionally needs the `redis` container up) — wait for the maintainer's reply before executing.
 
 > **CRITICAL RULE — DO NOT GUESS, VERIFY BEFORE ASSERTING OR PLANNING**
 >
@@ -219,6 +219,7 @@ omnicore-example-users/
 │   ├── showcase_routes.go         # MountShowcase — /showcase/keycloak/* + /showcase/httpclient/* via openapi.MountRaw (Public: true)
 │   ├── echo_routes.go             # MountEcho — /echo/* in-process upstream via openapi.MountRaw (Hidden: true — excluded from spec)
 │   ├── cache_routes.go            # MountCacheShowcase — /showcase/cache/{info,private,shared}/* via openapi.MountRaw (Hidden + Public; drives Deps.Cache + Deps.SharedCache for qa/cache.sh)
+│   ├── graphql_routes.go          # MountUsersGraphQL(reg, repo, svc, view, d) — contributes the User fields (users Query + the 6 verbs: createUser/updateUser/patchUser/archiveUser/unarchiveUser/deleteUser) to the single GraphQL registry; reuses the SAME handlers as MountUsers. GraphQL is its own surface (never in Swagger)
 │   ├── respond.go                 # respondWithError shared helper
 │   ├── requests/                  # Request DTOs + co-located Response DTOs (JSON wire format)
 │   │   ├── address_request.go              # AddressRequest + ToAddressInput() (canonical)
@@ -238,8 +239,8 @@ omnicore-example-users/
 │       └── user_custom_response.go              # UserCustomResponse + AddressCustomResponse + FromResult(commands.UserCustomResult) — shared by Insert/Update/Patch (manual showcase)
 ├── bootstrap/                     # Composition + entry point (package main)
 │   ├── main.go                    # ~10 lines: bootstrap.Run(Wire)
-│   ├── wire.go                    # Wire(d Deps) Wiring — translations + features + OpenAPI config (publishes /openapi.json + /docs)
-│   ├── users_feature.go           # UsersFeature: repo + view + Mount → web.MountUsers
+│   ├── wire.go                    # Wire(d Deps) Wiring — translations + features + OpenAPI config; builds the single GraphQL registry (fwgraphql.New) and accumulates each feature's fields into it (users.MountGraphQL), then Wiring.GraphQL = gql
+│   ├── users_feature.go           # UsersFeature: repo + view + Mount → web.MountUsers; MountGraphQL → web.MountUsersGraphQL (contributes the User fields to the shared graph)
 │   ├── showcase_feature.go        # ShowcaseFeature: kc + echo + custom repo/svc + Mount → MountWhoami/Echo/Showcase/UsersCustom
 │   ├── admin_feature.go           # AdminFeature: mount-only — POST /admin/retries/{upstream,integration} behind RequirePermission("admin:retry")
 │   └── audit_feature.go           # AuditFeature: mount-only — GET /audit/:aggregateId behind RequirePermission("audit:read")
@@ -486,6 +487,7 @@ Routes are split across files by responsibility so each file stays focused on on
 | `showcase_routes.go` | `MountShowcase(app, kc, echo, deps)` | `/showcase/keycloak/*` + `/showcase/httpclient/*` |
 | `echo_routes.go` | `MountEcho(app, deps)` | `/echo/*` in-process upstream for `/showcase/httpclient/*` |
 | `cache_routes.go` | `MountCacheShowcase(app, deps)` | `/showcase/cache/{info,private,shared}/*` minimal CRUD over `Deps.Cache` + `Deps.SharedCache` — the QA driver for `qa/cache.sh`; all routes Hidden + Public |
+| `graphql_routes.go` | `MountUsersGraphQL(reg, repo, svc, view, deps)` | Contributes the User aggregate's fields to the single GraphQL registry (built in `Wire`) — `users` Query + `createUser`/`archiveUser`/`deleteUser` mutations, reusing the SAME handlers as `MountUsers`. Cumulative (each aggregate adds its fields); GraphQL is its own surface served at `POST /graphql`, never in the Swagger document |
 | `respond.go` | _(shared helper)_ | `respondWithError` envelope for non-domain failures |
 
 `UsersFeature.Mount` calls `MountUsers` and nothing else; `ShowcaseFeature.Mount` calls `MountWhoami` + `MountEcho` + `MountShowcase` + `MountUsersCustom` + `MountCacheShowcase`. The default bootstrap injects the `Recover`, `Logger`, `AppContextMiddleware` middlewares (plus `AuthMiddleware` when `auth.mode: jwt`), the `GET /health` route, and — when `Wiring.OpenAPI != nil` — the `GET /openapi.json` + `GET /docs` documentation routes. None of those appear in this table.
@@ -1092,7 +1094,7 @@ curl -X PUT http://localhost:8080/users/<id> \
 
 ## QA suites (`qa/`)
 
-Six end-to-end scripts, all rely on `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` as preconditions. `auth.sh`, `audit.sh`, `httpclient.sh`, and `authz.sh` additionally require the `keycloak` container to be ready (the realm import takes a few seconds on cold start).
+Nine end-to-end scripts, all rely on `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` as preconditions. `auth.sh`, `audit.sh`, `httpclient.sh`, and `authz.sh` additionally require the `keycloak` container to be ready (the realm import takes a few seconds on cold start).
 
 ### `qa/e2e.sh` — endpoint + notification coverage
 
@@ -1288,6 +1290,28 @@ Total: 14 cases — covers FreshInit init → CDC propagation → wipe → Mongo
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
 bash qa/schema_evolution.sh          # ~30s
+```
+
+### `qa/graphql.sh` — GraphQL endpoint end-to-end
+
+Validates the framework's GraphQL surface — the example builds a single GraphQL registry in `Wire` (`fwgraphql.New(d.Pipeline)`) and accumulates each feature's fields into it (`UsersFeature.MountGraphQL` → `web.MountUsersGraphQL`), reusing the SAME User handlers the `/users/*` REST routes use. Runs against a running service (`APP_PROFILE=dev`, server on `localhost:8080`, `graphql.playground: true` + `graphql.introspection: true` in `microservice.dev.yaml`). Like `httpclient.sh` / `openapi.sh`, it does NOT boot the server — start it in another terminal first. Requires `jq`. Cases:
+
+- **Introspection** — `__schema.queryType.name` = `Query`, `__schema.mutationType.name` = `Mutation`; `__type(name:"User")` is an `OBJECT` exposing `id`/`name`/`email`.
+- **Playground** — `GET /graphql/ui` returns 200 HTML embedding GraphiQL.
+- **Own surface** — `GET /openapi.json` does NOT contain any `/graphql` path (GraphQL never appears in the Swagger document).
+- **`createUser` mutation** — persists a user (input object reflected from `InsertUserRequest`, addresses nested); returns `{id, name, email}`.
+- **Read after CDC** — waits `${CDC_WAIT_SEC:-4}`s, then `users(where: { email: { eq: … } }, first: 10)` returns the created node; `edges[].cursor` is populated (the per-row keyset cursor); `pageInfo` + `totalCount` present. Proves the `where` folds identically to the REST `?email=…` and the Relay connection rides `Page.ItemCursors`.
+- **Validation in `errors[]`** — an undeclared operator (`email: { contains: … }`, only `eq`/`in`/`ieq` declared) and an unknown root field both return HTTP 200 with a populated `errors[]` (GraphQL convention).
+- **All six write verbs (parity with `/users/*`)** — `updateUser` (PUT, `MutationWithID`, strict full body, email kept immutable), `patchUser` (PATCH, `MutationWithID`, partial), and the bodyless `archiveUser` / `unarchiveUser` / `deleteUser` (`MutationByID` → `MutationResult{success}`); `deleteUser` also cleans up the created record.
+- **Notifications surface legibly in `errors[].extensions`** — a domain rule (`createUser` with a malformed email → `InvalidEmailNotification`) carries the full triple `semantic: "Validation"` / `notificationKey` / `field`; a stale/foreign keyset cursor (`users(after: …)` whose context hash does not match) surfaces as `semantic: "Schema"` / `SchemaViolationNotification` / `field: "cursor"` — NOT the opaque `"internal server error"` / `Internal` (the GraphQL surface has no pre-dispatch cursor check, so the reader returns the typed `infra.InvalidCursorError`).
+
+Total: ~26 cases. Server-running pattern (no self-lifecycle); needs the CDC pipeline up for the read case.
+
+```bash
+docker compose -f devops/docker-compose.yml up -d
+./devops/debezium/register-connector.sh
+APP_PROFILE=dev go run ./bootstrap   # in another terminal
+bash qa/graphql.sh                   # ~10s
 ```
 
 ---

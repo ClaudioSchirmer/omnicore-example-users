@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
+	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 	"github.com/ClaudioSchirmer/omnicore/web/openapi"
 
 	apptrans "github.com/ClaudioSchirmer/omnicore-example-users/application/translations"
@@ -18,13 +19,23 @@ import (
 // helpers can register each route with the documentation layer. Removing
 // the field rolls back to a binary that ships without the spec endpoints.
 func Wire(d bootstrap.Deps) bootstrap.Wiring {
+	users := NewUsersFeature(d)
+
+	// GraphQL is ONE surface (POST /graphql) backed by ONE registry, created
+	// here like the OpenAPI registry. Registration is cumulative: each feature
+	// contributes its fields into the same graph (a future aggregate adds
+	// `orders.MountGraphQL(gql, d)` here). Served separately from REST — never
+	// in the Swagger document; serving knobs live under graphql: in the YAML.
+	gql := fwgraphql.New(d.Pipeline)
+	users.MountGraphQL(gql, d)
+
 	return bootstrap.Wiring{
 		Translations: []translation.Module{
 			apptrans.PTBR(), apptrans.ENG(), apptrans.ESP(), apptrans.FRA(),
 			apptrans.DEU(), apptrans.ITA(), apptrans.NLD(),
 		},
 		Features: []bootstrap.Feature{
-			NewUsersFeature(d),
+			users,
 			NewShowcaseFeature(d),
 			NewAdminFeature(),
 			NewAuditFeature(),
@@ -33,7 +44,8 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 			Title:       "OmniCore Example Users",
 			Version:     "0.1.0",
 			Description: "Reference microservice exercising every OmniCore feature: CRUD with addresses as an aggregate child, manual showcase, outbound HTTP showcases, and the auth identity demo.",
-            LanguageSelector: true,
+			LanguageSelector: true,
 		},
+		GraphQL: gql,
 	}
 }

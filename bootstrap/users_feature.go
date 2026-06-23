@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 
 	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/infra"
 	appweb "github.com/ClaudioSchirmer/omnicore-example-users/web"
@@ -51,4 +52,13 @@ func (f *UsersFeature) Views() []*fwinfra.ViewDefinition {
 // /whoami routes are mounted by ShowcaseFeature.
 func (f *UsersFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	appweb.MountUsers(app, f.repo, f.svc, f.view, d)
+}
+
+// MountGraphQL contributes the User aggregate's fields to the service's single
+// GraphQL registry — the GraphQL twin of Mount. The registry is created once in
+// Wire (the single /graphql surface); each feature adds its fields cumulatively,
+// reusing the same repo/service/view this feature already holds (no second
+// construction). web owns the field attachment (appweb.MountUsersGraphQL).
+func (f *UsersFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) {
+	appweb.MountUsersGraphQL(reg, f.repo, f.svc, f.view, d)
 }
