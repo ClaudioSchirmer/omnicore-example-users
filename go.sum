@@ -1,7 +1,7 @@
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 h1:L/gRVlceqvL25UVaW/CKtUDjefjrs0SPonmDGUVOYP0=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
-github.com/ClaudioSchirmer/omnicore v0.11.0 h1:Nzika7SUshKqr0qN3JImONmNkkocLYFS0yM0EO9159E=
-github.com/ClaudioSchirmer/omnicore v0.11.0/go.mod h1:7nq+RRcyLgbiEUKU86BYKsMoKV9D2kqkCO+FoQwyvEA=
+github.com/ClaudioSchirmer/omnicore v0.12.0 h1:jdPXvVuW4i70HKhY+4TthOekLdUfN/mqkGGQolTe7K8=
+github.com/ClaudioSchirmer/omnicore v0.12.0/go.mod h1:7nq+RRcyLgbiEUKU86BYKsMoKV9D2kqkCO+FoQwyvEA=
 github.com/MicahParks/jwkset v0.11.0 h1:yc0zG+jCvZpWgFDFmvs8/8jqqVBG9oyIbmBtmjOhoyQ=
 github.com/MicahParks/jwkset v0.11.0/go.mod h1:U2oRhRaLgDCLjtpGL2GseNKGmZtLs/3O7p+OZaL5vo0=
 github.com/MicahParks/keyfunc/v3 v3.8.0 h1:Hx2dgIjAXGk9slakM6rV9BOeaWDPEXXZ4Us8guNBfds=
