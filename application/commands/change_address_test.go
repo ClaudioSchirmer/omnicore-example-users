@@ -118,7 +118,7 @@ func TestChangeAddressCommand_FromEntity_ProjectsTargetedAddress(t *testing.T) {
 	u := loadedUserWithAddress(addressID)
 	cmd := &ChangeAddressCommand{AddressID: addressID}
 
-	got := cmd.FromEntity(nil, u)
+	got, _ := cmd.FromEntity(nil, u)
 
 	if got.UserID != *u.GetID() {
 		t.Errorf("UserID mismatch: got %v, want %v", got.UserID, *u.GetID())
@@ -138,7 +138,7 @@ func TestChangeAddressCommand_FromEntity_EmptyOnUnknownID(t *testing.T) {
 	u := loadedUserWithAddress(uuid.NewString())
 	cmd := &ChangeAddressCommand{AddressID: "00000000-0000-0000-0000-000000000000"}
 
-	got := cmd.FromEntity(nil, u)
+	got, _ := cmd.FromEntity(nil, u)
 
 	if got.Address.ID != "" {
 		t.Errorf("expected empty Address.ID when cmd targets unknown id, got %q", got.Address.ID)

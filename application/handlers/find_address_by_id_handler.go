@@ -33,7 +33,10 @@ type FindAddressByIDQueryHandler struct {
 func (h *FindAddressByIDQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindAddressByIDQuery,
 ) (map[string]any, error) {
-	criteria := q.ToCriteria(ctx)
+	criteria, err := q.ToCriteria(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	// ─── Custom filter seam (same as the manual showcase by-email read) ────
 	//

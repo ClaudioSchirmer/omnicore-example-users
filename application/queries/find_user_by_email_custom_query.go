@@ -25,10 +25,10 @@ type FindUserByEmailQuery struct {
 	IncludeArchived bool
 }
 
-func (q FindUserByEmailQuery) ToCriteria(_ *configuration.AppContext) fwqueries.ReadCriteria {
+func (q FindUserByEmailQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return fwqueries.ReadCriteria{
 		Filter:          map[string]any{"Email": q.Email},
 		Limit:           1,
 		IncludeArchived: q.IncludeArchived,
-	}
+	}, nil
 }

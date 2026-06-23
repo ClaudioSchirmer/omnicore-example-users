@@ -23,9 +23,11 @@ type ArchiveUserCustomCommand struct {
 // showcase doesn't consume ctx — a future authz invariant would populate a
 // transient field here (e.g., u.SetRequestingOwnerID(...)) for the service's
 // IfUpdate branch on actionName=="GetArchivable" to validate.
-func (*ArchiveUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) {}
+func (*ArchiveUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
+	return nil
+}
 
 // FromEntity returns fwresults.None — bodyless verb shape, same as canonical.
-func (*ArchiveUserCustomCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) fwresults.None {
-	return fwresults.None{}
+func (*ArchiveUserCustomCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) (fwresults.None, error) {
+	return fwresults.None{}, nil
 }

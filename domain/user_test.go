@@ -137,7 +137,7 @@ func TestUser_BuildRules_OwnerCheck_DoesNotFireOnUpdate(t *testing.T) {
 	// gates the owner-check.
 	u := buildValidUser(t)
 	u.RequestingPrincipalEmail = "intruder@example.com" // would fail Archive
-	_, err := domain.GetUpdatable(u, func(*appdomain.User) {}, okService(), "GetUpdatable")
+	_, err := domain.GetUpdatable(u, func(*appdomain.User) error { return nil }, okService(), "GetUpdatable")
 	if err != nil {
 		var carrier domain.NotificationCarrier
 		if errors.As(err, &carrier) {
@@ -343,7 +343,7 @@ func TestUser_EmailImmutable_RejectsChangeOnUpdate(t *testing.T) {
 	u.SetID(domain.NewRandomID())
 	u.AddAddress(validAddress(), nil)
 
-	apply := func(x *appdomain.User) { x.Email = "jane.new@example.com" }
+	apply := func(x *appdomain.User) error { x.Email = "jane.new@example.com"; return nil }
 
 	_, err := domain.GetUpdatable(u, apply, okService(), "GetUpdatable")
 	if err == nil {
@@ -369,9 +369,10 @@ func TestUser_EmailImmutable_AcceptsSameEmailOnUpdate(t *testing.T) {
 	u.AddAddress(validAddress(), nil)
 
 	// Apply mutates other fields but keeps email — the rule should be silent.
-	apply := func(x *appdomain.User) {
+	apply := func(x *appdomain.User) error {
 		x.Name = "Jane Renamed"
 		x.Phone = ptr("14155553333")
+		return nil
 	}
 
 	if _, err := domain.GetUpdatable(u, apply, okService(), "GetUpdatable"); err != nil {
@@ -405,7 +406,7 @@ func TestUser_EmailImmutable_FiresOnPartialUpdateToo(t *testing.T) {
 	u.SetID(domain.NewRandomID())
 	u.AddAddress(validAddress(), nil)
 
-	apply := func(x *appdomain.User) { x.Email = "different@example.com" }
+	apply := func(x *appdomain.User) error { x.Email = "different@example.com"; return nil }
 
 	_, err := domain.GetPartialUpdatable(u, apply, okService(), "GetPartialUpdatable")
 	if err == nil {

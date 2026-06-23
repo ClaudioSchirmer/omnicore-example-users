@@ -23,8 +23,8 @@ type FindAddressByIDQuery struct {
 	IncludeArchived bool
 }
 
-func (q FindAddressByIDQuery) ToCriteria(_ *configuration.AppContext) fwqueries.ReadCriteria {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}
+func (q FindAddressByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
+	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
 }
 
 // ContextName aligns the 404 NotificationContext with the entity the

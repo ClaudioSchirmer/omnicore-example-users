@@ -28,7 +28,7 @@ type UpdateUserCommand struct {
 // showcase doesn't consume ctx — a future authz field on User would be
 // populated here (e.g., u.SetRequestingOwnerID(ctx.Identity().Subject)) for
 // BuildRules' IfUpdate to compare against the persistent owner.
-func (c UpdateUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) {
+func (c UpdateUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	u.Name = c.Name
 	u.Email = c.Email
 	u.Phone = c.Phone
@@ -41,6 +41,7 @@ func (c UpdateUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.Use
 		addrs[i] = a.ToAddress()
 	}
 	u.ReplaceAddresses(addrs)
+	return nil
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -48,13 +49,13 @@ func (c UpdateUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.Use
 // FromEntity is the symmetric inverse of ApplyTo — Entity → Result. The
 // framework calls it AFTER orchestrator.Update completes; the receiver `c`
 // gives access to whatever cmd-side data the projection needs.
-func (c UpdateUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) UpdateUserResult {
+func (c UpdateUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (UpdateUserResult, error) {
 	return UpdateUserResult{
 		ID:    *u.GetID(),
 		Name:  u.Name,
 		Email: u.Email,
 		Phone: u.Phone,
-	}
+	}, nil
 }
 
 // UpdateUserResult is the application-layer projection returned after the

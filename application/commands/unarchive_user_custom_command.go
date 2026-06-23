@@ -21,9 +21,11 @@ type UnarchiveUserCustomCommand struct {
 // GetUnarchivable runs BuildRules in ModeUpdate with
 // actionName="GetUnarchivable". No-op today; future authz would populate
 // the transient identity field here.
-func (*UnarchiveUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) {}
+func (*UnarchiveUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
+	return nil
+}
 
 // FromEntity returns fwresults.None — bodyless verb shape.
-func (*UnarchiveUserCustomCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) fwresults.None {
-	return fwresults.None{}
+func (*UnarchiveUserCustomCommand) FromEntity(_ *configuration.AppContext, _ *appdomain.User) (fwresults.None, error) {
+	return fwresults.None{}, nil
 }

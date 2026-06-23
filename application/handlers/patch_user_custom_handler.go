@@ -26,7 +26,7 @@ func (h *PatchUserCustomCommandHandler) Handle(
 		return commands.UserCustomResult{}, err
 	}
 
-	apply := func(u *appdomain.User) { cmd.ApplyPartiallyTo(ctx, u) }
+	apply := func(u *appdomain.User) error { return cmd.ApplyPartiallyTo(ctx, u) }
 	updatable, err := domain.GetPartialUpdatable(user, apply, h.Service, "GetPartialUpdatable")
 	if err != nil {
 		return commands.UserCustomResult{}, err
@@ -35,5 +35,9 @@ func (h *PatchUserCustomCommandHandler) Handle(
 	if err := repo.Update(updatable); err != nil {
 		return commands.UserCustomResult{}, err
 	}
-	return cmd.FromEntity(ctx, user), nil
+	result, err := cmd.FromEntity(ctx, user)
+	if err != nil {
+		return commands.UserCustomResult{}, err
+	}
+	return result, nil
 }

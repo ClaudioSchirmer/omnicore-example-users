@@ -36,12 +36,13 @@ type ChangeAddressCustomCommand struct {
 
 // ApplyTo delegates to the addressed-by-id domain method — same shape as
 // the canonical Command.
-func (c *ChangeAddressCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) {
+func (c *ChangeAddressCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	u.ChangeAddressByID(c.AddressID, c.Address.ToAddress())
+	return nil
 }
 
 // FromEntity projects the post-mutation User into the shared UserCustomResult.
 // Manual handler calls this AFTER orch.Update completes.
-func (c *ChangeAddressCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) UserCustomResult {
-	return userCustomResultFromUser(u)
+func (c *ChangeAddressCustomCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (UserCustomResult, error) {
+	return userCustomResultFromUser(u), nil
 }

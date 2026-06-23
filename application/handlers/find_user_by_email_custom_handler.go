@@ -28,7 +28,10 @@ type FindUserByEmailCustomQueryHandler struct {
 func (h *FindUserByEmailCustomQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindUserByEmailQuery,
 ) (map[string]any, error) {
-	criteria := q.ToCriteria(ctx)
+	criteria, err := q.ToCriteria(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if criteria.Filter == nil {
 		criteria.Filter = map[string]any{}
 	}

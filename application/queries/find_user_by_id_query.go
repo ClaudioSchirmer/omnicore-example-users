@@ -23,7 +23,7 @@ type FindUserByIDQuery struct {
 	IncludeArchived bool
 }
 
-func (q FindUserByIDQuery) ToCriteria(_ *configuration.AppContext) fwqueries.ReadCriteria {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}
+func (q FindUserByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
+	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
 }
 func (q FindUserByIDQuery) ContextName() string { return "User" }

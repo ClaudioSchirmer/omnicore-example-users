@@ -23,7 +23,7 @@ func TestInsertUserCommand_ToEntity_CopiesFieldsAndAddresses(t *testing.T) {
 			{Street: "St 1", Number: "1", Neighborhood: "N", City: "C", State: "ST", ZipCode: "00000", Country: "BR"},
 		},
 	}
-	u := cmd.ToEntity(nil)
+	u, _ := cmd.ToEntity(nil)
 	if u.Name != "Alice" || u.Email != "a@x.com" {
 		t.Errorf("entity fields = %+v", u)
 	}
@@ -175,7 +175,7 @@ func TestInsertUserCustomCommand_ToEntityAndFromEntity(t *testing.T) {
 			{Street: "S", Number: "1", Neighborhood: "N", City: "C", State: "ST", ZipCode: "0", Country: "BR"},
 		},
 	}
-	u := cmd.ToEntity(nil)
+	u, _ := cmd.ToEntity(nil)
 	if u.Name != "Alice" || u.Email != "a@x.com" {
 		t.Errorf("custom ToEntity root = %+v", u)
 	}
@@ -185,7 +185,7 @@ func TestInsertUserCustomCommand_ToEntityAndFromEntity(t *testing.T) {
 
 	// FromEntity must populate ID via *u.GetID().
 	u.SetID(domain.NewRandomID())
-	res := cmd.FromEntity(nil, u)
+	res, _ := cmd.FromEntity(nil, u)
 	if res.Name != "Alice" || res.Email != "a@x.com" {
 		t.Errorf("custom FromEntity = %+v", res)
 	}
@@ -221,7 +221,7 @@ func TestUpdateUserCustomCommand_ApplyToReplacesAndDropsEmail(t *testing.T) {
 func TestUpdateUserCustomCommand_FromEntity(t *testing.T) {
 	u := &appdomain.User{Name: "N", Email: "e@x"}
 	u.SetID(domain.NewRandomID())
-	res := (&UpdateUserCustomCommand{}).FromEntity(nil, u)
+	res, _ := (&UpdateUserCustomCommand{}).FromEntity(nil, u)
 	if res.Name != "N" {
 		t.Errorf("res = %+v", res)
 	}
@@ -290,7 +290,7 @@ func TestChangeAddressCustomCommand_ApplyAndFromEntity(t *testing.T) {
 	}
 
 	// FromEntity returns the shared UserCustomResult.
-	res := cmd.FromEntity(nil, u)
+	res, _ := cmd.FromEntity(nil, u)
 	if res.Email != "e@x" {
 		t.Errorf("FromEntity = %+v", res)
 	}
