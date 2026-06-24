@@ -221,6 +221,13 @@ assert_jq "invalid email → notificationKey InvalidEmailNotification" \
     '.errors[0].extensions.notificationKey' "InvalidEmailNotification"
 assert_jq_true "invalid email → field is the email field" \
     '((.errors[0].extensions.field // "") | ascii_downcase) == "email"'
+# extensions mirror the REST ErrorMessage in full: the translated fieldLabel
+# (from the labelKey:"UserEmailField" tag, ENG default → "Email") and the echoed
+# value travel alongside the triple — not only semantic/notificationKey/field.
+assert_jq "invalid email → fieldLabel mirrors REST (labelKey UserEmailField)" \
+    '.errors[0].extensions.fieldLabel' "Email"
+assert_jq "invalid email → value echoes the offending input" \
+    '.errors[0].extensions.value' "not-an-email"
 
 # ── 17. Count-only (totalCount-only) + pagination arg → pre-dispatch conflict ─
 # A totalCount-only selection maps to count-only (ReadCriteria.OnlyTotal). A
