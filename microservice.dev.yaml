@@ -78,6 +78,18 @@ audit:
     - slog
     - database
 
+# GraphQL — its own web surface (POST /graphql), separate from REST/OpenAPI:
+# never in the Swagger document, not policed by the REST route scans. The
+# schema + attached handlers live in code (Wiring.GraphQL = NewGraphQL(d)); only
+# these serving knobs are config. Playground + introspection are ON here for the
+# dev sandbox (GraphiQL at /graphql/ui); a prd profile would leave both off.
+graphql:
+  path: /graphql
+  uiPath: /graphql/ui
+  playground: true
+  introspection: true
+  rootRedirect: false     # GET / → 302 path; mutually exclusive with openapi.rootRedirect (both true → boot panic)
+
 # Outbound HTTP — exercises the omnicore/infra/httpclient subsystem
 # end-to-end against the local Keycloak fixture. Two services declared:
 # `keycloak-public` hits the OIDC discovery endpoint (anonymous, cacheable);
