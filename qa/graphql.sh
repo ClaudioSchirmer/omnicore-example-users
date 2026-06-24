@@ -222,19 +222,38 @@ assert_jq "invalid email → notificationKey InvalidEmailNotification" \
 assert_jq_true "invalid email → field is the email field" \
     '((.errors[0].extensions.field // "") | ascii_downcase) == "email"'
 
-# ── 17. Stale/foreign keyset cursor → legible Schema error, not 500/Internal ─
-# GraphQL has no pre-dispatch cursor check (the REST wrapper does); a cursor
-# whose context hash does not match the current criteria reaches the reader,
-# which now returns SchemaViolationNotification (semantic Schema) instead of a
-# plain error that would surface as {"message":"internal server error"}.
-# The cursor below decodes cleanly but carries a bogus context hash.
+# ── 17. Count-only (totalCount-only) + pagination arg → pre-dispatch conflict ─
+# A totalCount-only selection maps to count-only (ReadCriteria.OnlyTotal). A
+# pagination/sort argument alongside it (here first + after) is a conflict —
+# there is no page to order or seek into when only the count is asked — rejected
+# pre-dispatch with a legible SchemaViolationNotification (semantic Schema),
+# parity with REST's onlyTotalConflicts. The cursor below decodes cleanly but is
+# moot: the conflict fires before the reader ever sees it.
 STALE_CURSOR="eyJ2IjogMSwgImsiOiBbIngiXSwgImgiOiAiZGVhZGJlZWYifQ=="
 gql "query { users(first: 1, after: \"${STALE_CURSOR}\") { totalCount } }" >/dev/null
-assert_jq "stale cursor → semantic Schema (not Internal)" '.errors[0].extensions.semantic' "Schema"
-assert_jq "stale cursor → notificationKey SchemaViolationNotification" \
+assert_jq "count-only + pagination → semantic Schema (not Internal)" '.errors[0].extensions.semantic' "Schema"
+assert_jq "count-only + pagination → notificationKey SchemaViolationNotification" \
     '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
-assert_jq_true "stale cursor → message is legible (not 'internal server error')" \
+assert_jq_true "count-only + pagination → message is legible (not 'internal server error')" \
     '((.errors[0].message // "") != "internal server error")'
+
+# ── 17b. Stale cursor on a real (edges) read → reader-side Schema rejection ───
+# An edges selection is a full read (not count-only), so the stale cursor is NOT
+# short-circuited by the count-only conflict above — it reaches the reader,
+# which returns the same legible SchemaViolationNotification (semantic Schema)
+# instead of a 500/Internal. GraphQL has no pre-dispatch cursor check on a real
+# read; the typed rejection comes from the reader (infra.InvalidCursorError).
+gql "query { users(first: 1, after: \"${STALE_CURSOR}\") { edges { node { id } } } }" >/dev/null
+assert_jq "stale cursor (edges read) → semantic Schema (not Internal)" '.errors[0].extensions.semantic' "Schema"
+assert_jq "stale cursor (edges read) → notificationKey SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# ── 17c. Count-only alone (no pagination) → just the count, no items ──────────
+# The common count-only shape: totalCount only, no pagination arg → short-circuit
+# to a count. The envelope carries totalCount and no edges key.
+gql 'query { users { totalCount } }' >/dev/null
+assert_jq_true "count-only alone → totalCount is a number, edges absent" \
+    '(.data.users.totalCount | type == "number") and (.data.users | has("edges") | not)'
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo
