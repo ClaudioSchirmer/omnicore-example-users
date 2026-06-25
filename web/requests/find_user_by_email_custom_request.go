@@ -12,7 +12,7 @@ import (
 // /showcase/users-custom/:email. Only ?includeArchived=true|false is
 // recognized — the route uses fwweb.ParseCriteria over this DTO to reject
 // every other query key with the canonical 400 envelope, matching what the
-// auto HandleQueryWithID wrapper enforces on /users/:id.
+// auto HandleQueryByID wrapper enforces on /users/:id.
 //
 // Email carries `path:"email"`: the manual route chains fwweb.BindPath
 // before fwweb.ParseCriteria so the framework reads c.Params("email")

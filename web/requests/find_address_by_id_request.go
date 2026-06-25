@@ -8,7 +8,7 @@ import (
 
 // FindAddressByIDRequest is the wire allowlist for the canonical
 // GET /users/:id/addresses/:addressId. The User UUID is auto-bound by the
-// HandleQueryWithID wrapper into the Query's embedded QueryBaseWithID via
+// HandleQueryByID wrapper into the Query's embedded QueryBaseWithID via
 // SetPathID — declaring `path:"id"` here would be a boot panic (the
 // framework's auto-bind owns the `:id` slot). The Address UUID arrives via
 // the `path:"addressId"` tag (BindPath populates it before ToQuery).

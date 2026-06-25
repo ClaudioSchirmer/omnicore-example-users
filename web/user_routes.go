@@ -101,7 +101,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:write"))
 
-	deleteH, deleteSpec := fwweb.HandleCommandWithIDSpec(d.Pipeline,
+	deleteH, deleteSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.DeleteCommandHandler[*appdomain.User, *commands.DeleteUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -115,7 +115,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:delete"))
 
-	archiveH, archiveSpec := fwweb.HandleCommandWithIDSpec(d.Pipeline,
+	archiveH, archiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -129,7 +129,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:archive"))
 
-	unarchiveH, unarchiveSpec := fwweb.HandleCommandWithIDSpec(d.Pipeline,
+	unarchiveH, unarchiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.UnarchiveCommandHandler[*appdomain.User, *commands.UnarchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -204,7 +204,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:read"))
 
-	byIDH, byIDSpec := fwweb.HandleQueryWithIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
 		requests.FindUserByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
@@ -250,7 +250,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:write"))
 
-	findAddrH, findAddrSpec := fwweb.HandleQueryWithIDSpec(d.Pipeline,
+	findAddrH, findAddrSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
 		requests.FindAddressByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindAddressByIDResponse],
 		&appquery.FindAddressByIDQueryHandler{

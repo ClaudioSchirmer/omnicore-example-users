@@ -27,7 +27,7 @@ const usersViewName = "users"
 
 // MountUsersCustom registers the manual showcase of the User aggregate
 // under /showcase/users-custom/*. Each route writes out the Fiber-handler
-// equivalent of what fwweb.HandleCommandWithBody{,ID} / HandleCommandWithID
+// equivalent of what fwweb.HandleCommandWithBody{,ID} / HandleCommandByID
 // hide on the canonical /users/* surface:
 //
 //   1. fwweb.BindPath(c, &req) — every route, body-carrying and bodyless

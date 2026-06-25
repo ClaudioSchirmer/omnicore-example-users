@@ -656,7 +656,7 @@ show_gql_case "GraphQL createUser with noperm → MissingPermissionNotification 
 
 # alice carries users:read → the read field resolves (gate passes).
 show_gql_case "GraphQL users query with alice → ALLOW (alice has users:read)" \
-  "$TOK_ALICE" 'query { users(first: 1) { totalCount } }' \
+  "$TOK_ALICE" 'query { users(first: 1) { edges { node { id } } } }' \
   ALLOW
 
 # alice lacks users:delete → deleteUser is gated even though she can read/write.

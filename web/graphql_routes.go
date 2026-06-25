@@ -42,8 +42,8 @@ func MountUsersGraphQL(
 	view *fwinfra.ViewDefinition,
 	d bootstrap.Deps,
 ) {
-	// READ → Query `users(where, first, after, orderBy, …)` → Relay connection.
-	reg.Register(fwgraphql.Query[
+	// READ → QueryWithParams `users(where, first, after, orderBy, …)` → Relay connection.
+	reg.Register(fwgraphql.QueryWithParams[
 		requests.FindUsersByParamsRequest,
 		requests.FindUsersByParamsResponse,
 	](
@@ -53,29 +53,29 @@ func MountUsersGraphQL(
 		},
 		fwgraphql.RequirePermission("users:read")))
 
-	// WRITE insert → Mutation `createUser(input)` (input object reflected from
+	// WRITE insert → MutationWithBody `createUser(input)` (input object reflected from
 	// the Request DTO; NonNull fields follow the strict/lenient rule).
-	reg.Register(fwgraphql.Mutation[requests.InsertUserRequest](
+	reg.Register(fwgraphql.MutationWithBody[requests.InsertUserRequest](
 		"createUser", requests.InsertUserResponse{}.FromResult,
 		&handlers.InsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
 			Repo: repo, Service: svc,
 		},
 		fwgraphql.RequirePermission("users:write")))
 
-	// WRITE full update → MutationWithID `updateUser(id, input)` (PUT). The
+	// WRITE full update → MutationWithBodyID `updateUser(id, input)` (PUT). The
 	// UpdateCommandHandler embeds pipeline.FullBody, so the input object is
 	// strict — every field NonNull.
-	reg.Register(fwgraphql.MutationWithID[requests.UpdateUserRequest](
+	reg.Register(fwgraphql.MutationWithBodyID[requests.UpdateUserRequest](
 		"updateUser", requests.UpdateUserResponse{}.FromResult,
 		&handlers.UpdateCommandHandler[*appdomain.User, *commands.UpdateUserCommand, commands.UpdateUserResult]{
 			Repo: repo, Service: svc,
 		},
 		fwgraphql.RequirePermission("users:write")))
 
-	// WRITE partial update → MutationWithID `patchUser(id, input)` (PATCH). The
+	// WRITE partial update → MutationWithBodyID `patchUser(id, input)` (PATCH). The
 	// PartialUpdateCommandHandler is lenient, so the input fields are nullable
 	// (pointer fields on the Request).
-	reg.Register(fwgraphql.MutationWithID[requests.PatchUserRequest](
+	reg.Register(fwgraphql.MutationWithBodyID[requests.PatchUserRequest](
 		"patchUser", requests.PatchUserResponse{}.FromResult,
 		&handlers.PartialUpdateCommandHandler[*appdomain.User, *commands.PatchUserCommand, commands.PatchUserResult]{
 			Repo: repo, Service: svc,
