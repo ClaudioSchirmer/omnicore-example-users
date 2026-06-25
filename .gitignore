@@ -38,3 +38,7 @@ Thumbs.db
 devops/postgres-data/
 devops/mongo-data/
 devops/kafka-data/
+
+# ELK log mirror (run-dev.sh tees stdout here for Filebeat; runtime artifact)
+devops/elk/logs/*
+!devops/elk/logs/.gitkeep

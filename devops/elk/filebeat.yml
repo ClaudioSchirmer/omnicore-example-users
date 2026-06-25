@@ -1,0 +1,56 @@
+# Filebeat ships the service's stdout logs (tee'd into devops/elk/logs/ by
+# run-dev.sh) into Elasticsearch. The framework writes structured JSON
+# (slog) carrying `service`, `msg`, `traceId`, `actor`, `entityType`, etc. — the
+# ndjson parser decodes each field to the document root so Kibana can filter on
+# them. Non-JSON lines (the Fiber request logger) ship as raw `message`, so
+# nothing is dropped.
+filebeat.inputs:
+  - type: filestream
+    id: omnicore-app
+    paths:
+      - /logs/*.log
+    parsers:
+      # Most lines are the framework's structured slog JSON → decoded to root.
+      # Some lines are NOT JSON (the Fiber inbound request logger, e.g.
+      # "200 | GET | /health", and Go tooling output): add_error_key=false keeps
+      # those as a plain `message` field with no noisy decode-error attached.
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          add_error_key: false
+          ignore_decoding_error: true
+
+processors:
+  # The framework's http.outbound log uses `service` for the UPSTREAM target
+  # (keycloak-public, echo, ...), not the emitter. Rename it to `upstream` first
+  # so that `service` can mean ONE thing on every log: the microservice that
+  # emitted it. The upstream is preserved (just under a clearer name).
+  - rename:
+      fields:
+        - from: "service"
+          to: "upstream"
+      ignore_missing: true
+      fail_on_error: false
+  # Stamp the emitting microservice on EVERY log — internal, audit, AND
+  # httpclient outbound — so they all sit under this one service umbrella. The
+  # value mirrors `service:` in microservice.<profile>.yaml; a log leaving this
+  # process belongs to this process, regardless of who it called.
+  - add_fields:
+      target: ""
+      fields:
+        service: omnicore-example-users
+  - drop_fields:
+      fields: ["log", "input", "agent", "ecs", "host"]
+      ignore_missing: true
+
+# Write to a PLAIN index (not a data stream) whose mapping we own — disabling
+# Filebeat's template/ILM management. The es-template (devops/elk/es-template.json,
+# applied by setup-observability.sh) maps payload objects as `flattened` so the
+# polymorphic audit fields (snapshot/changes/children) never trigger a mapping
+# conflict.
+setup.ilm.enabled: false
+setup.template.enabled: false
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  index: "omnicore-logs"

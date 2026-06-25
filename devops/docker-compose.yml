@@ -136,6 +136,65 @@ services:
       timeout: 5s
       retries: 10
 
+  # Jaeger all-in-one — OpenTelemetry trace collector + web UI. The dev profile's
+  # observability.tracing (exporter=otlp) ships spans here over OTLP/gRPC (4317);
+  # the Go app runs on the host and exports to localhost:4317. Open the UI at
+  # http://localhost:16686, pick service "omnicore-example-users", and see the
+  # trace tree (server -> dispatch -> pgx/mongo/httpclient). In-memory storage:
+  # traces are throwaway, cleared on container restart — a dev-bench visualization,
+  # not retention. Optional — no other service depends on it; a request never
+  # blocks on Jaeger (spans export async and drop if it is down).
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: omnicore-example-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # web UI
+      - "4317:4317"     # OTLP gRPC — the app on the host exports here
+      - "4318:4318"     # OTLP HTTP
+
+  # --- Logging stack (ELK) ---------------------------------------------------
+  # Logs are the OTHER pillar (Jaeger holds traces). The service writes JSON to
+  # stdout; run-dev.sh mirrors it into devops/elk/logs/, Filebeat ships it
+  # to Elasticsearch, and Kibana (http://localhost:5601) searches it. Heavy
+  # containers (~2GB combined) — security disabled, single-node: dev bench only.
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: omnicore-example-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: omnicore-example-kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      ELASTICSEARCH_HOSTS: "http://elasticsearch:9200"
+    ports:
+      - "5601:5601"
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.4
+    container_name: omnicore-example-filebeat
+    user: root
+    depends_on:
+      - elasticsearch
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./elk/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./elk/logs:/logs:ro
+
 volumes:
   postgres_data:
   mongo_data:

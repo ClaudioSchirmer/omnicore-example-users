@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Bring up the local bench and run the service in dev mode (auth off).
-# Logs stream to stdout. Ctrl+C stops the Go process; containers stay up.
+# Logs stream to stdout AND are mirrored to devops/elk/logs/ so Filebeat ships
+# them to Elasticsearch / Kibana (:5601). Run devops/elk/setup-kibana.sh once to
+# create the Kibana views. Ctrl+C stops the Go process; containers stay up.
 
 set -euo pipefail
 
@@ -18,4 +20,5 @@ echo "==> Registering Debezium outbox connector (idempotent)"
 ./devops/debezium/register-connector.sh || true
 
 echo "==> Starting omnicore-example-users (APP_PROFILE=dev)"
-exec env APP_PROFILE=dev go run -work ./bootstrap
+mkdir -p devops/elk/logs
+env APP_PROFILE=dev go run -work ./bootstrap 2>&1 | tee -a devops/elk/logs/omnicore-example-users.log

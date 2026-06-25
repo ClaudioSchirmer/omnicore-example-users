@@ -78,6 +78,24 @@ audit:
     - slog
     - database
 
+# Distributed tracing (OpenTelemetry) — opt-in; default off installs the no-op
+# tracer. Enabled here in the dev sandbox with exporter=otlp shipping spans to the
+# Jaeger container in devops/docker-compose.yml. Open http://localhost:16686, pick
+# service "omnicore-example-users", and SEE the trace tree (server -> dispatch ->
+# pgx/mongo/httpclient) in the UI — the eyeball view, not stdout. always_on samples
+# every request so nothing is dropped while exploring; export is async + batched and
+# off the request path, so Jaeger being down never blocks a request (spans drop).
+# Drop pgx/mongo from `instrument` if the per-query span volume gets noisy. For a
+# quick terminal-only look without Jaeger, switch exporter to `stdout` (debug-only —
+# it interleaves spans with the logs + audit echo on the same stream).
+observability:
+  tracing:
+    enabled: true
+    exporter: otlp                                              # ship to Jaeger
+    endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}"   # Jaeger OTLP/gRPC
+    sampler: always_on                                          # dev: see every trace
+    instrument: [http, pgx, mongo, kafka, httpclient]           # empty list = all
+
 # GraphQL — its own web surface (POST /graphql), separate from REST/OpenAPI:
 # never in the Swagger document, not policed by the REST route scans. The
 # schema + attached handlers live in code (Wiring.GraphQL = NewGraphQL(d)); only
