@@ -10,7 +10,7 @@ import (
 )
 
 // queryWithUser builds a FindAddressByIDQuery with the user ID set via the
-// embedded QueryBaseWithID.SetPathID, matching what HandleQueryWithID does
+// embedded QueryBaseWithID.SetPathID, matching what HandleQueryByID does
 // at runtime.
 func queryWithUser(userID, addressID string, includeArchived bool) *appqueries.FindAddressByIDQuery {
 	q := &appqueries.FindAddressByIDQuery{AddressID: addressID, IncludeArchived: includeArchived}

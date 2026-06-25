@@ -15,7 +15,7 @@
 #   - GraphiQL playground served at /graphql/ui (graphql.playground: true)
 #   - GraphQL route ABSENT from /openapi.json (own surface, never in Swagger)
 #   - All SIX write verbs (parity with /users/*): createUser (Mutation),
-#     updateUser + patchUser (MutationWithID, PUT/PATCH — id + input),
+#     updateUser + patchUser (MutationWithBodyID, PUT/PATCH — id + input),
 #     archiveUser + unarchiveUser + deleteUser (MutationByID → MutationResult)
 #   - createUser persists; the same record appears on the read side after the
 #     CDC pipeline materializes it (Debezium → Kafka → Mongo)
@@ -173,7 +173,7 @@ assert_jq_true "unknown root field surfaces an error" '.errors | length > 0'
 # ── Write verbs (the remaining 5 of the 6) against the persisted record ─────
 if [ -n "${USER_ID}" ] && [ "${USER_ID}" != "null" ]; then
 
-    # ── 11. updateUser (PUT, MutationWithID, strict body) ───────────────────
+    # ── 11. updateUser (PUT, MutationWithBodyID, strict body) ───────────────────
     # FullBody → every input field is NonNull, so the whole body is sent.
     # Email is immutable on update (domain rule), so it is kept identical.
     gql "mutation { updateUser(id: \"${USER_ID}\", input: {
@@ -187,7 +187,7 @@ if [ -n "${USER_ID}" ] && [ "${USER_ID}" != "null" ]; then
     assert_jq "updateUser applies the new name" '.data.updateUser.name' "GraphQL Updated"
     assert_jq "updateUser keeps the (immutable) email" '.data.updateUser.email' "${EMAIL}"
 
-    # ── 12. patchUser (PATCH, MutationWithID, lenient body) ─────────────────
+    # ── 12. patchUser (PATCH, MutationWithBodyID, lenient body) ─────────────────
     gql "mutation { patchUser(id: \"${USER_ID}\", input: { name: \"GraphQL Patched\" }) { id name } }" >/dev/null
     assert_jq "patchUser applies the partial name" '.data.patchUser.name' "GraphQL Patched"
 

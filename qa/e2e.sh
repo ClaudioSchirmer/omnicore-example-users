@@ -641,7 +641,7 @@ show "9.2 GET /users (listing with default pagination)" GET /users "" 200
 ####################################
 sec "10. Query allowlist (filter tags + reserved by-id param)"
 ####################################
-# Exercises the HandleQueryWithParams / HandleQueryWithID surface introduced by
+# Exercises the HandleQueryWithParams / HandleQueryByID surface introduced by
 # the queries refactor: the Request DTO declares the allowlist via
 # `query:"X" filter:"ops"` tags, the framework rejects unknown fields and
 # operators with 400, and the ?includeArchived=true reserved param flows through to
