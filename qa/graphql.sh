@@ -228,6 +228,11 @@ assert_jq "invalid email → fieldLabel mirrors REST (labelKey UserEmailField)" 
     '.errors[0].extensions.fieldLabel' "Email"
 assert_jq "invalid email → value echoes the offending input" \
     '.errors[0].extensions.value' "not-an-email"
+# The flat GraphQL errors[] has no grouping level, so the REST envelope's
+# grouping context (the translated context name) rides per message in
+# extensions instead — closing the last data gap with the REST surface.
+assert_jq "invalid email → context mirrors REST grouping (translated 'User')" \
+    '.errors[0].extensions.context' "User"
 
 # ── 17. Count-only (totalCount-only) + pagination arg → pre-dispatch conflict ─
 # A totalCount-only selection maps to count-only (ReadCriteria.OnlyTotal). A
@@ -261,6 +266,34 @@ assert_jq "stale cursor (edges read) → notificationKey SchemaViolationNotifica
 gql 'query { users { totalCount } }' >/dev/null
 assert_jq_true "count-only alone → totalCount is a number, edges absent" \
     '(.data.users.totalCount | type == "number") and (.data.users | has("edges") | not)'
+
+# ── 18. Relay pagination direction (first/after forward, last/before backward) ─
+# last: N is a well-formed backward request — it pages from the END of the set
+# and returns a valid connection (the per-row ordering correctness is covered by
+# the framework's reader integration test).
+gql 'query { users(last: 1) { edges { node { id } } pageInfo { hasPreviousPage } totalCount } }' >/dev/null
+assert_jq_true "users(last:1) returns a well-formed backward connection" \
+    '(.data.users.edges | type == "array") and (.data.users.totalCount | type == "number")'
+
+# Forward (first/after) and backward (last/before) are mutually exclusive — every
+# mix is rejected pre-dispatch with a SchemaViolationNotification (semantic
+# Schema), the handler never runs. The after+before pair is included: it is now a
+# clean 400 here, not the reader's defense-in-depth 500/Internal.
+for combo in \
+    'first: 1, last: 1' \
+    "last: 1, after: \"${STALE_CURSOR}\"" \
+    "after: \"${STALE_CURSOR}\", before: \"${STALE_CURSOR}\""; do
+    gql "query { users(${combo}) { edges { node { id } } } }" >/dev/null
+    assert_jq "direction mix [${combo}] → semantic Schema (not Internal)" \
+        '.errors[0].extensions.semantic' "Schema"
+    assert_jq "direction mix [${combo}] → notificationKey SchemaViolationNotification" \
+        '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+done
+
+# A non-positive page size is rejected too — parity with REST rejecting ?limit= <= 0.
+gql 'query { users(first: 0) { edges { node { id } } } }' >/dev/null
+assert_jq "first: 0 (non-positive page size) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo
