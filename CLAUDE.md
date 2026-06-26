@@ -161,15 +161,21 @@ omnicore-example-users/
 │   ├── 0002_init.up.sql           # users + addresses (version 1 is the framework's embedded outbox)
 │   └── 0002_init.down.sql         # DROP TABLE addresses + users
 ├── devops/                        # Scaffolding the service doesn't know about (framework pipeline + local bench)
-│   ├── docker-compose.yml         # Postgres + Mongo + Kafka (KRaft) + Debezium + Keycloak
+│   ├── docker-compose.yml         # Postgres + Mongo + Kafka (KRaft) + Debezium + Keycloak + Jaeger + ELK
 │   ├── debezium/                  # Framework CDC pipeline scaffolding — outbox → Kafka Connect
-│   │   ├── users-outbox-connector.json  # Connector config (parameterized: name, DSN, topic prefix)
+│   │   ├── users-outbox-connector.json  # Connector config (parameterized: name, DSN, topic prefix; maps traceparent → Kafka header)
 │   │   └── register-connector.sh         # Idempotent registration script
-│   └── keycloak/                  # Test IdP scaffolding — only used by qa/auth.sh + qa/audit.sh + qa/authz.sh
-│       ├── realm-export.json            # Realm omnicore-test + pinned RS256 keys + test users + clients
-│       ├── wait-ready.sh                # Polls /realms/omnicore-test until ready
-│       ├── mint-token.sh                # Mints access tokens (alice/bob/client/wrong-aud, --raw, --refresh)
-│       └── revoke-session.sh            # Revokes a token via RFC 7009 /revoke (introspection then returns active=false)
+│   ├── keycloak/                  # Test IdP scaffolding — only used by qa/auth.sh + qa/audit.sh + qa/authz.sh
+│   │   ├── realm-export.json            # Realm omnicore-test + pinned RS256 keys + test users + clients
+│   │   ├── wait-ready.sh                # Polls /realms/omnicore-test until ready
+│   │   ├── mint-token.sh                # Mints access tokens (alice/bob/client/wrong-aud, --raw, --refresh)
+│   │   └── revoke-session.sh            # Revokes a token via RFC 7009 /revoke (introspection then returns active=false)
+│   └── elk/                       # Log-stack bench (optional) — Filebeat → Elasticsearch → Kibana
+│       ├── filebeat.yml                 # Ships devops/elk/logs/*.log to Elasticsearch
+│       ├── es-template.json             # Index template for the service log stream
+│       ├── kibana-objects.ndjson        # Saved Kibana data view + searches
+│       ├── setup-kibana.sh              # One-shot Kibana bootstrap (run once)
+│       └── logs/                        # run-dev.sh tees stdout here (gitignored; only .gitkeep tracked)
 ├── application/
 │   ├── commands/                  # Commands + co-located Results (Go-pure, no JSON tags)
 │   │   ├── insert_user.go                  # InsertUserCommand + ToEntity + FromEntity; InsertUserResult struct (pure data)
@@ -828,6 +834,14 @@ migrations:
 auth:
   mode: disabled       # explicit; the framework rejects this combination under APP_PROFILE=prd
 
+observability:         # opt-in tracing; enabled in the dev sandbox shipping to the jaeger container
+  tracing:
+    enabled: true
+    exporter: otlp
+    endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT:localhost:4317}"
+    sampler: always_on                                  # dev: capture every request
+    instrument: [http, pgx, mongo, kafka, httpclient]   # empty list = all five
+
 httpClient:
   defaults:
     timeout: 10s
@@ -931,7 +945,7 @@ Every `.up.sql` must have a `.down.sql` counterpart (validated by `mgr.ValidateD
 
 ## Docker compose
 
-4 services with non-default ports to avoid conflict with local instances:
+Core data-plane services plus a Keycloak IdP and an observability stack (Jaeger for traces + ELK for logs), all on non-default ports to avoid conflict with local instances:
 
 | Service | Host port | Notes |
 |---|---|---|
@@ -939,8 +953,13 @@ Every `.up.sql` must have a `.down.sql` counterpart (validated by `mgr.ValidateD
 | `mongo` | `27018` | Mongo 7, no auth (dev only) |
 | `kafka` | `9094` | KRaft single-broker, auto-creates topics, dual listener (internal/external) |
 | `debezium` | `8083` | Kafka Connect with Debezium plugins, only comes up after PG+Kafka healthy |
+| `keycloak` | `8088` | Test IdP (realm `omnicore-test`); only `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh` use it |
+| `jaeger` | `16686` (UI), `4317`/`4318` (OTLP) | OpenTelemetry collector + UI. The dev profile's `observability.tracing` (exporter=otlp) ships spans here; the host-run app exports to `localhost:4317`. In-memory storage — traces are throwaway, optional, a request never blocks on it |
+| `elasticsearch` · `kibana` · `filebeat` | `9200` · `5601` · — | Log stack (the OTHER pillar). `run-dev.sh` tees the service's JSON stdout into `devops/elk/logs/`; Filebeat ships it to Elasticsearch; Kibana searches it at `:5601`. Heavy (~2GB), security disabled, single-node — dev bench only |
 
 **Postgres credentials (dev):** user `omnicore`, pass `omnicore`, db `users_db`.
+
+The observability containers are optional — nothing in the data plane depends on them. Tracing is opt-in via `observability.tracing` (see [`../omnicore/`](../omnicore/) docs "Distributed tracing"); the dev profile enables it with `exporter: otlp` pointed at the `jaeger` container. The ELK mirror is driven by `run-dev.sh` (`… | tee -a devops/elk/logs/<service>.log`); `devops/elk/` carries `filebeat.yml` + the Kibana bootstrap (`setup-kibana.sh`, `kibana-objects.ndjson`, `es-template.json`). The `devops/elk/logs/` directory is gitignored (runtime artifact; only `.gitkeep` is tracked).
 
 ### Bring up and register
 
