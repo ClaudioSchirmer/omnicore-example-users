@@ -814,6 +814,7 @@ service: omnicore-example-users
 
 http:
   addr: "${HTTP_ADDR::8080}"
+  requestTimeoutSeconds: 30   # inbound request deadline; unset would also default to 30, 0 disables
 
 postgres:
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
