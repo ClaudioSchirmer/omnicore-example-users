@@ -158,9 +158,13 @@ omnicore-example-users/
 │   ├── views.go                   # UserView ViewDefinition — Schema(UserSchema()) + EmbedMany("addresses", FromSchema(AddressSchema())) (segment "Addresses" derived; called ONCE via UsersFeature)
 │   └── external/                  # Outbound HTTP adapters — wrap omnicore/infra/httpclient
 │       └── keycloak_service.go    # KeycloakService: GetRealmInfo, FetchUser, WhoamiTenant + vendor-neutral DTOs
-├── migrations/                    # Schema contract of the domain (versioned with domain/*.go)
-│   ├── 0002_init.up.sql           # users + addresses (version 1 is the framework's embedded outbox)
-│   └── 0002_init.down.sql         # DROP TABLE addresses + users
+├── migrations/                    # Schema contract of the domain (versioned with domain/*.go), split by dialect
+│   ├── postgres/                  # Postgres DDL — UUID + gen_random_uuid + partial unique index
+│   │   ├── 0002_init.up.sql       # users + addresses (version 1 is the framework's embedded outbox)
+│   │   └── 0002_init.down.sql     # DROP TABLE addresses + users
+│   └── mysql/                     # MySQL DDL — BINARY(16) Go-generated ids, DATETIME, generated-column
+│       ├── 0002_init.up.sql       #   email_active emulating the partial unique index (same index name)
+│       └── 0002_init.down.sql     # DROP TABLE addresses + users
 ├── devops/                        # Scaffolding the service doesn't know about (framework pipeline + local bench)
 │   ├── docker-compose.yml         # relational backend + Mongo + Kafka (KRaft) + Debezium + Keycloak + Jaeger + ELK
 │   ├── debezium/                  # Framework CDC pipeline scaffolding — outbox → Kafka Connect
@@ -823,7 +827,7 @@ http:
   requestTimeoutSeconds: 30   # inbound request deadline; unset would also default to 30, 0 disables
 
 relational:
-  dialect: postgres   # postgres | mysql — MANDATORY (no default; absence aborts boot)
+  dialect: "${REL_DIALECT:postgres}"   # postgres | mysql — MANDATORY (no default); overridable so the QA harness flips the backend
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
 
 mongo:
@@ -836,7 +840,7 @@ kafka:
   syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
 
 migrations:
-  dir: ./migrations
+  dir: "${MIGRATIONS_DIR:./migrations/postgres}"   # ./migrations/postgres | ./migrations/mysql (per dialect)
   autoRun: true
 
 auth:
@@ -1125,6 +1129,8 @@ curl -X PUT http://localhost:8080/users/<id> \
 
 Nine end-to-end scripts, all rely on `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` as preconditions. `auth.sh`, `audit.sh`, `httpclient.sh`, and `authz.sh` additionally require the `keycloak` container to be ready (the realm import takes a few seconds on cold start).
 
+**Dialect-driven harness.** The suites run against **either backend**, selected by the `BACKEND` env var (`postgres` | `mysql`, default `postgres`). Every script sources `qa/_backend.sh`, which exports the env the YAML interpolation reads (`REL_DIALECT` / `DATABASE_URL` / `MIGRATIONS_DIR` / `MONGO_DB` / `SYNC_GROUP_ID`) and defines backend-aware helpers (`qa_db_query` / `qa_db_exec` / `qa_db_reset_domain` / `qa_uuid_select` / `qa_uuid_lit` / `qa_mongo_reset`) instead of hardcoded `psql` / `mongosh users_views`. The dual-engine binary (`-tags 'postgres mysql'`) and the same expected results are used for both — one harness, switched by dialect, never two. For MySQL: register the MySQL connector first (`./devops/debezium/register-connector.sh mysql`) and run e.g. `BACKEND=mysql bash qa/e2e.sh`. All nine suites are green on both backends (603 cases per backend). The MySQL read side needs `debezium/connect:3.0.0.Final` (2.5/2.7 issue `SHOW MASTER STATUS`, removed in MySQL 8.4) — pinned in `devops/docker-compose.yml`.
+
 ### `qa/e2e.sh` — endpoint + notification coverage
 
 Runs the service under `APP_PROFILE=dev` (auth disabled) and exercises every write/read route plus every custom notification declared in `domain/notifications.go`. Each case is bash-orchestrated via `show` — prints REQUEST/BODY/STATUS/RESPONSE and asserts. Section 19 covers the `GET /users.csv` and `GET /users.xlsx` exports (status + content-type + `Content-Disposition`, labelKey-rendered headers, hierarchical address offset, `?fields=` narrowing, filter passthrough, 400s on unknown `?fields`/query keys, and the xlsx ZIP magic-bytes smoke). Per the critical rule at the top of this file, the expectations are an oracle and may not be edited to mask regressions.
@@ -1350,11 +1356,13 @@ bash qa/graphql.sh                   # ~10s
 
 ## Build
 
-A relational engine build tag is **mandatory** — `-tags postgres` (this service's dialect) or `-tags mysql`. A binary links exactly one engine; building with neither registers no engine and the service aborts at boot (`db.NewEngine`: no engine registered), and building with both fails to compile.
+At least one relational engine build tag is **mandatory** — `-tags postgres`, `-tags mysql`, or **both** (`-tags 'postgres mysql'`). Building with neither registers no engine and the service aborts at boot (`db.NewEngine`: no engine registered). Building with both is supported: the binary links **both** engines and selects the active dialect at boot from `relational.dialect` in the YAML — so the same binary serves a Postgres profile (`microservice.dev.yaml`) and a MySQL profile (`microservice.dev-mysql.yaml`) without a rebuild.
 
 ```
-go build -tags postgres ./...
-go vet -tags postgres ./...
+go build -tags postgres ./...           # Postgres-only binary
+go build -tags mysql ./...              # MySQL-only binary
+go build -tags 'postgres mysql' ./...   # dual-engine binary (dialect chosen at runtime)
+go vet  -tags 'postgres mysql' ./...
 ```
 
-Run from inside this folder or from `omnicore-stack/` (workspace-aware).
+Run from inside this folder or from `omnicore-stack/` (workspace-aware). The QA suites (`qa/`) build the dual-engine binary and pick the backend via the `BACKEND` env var (`postgres` | `mysql`, default `postgres`) — see "QA suites" below.

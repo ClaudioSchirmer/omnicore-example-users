@@ -38,6 +38,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 KC_URL="${KC_URL:-http://localhost:8088}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND); default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
 SERVER_BIN="/tmp/omnicore-example-users-qa-authz"
 
@@ -324,7 +326,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.2 Build server binary"
-(cd "$REPO_ROOT" && go build -tags postgres -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if lingering"

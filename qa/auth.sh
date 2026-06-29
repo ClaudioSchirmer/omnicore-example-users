@@ -23,6 +23,10 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 KC_URL="${KC_URL:-http://localhost:8088}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND). Exports REL_DIALECT/DATABASE_URL/
+# MIGRATIONS_DIR/MONGO_DB/SYNC_GROUP_ID so the prd yamls boot on the chosen
+# backend; QA_BUILD_TAGS drives the dual-engine build. Default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
 SERVER_BIN="/tmp/omnicore-example-users-qa-auth"
 
@@ -245,7 +249,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.1b Build server binary (once, reused across all profiles)"
-(cd "$REPO_ROOT" && go build -tags postgres -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.1c Free port 8080 if anything is lingering from a previous run"

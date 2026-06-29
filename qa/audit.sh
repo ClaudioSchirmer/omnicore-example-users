@@ -34,6 +34,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 KC_URL="${KC_URL:-http://localhost:8088}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND); default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
 SERVER_BIN="/tmp/omnicore-example-users-qa-audit"
 SERVER_LOG="/tmp/omnicore-example-users-qa-audit.log"
@@ -110,11 +112,9 @@ start_server() {
 # Resets Postgres + Mongo to a clean baseline. Same destructive truncate as
 # qa/e2e.sh — QA is an ephemeral environment, no persistent state across runs.
 reset_state() {
-  title "Reset: TRUNCATE users CASCADE + outbox (Postgres) + users (Mongo)"
-  docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-    "TRUNCATE TABLE users CASCADE; TRUNCATE TABLE outbox;" >/dev/null
-  docker exec omnicore-example-mongo mongosh users_views --quiet --eval \
-    "db.users.deleteMany({});" >/dev/null
+  title "Reset: wipe users+addresses+outbox ($BACKEND) + users (Mongo: $QA_MONGO_DB)"
+  qa_db_reset_domain
+  qa_mongo_reset
   echo "OK — clean baseline"
   # Let the SyncEngine drain any in-flight Kafka events before we start.
   sleep 1
@@ -254,7 +254,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.2 Build server binary"
-(cd "$REPO_ROOT" && go build -tags postgres -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if anything is lingering"
@@ -554,14 +554,14 @@ echo "USER_ID = $USER_ID"
 # Pull the address row ids from Postgres so we know which slot to PUT and
 # which one to leave untouched. Order-stable by created_at to keep the
 # assertion language consistent across runs.
-TARGET_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$USER_ID' AND deleted_at IS NULL AND street='1 Audit Way' LIMIT 1
+TARGET_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE user_id=$(qa_uuid_lit "$USER_ID") AND deleted_at IS NULL AND street='1 Audit Way' LIMIT 1
 ")
 export TARGET_ADDR_ID=$(printf '%s' "$TARGET_ADDR_ID" | tr -d '[:space:]')
-UNTOUCHED_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$USER_ID' AND deleted_at IS NULL AND street='2 Office Pl' LIMIT 1
+UNTOUCHED_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE user_id=$(qa_uuid_lit "$USER_ID") AND deleted_at IS NULL AND street='2 Office Pl' LIMIT 1
 ")
 export UNTOUCHED_ADDR_ID=$(printf '%s' "$UNTOUCHED_ADDR_ID" | tr -d '[:space:]')
 echo "TARGET_ADDR_ID    = $TARGET_ADDR_ID"
@@ -640,9 +640,9 @@ sec "9. Change one address — op=changed (custom PUT subresource — same shape
 
 # Pull the now-active (post-section-8) "100 Market St" address id back so
 # we can mutate it again via the email-keyed surface.
-TARGET2_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$USER_ID' AND deleted_at IS NULL AND street='100 Market St' LIMIT 1
+TARGET2_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE user_id=$(qa_uuid_lit "$USER_ID") AND deleted_at IS NULL AND street='100 Market St' LIMIT 1
 ")
 export TARGET2_ADDR_ID=$(printf '%s' "$TARGET2_ADDR_ID" | tr -d '[:space:]')
 echo "TARGET2_ADDR_ID = $TARGET2_ADDR_ID (same row as TARGET_ADDR_ID after section 8)"
@@ -965,9 +965,9 @@ for c in ch:
 # fieldLabelKey is "AddressZipCodeField" — proving the resolver descends
 # through the AVO type at audit write time. Same canonical endpoint §8
 # uses for single-address mutations.
-LABEL_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$LABEL_USER_ID' AND deleted_at IS NULL LIMIT 1
+LABEL_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE user_id=$(qa_uuid_lit "$LABEL_USER_ID") AND deleted_at IS NULL LIMIT 1
 " | tr -d '[:space:]')
 CHANGE_BODY_LABEL=$(cat <<'JSON'
 {

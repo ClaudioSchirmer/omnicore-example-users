@@ -134,7 +134,7 @@ services:
   # Kafka Connect runtime with Debezium plugins. The connector itself (outbox
   # source) is registered post-boot via REST — see debezium/users-outbox-connector.json.
   debezium:
-    image: debezium/connect:2.5
+    image: debezium/connect:3.0.0.Final
     container_name: omnicore-example-debezium
     depends_on:
       kafka:

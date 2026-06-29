@@ -15,6 +15,10 @@
 # Run from anywhere:  bash qa/e2e.sh
 set -u
 
+# Backend selector (postgres|mysql via BACKEND env). Provides qa_db_*, qa_uuid_*,
+# qa_mongo_reset, $QA_MONGO_DB. Defaults to postgres — identical to before.
+source "$(dirname "$0")/_backend.sh"
+
 BASE="${BASE:-http://localhost:8080}"
 PASS=0; FAIL=0
 
@@ -105,14 +109,12 @@ sec "0.5 Reset state — a clean baseline is a precondition of the suite"
 # subsequent endpoint using $USER_A/$USER_B/$USER_C fails in cascade due to an
 # empty ID. The reset is destructive by design — QA is an ephemeral
 # environment, it does not store persistent state.
-title "TRUNCATE users CASCADE + TRUNCATE outbox (Postgres)"
-docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-  "TRUNCATE TABLE users CASCADE; TRUNCATE TABLE outbox;" > /dev/null
-echo "Postgres: users + addresses (FK CASCADE) + outbox cleared."
+title "Reset relational domain tables (users+addresses+outbox) [$BACKEND]"
+qa_db_reset_domain
+echo "$BACKEND: users + addresses (FK) + outbox cleared."
 
-title "db.users.deleteMany({}) (Mongo)"
-docker exec omnicore-example-mongo mongosh users_views --quiet --eval \
-  "db.users.deleteMany({});" > /dev/null
+title "db.users.deleteMany({}) (Mongo: $QA_MONGO_DB)"
+qa_mongo_reset
 echo "Mongo: users collection cleared."
 
 title "Sleep 2s — SyncEngine drains in-flight Kafka events"
@@ -595,17 +597,15 @@ sec "7. PATCH /users/:id/archive  and  /:id/unarchive — aggregate-aware"
 
 show "7.1 Archive (empty body accepted)" PATCH "/users/$USER_A/archive" "" 200
 
-title "7.1.b Postgres: Jane's addresses cascaded (deleted_at NOT NULL)"
-docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-  "SELECT id, deleted_at IS NOT NULL AS archived FROM addresses WHERE user_id='$USER_A';"
+title "7.1.b $BACKEND: Jane's addresses cascaded (deleted_at NOT NULL)"
+qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NOT NULL AS archived FROM addresses WHERE user_id=$(qa_uuid_lit "$USER_A");"
 
 show "7.2 Re-archive already archived (expected 404 — FindByID filters deleted_at NULL)" PATCH "/users/$USER_A/archive" "" 404
 
 show "7.3 Unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 200
 
-title "7.3.b Postgres: addresses are back (deleted_at NULL)"
-docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-  "SELECT id, deleted_at IS NULL AS active FROM addresses WHERE user_id='$USER_A';"
+title "7.3.b $BACKEND: addresses are back (deleted_at NULL)"
+qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NULL AS active FROM addresses WHERE user_id=$(qa_uuid_lit "$USER_A");"
 
 show "7.4 Unarchive on an active record (expected 404 — FindArchivedByID only sees deleted ones)" PATCH "/users/$USER_A/unarchive" "" 404
 
@@ -619,9 +619,8 @@ show "8.1 DELETE USER_C2 (Anna III) — expected 204" DELETE "/users/$USER_C2" "
 
 show "8.2 DELETE again (RecordNotFound)" DELETE "/users/$USER_C2" "" 404
 
-title "8.3 Postgres: ON DELETE cascade removed USER_C2's addresses"
-docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-  "SELECT COUNT(*) AS leftover_addresses FROM addresses WHERE user_id='$USER_C2';"
+title "8.3 $BACKEND: ON DELETE cascade removed USER_C2's addresses"
+qa_db_query "SELECT COUNT(*) AS leftover_addresses FROM addresses WHERE user_id=$(qa_uuid_lit "$USER_C2");"
 
 ####################################
 sec "9. Read side (Mongo) — re-check view after PATCH/Archive/Unarchive"

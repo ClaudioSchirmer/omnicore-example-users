@@ -45,6 +45,8 @@ set -u
 
 BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND); default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 SERVER_BIN="/tmp/omnicore-example-users-qa-schema"
 SERVER_BIN_V2="/tmp/omnicore-example-users-qa-schema-v2"
 SERVER_BIN_V2_ARTIFACT="/tmp/omnicore-example-users-qa-schema-v2-artifact"
@@ -197,11 +199,10 @@ stop_server() {
 # registry row for "users") so the first boot of this run lands on a fresh
 # slate.
 reset_state() {
-  title "Reset: TRUNCATE users + outbox + omnicore_mongo_views (Postgres); db.users.deleteMany (Mongo)"
-  docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-    "TRUNCATE TABLE users CASCADE; TRUNCATE TABLE outbox; DELETE FROM omnicore_mongo_views WHERE view_name='users';" >/dev/null
-  docker exec omnicore-example-mongo mongosh users_views --quiet --eval \
-    "db.users.deleteMany({});" >/dev/null
+  title "Reset: wipe users+addresses+outbox + omnicore_mongo_views ($BACKEND); db.users.deleteMany (Mongo: $QA_MONGO_DB)"
+  qa_db_reset_domain
+  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name='users';"
+  qa_mongo_reset
   echo "OK — clean baseline"
   sleep 1
 }
@@ -279,14 +280,16 @@ count_users_via_api() {
   curl -sS "$BASE/users?limit=50" 2>/dev/null | jq '.pagination.total // (.data | length)'
 }
 
+# Reads a column from the omnicore_mongo_views registry row for "users".
+# Named pg_* historically; backend-driven via qa_db_query (registry columns are
+# plain text/timestamps — dialect-independent).
 pg_registry_field() {
   local field="$1"
-  docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c \
-    "SELECT $field FROM omnicore_mongo_views WHERE view_name='users';" 2>/dev/null | tr -d ' '
+  qa_db_query "SELECT $field FROM omnicore_mongo_views WHERE view_name='users';" | tr -d ' '
 }
 
 mongo_users_count() {
-  docker exec omnicore-example-mongo mongosh users_views --quiet --eval \
+  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
     "print(db.users.countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
 }
 
@@ -359,7 +362,7 @@ patch_views_v2_with_phone_index() {
 
 build_binary() {
   local out="$1"
-  (cd "$REPO_ROOT" && go build -tags postgres -o "$out" ./bootstrap)
+  (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$out" ./bootstrap)
 }
 
 # ─── YAML override generators ────────────────────────────────────────────────
@@ -445,7 +448,7 @@ assert_eq "Mongo users count (post-CDC)" "3" "$mongo_total"
 
 sec "Phase 3 — operator wipes Mongo (db.users.drop())"
 stop_server
-docker exec omnicore-example-mongo mongosh users_views --quiet --eval "db.users.drop();" >/dev/null
+docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.drop();" >/dev/null
 echo "OK — Mongo 'users' collection dropped"
 
 mongo_total=$(mongo_users_count)
@@ -478,8 +481,10 @@ title "Verify registry state after rebuild — version still 1, previous_* captu
 status=$(pg_registry_field "status")
 version=$(pg_registry_field "version")
 prev_version=$(pg_registry_field "previous_version")
-prev_applied_at_present=$(pg_registry_field "previous_applied_at IS NOT NULL")
-started_at_cleared=$(pg_registry_field "started_at IS NULL")
+# Render the boolean predicate as 't'/'f' in SQL so it reads identically on
+# Postgres (native boolean → 't') and MySQL (integer boolean → would be 1/0).
+prev_applied_at_present=$(pg_registry_field "CASE WHEN previous_applied_at IS NOT NULL THEN 't' ELSE 'f' END")
+started_at_cleared=$(pg_registry_field "CASE WHEN started_at IS NULL THEN 't' ELSE 'f' END")
 assert_eq "omnicore_mongo_views.status (post-rebuild)" "done" "$status"
 assert_eq "omnicore_mongo_views.version (post-rebuild)" "1" "$version"
 assert_eq "omnicore_mongo_views.previous_version" "1" "$prev_version"
@@ -803,10 +808,9 @@ sec "Phase 12 — OMNICORE_CODE_VERSION env stamps the registry row"
 # end-to-end contract.
 
 title "Reset registry + Mongo so the next boot is a true DriftFreshInit"
-docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-  "TRUNCATE TABLE users CASCADE; DELETE FROM omnicore_mongo_views WHERE view_name='users'; TRUNCATE TABLE outbox;" >/dev/null
-docker exec omnicore-example-mongo mongosh users_views --quiet --eval \
-  "db.users.deleteMany({});" >/dev/null
+qa_db_reset_domain
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name='users';"
+qa_mongo_reset
 
 title "Start v1 with OMNICORE_CODE_VERSION=qa-test-deploy-abc set"
 SERVER_LOG_P12="${SERVER_LOG_BASE:-/tmp/omnicore-example-users-qa-schema.log}.p12"

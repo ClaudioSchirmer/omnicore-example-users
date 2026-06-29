@@ -5,7 +5,7 @@ http:
   requestTimeoutSeconds: 30   # inbound request deadline; unset would also default to 30, 0 disables
 
 relational:
-  dialect: postgres
+  dialect: "${REL_DIALECT:postgres}"
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
 
 mongo:
@@ -28,7 +28,7 @@ kafka:
   syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
 
 migrations:
-  dir: ./migrations
+  dir: "${MIGRATIONS_DIR:./migrations/postgres}"
   autoRun: true
 
 # Read-side `?limit=` ceiling — applies uniformly to every paged GET that does
