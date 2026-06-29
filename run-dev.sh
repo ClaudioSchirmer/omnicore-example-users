@@ -21,4 +21,4 @@ echo "==> Registering Debezium outbox connector (idempotent)"
 
 echo "==> Starting omnicore-example-users (APP_PROFILE=dev)"
 mkdir -p devops/elk/logs
-env APP_PROFILE=dev go run -work ./bootstrap 2>&1 | tee -a devops/elk/logs/omnicore-example-users.log
+env APP_PROFILE=dev go run -work -tags postgres ./bootstrap 2>&1 | tee -a devops/elk/logs/omnicore-example-users.log

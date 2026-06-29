@@ -18,10 +18,10 @@ jobs:
           check-latest: true
 
       - name: Build
-        run: go build ./...
+        run: go build -tags postgres ./...
 
       - name: Vet
-        run: go vet ./...
+        run: go vet -tags postgres ./...
 
       - name: Test
-        run: go test ./... -count=1
+        run: go test -tags postgres ./... -count=1

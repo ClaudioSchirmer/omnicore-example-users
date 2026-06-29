@@ -342,13 +342,13 @@ patch_views_to_version() {
 }
 
 # patch_views_v2_with_phone_index — bump to Version(2) AND insert
-# fwinfra.Index("phone") immediately after fwinfra.Index("email"). Same
+# query.Index("phone") immediately after query.Index("email"). Same
 # RebuildHash as the unmodified v2 binary, different ArtifactHash — exactly
 # the input shape that lands DriftArtifactOnly in the §9.1 matrix.
 patch_views_v2_with_phone_index() {
   perl -0pe '
     s/\bVersion\(\d+\)/Version(2)/g;
-    s|fwinfra\.Index\("email"\),|fwinfra.Index("email"),\n\t\t\tfwinfra.Index("phone"),|;
+    s|query\.Index\("email"\),|query.Index("email"),\n\t\t\tquery.Index("phone"),|;
   ' "$VIEWS_BAK" > "$VIEWS_SRC"
   if ! grep -q 'Version(2)' "$VIEWS_SRC" || ! grep -q 'Index("phone")' "$VIEWS_SRC"; then
     echo "ERROR: patch_views_v2_with_phone_index did not produce both Version(2) and Index(\"phone\")" >&2
@@ -359,7 +359,7 @@ patch_views_v2_with_phone_index() {
 
 build_binary() {
   local out="$1"
-  (cd "$REPO_ROOT" && go build -o "$out" ./bootstrap)
+  (cd "$REPO_ROOT" && go build -tags postgres -o "$out" ./bootstrap)
 }
 
 # ─── YAML override generators ────────────────────────────────────────────────

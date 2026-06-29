@@ -33,9 +33,10 @@
 > 1. **Every code change comes with a unit test covering the new/changed behavior.** A green build/vet is not proof of behavior. A hard-to-test case (complex mock, depends on I/O) → report to the maintainer before proceeding; do not skip the test.
 > 2. **When wrapping up a round of changes**, run the unit suite of the affected module(s):
 >    ```bash
->    cd omnicore-example-users && go build ./... && go vet ./... && go test ./... -count=1
+>    # A relational engine build tag is mandatory (this service's dialect is postgres).
+>    cd omnicore-example-users && go build -tags postgres ./... && go vet -tags postgres ./... && go test -tags postgres ./... -count=1
 >    # And if the change touched the framework:
->    cd ../omnicore && go build ./... && go vet ./... && go test ./... -count=1
+>    cd ../omnicore && go build -tags postgres ./... && go vet -tags postgres ./... && go test -tags postgres ./... -count=1
 >    ```
 >    A green suite is a precondition of "done".
 > 3. **After the unit suite passes, ask the maintainer whether to also run the E2E QA suites** in `qa/`. The folder holds nine scripts — `qa/e2e.sh` (endpoint + notification coverage, auth disabled), `qa/auth.sh` (JWT middleware across the four validator modes, ~5 min), `qa/audit.sh` (audit pipeline end-to-end — slog echo + in-TX `audit_events` row), `qa/httpclient.sh` (outbound HTTP showcase coverage with the in-process memory cache, ~3s), `qa/cache.sh` (framework cache subsystem end-to-end — both `Deps.Cache` (private) and `Deps.SharedCache` (shared) exercised via `/showcase/cache/*` routes, plus httpclient delegation, cross-process persistence, TTL, failOpen — ~30s; needs the `redis` container up), `qa/openapi.sh` (OpenAPI document + Swagger UI surface, ~1s), `qa/authz.sh` (declarative permission layer end-to-end under `prd-authz`, ~30s), `qa/schema_evolution.sh` (Mongo wipe-and-recover via the registry + advisory-lock primitives under `dev`, ~30s), `qa/graphql.sh` (GraphQL endpoint end-to-end — introspection, GraphiQL playground, Relay reads with the `where` filter + per-item cursor, mutations, validation errors in `errors[]`, and absent-from-Swagger; ~10s, server running + CDC pipeline). The question MUST go through `AskUserQuestion`: based on the changes just made, recommend the relevant subset (most specific first, marked "(Recommended)") and **always include an option to run all nine**. E.g. after touching the auth middleware: "Run auth.sh (Recommended)" / "Run auth.sh + audit.sh" / "Run all nine" / "Skip for now". The suites are opt-in because they need `docker compose -f devops/docker-compose.yml up -d` + `./devops/debezium/register-connector.sh` (auth/audit/httpclient/cache/authz also need Keycloak ready; cache additionally needs the `redis` container up) — wait for the maintainer's reply before executing.
@@ -268,7 +269,7 @@ omnicore-example-users/
 - `application/` — commands + handlers
 - `infra/` — implementation of domain ports (relational backend, views, repos) in Go. **No non-Go artifacts live here** — `infra/` is a DDD layer, not an operational dump.
 - `web/` — owner of Fiber routes (`MountXxx` per aggregate)
-- `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`), `admin_feature.go` (struct `AdminFeature` — mount-only, no domain; registers `POST /admin/retries/upstream` and `POST /admin/retries/integration` behind `RequirePermission("admin:retry")`, under Swagger tag `Admin`), and `audit_feature.go` (struct `AuditFeature` — mount-only, no domain; registers `GET /audit/:aggregateId` behind `RequirePermission("audit:read")`, under Swagger tag `Audit`). Run: `go run ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
+- `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`), `admin_feature.go` (struct `AdminFeature` — mount-only, no domain; registers `POST /admin/retries/upstream` and `POST /admin/retries/integration` behind `RequirePermission("admin:retry")`, under Swagger tag `Admin`), and `audit_feature.go` (struct `AuditFeature` — mount-only, no domain; registers `GET /audit/:aggregateId` behind `RequirePermission("audit:read")`, under Swagger tag `Audit`). Run: `go run -tags postgres ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
 - `migrations/` — non-Go but **part of the service's contract**: SQL DDL for the domain tables, versioned alongside `domain/*.go`. Each `.up.sql` requires a matching `.down.sql`. Path declared in `microservice.*.yaml` (`migrations.dir: ./migrations`).
 - `devops/` — non-Go scaffolding the service doesn't know about: `docker-compose.yml` for the local bench, `debezium/` (framework outbox→Kafka pipeline boilerplate — parameterized by service name + DSN + topic prefix), `keycloak/` (test IdP only used by `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh`). In production, `devops/` is replaced by whatever real infrastructure the operator provisions (managed relational/Mongo/Kafka/IdP); the service binary doesn't read anything from this folder.
 - `qa/` — end-to-end suites operated by bash + curl + python (`e2e.sh`, `auth.sh`, `audit.sh`, `httpclient.sh`, `openapi.sh`, `authz.sh`).
@@ -712,7 +713,7 @@ The YAML interpolation pulls these from env when set, falling back to the dev de
 | `KC_TENANT_CLIENT_ID` | `omnicore-users-client` | Same client reused for password grant |
 | `KC_TENANT_CLIENT_SECRET` | `test-secret-please-change` | Same secret |
 
-The hardcoded defaults are intentional — the test realm (`devops/keycloak/realm-export.json`) ships with these exact values so `docker compose up` + `go run ./bootstrap` boots a self-contained sandbox with no extra env juggling.
+The hardcoded defaults are intentional — the test realm (`devops/keycloak/realm-export.json`) ships with these exact values so `docker compose up` + `go run -tags postgres ./bootstrap` boots a self-contained sandbox with no extra env juggling.
 
 ### Known limitations of the showcase
 
@@ -923,7 +924,7 @@ httpClient:
 
 `APP_PROFILE=dev` selects this file at boot. A production deployment adds a sibling `microservice.prd.yaml` (not in the repo — the maintainer ships it separately) with `auth.mode: jwt` plus `jwksUrl` / `publicKeyPem` + `issuer` + `audience` configured against a real IdP.
 
-**Supported variables (with defaults for local docker-compose):** `HTTP_ADDR`, `DATABASE_URL`, `MONGO_URI`, `MONGO_DB`, `KAFKA_BROKERS`, `SYNC_GROUP_ID`, `KC_URL`, `KC_ADMIN_CLIENT_ID`, `KC_ADMIN_CLIENT_SECRET`, `KC_TENANT_CLIENT_ID`, `KC_TENANT_CLIENT_SECRET`, `INTEGRATION_GROUP_ID`. For an alternative path, export `OMNICORE_CONFIG_PATH` (still requires `APP_PROFILE`). `migrations.dir` is relative to CWD — always run from the service root (`APP_PROFILE=dev go run ./bootstrap`) to resolve correctly.
+**Supported variables (with defaults for local docker-compose):** `HTTP_ADDR`, `DATABASE_URL`, `MONGO_URI`, `MONGO_DB`, `KAFKA_BROKERS`, `SYNC_GROUP_ID`, `KC_URL`, `KC_ADMIN_CLIENT_ID`, `KC_ADMIN_CLIENT_SECRET`, `KC_TENANT_CLIENT_ID`, `KC_TENANT_CLIENT_SECRET`, `INTEGRATION_GROUP_ID`. For an alternative path, export `OMNICORE_CONFIG_PATH` (still requires `APP_PROFILE`). `migrations.dir` is relative to CWD — always run from the service root (`APP_PROFILE=dev go run -tags postgres ./bootstrap`) to resolve correctly.
 
 **Integration + shutdown blocks.** Every variant carries the new framework blocks:
 
@@ -973,7 +974,7 @@ The observability containers are optional — nothing in the data plane depends 
 ```bash
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh   # idempotent
-APP_PROFILE=dev go run ./bootstrap       # framework applies migrations at boot
+APP_PROFILE=dev go run -tags postgres ./bootstrap       # framework applies migrations at boot
 ```
 
 The script registers the connector via the Kafka Connect REST API — POST if new, PUT /config if it already exists. It uses `$(dirname "$0")` to locate the `users-outbox-connector.json` next to it, so it works from any CWD.
@@ -1063,7 +1064,7 @@ Validation or unique-constraint error: pipeline catch → translate → `Result.
 cd /Volumes/Lynx/Development/omnicore-stack/omnicore-example-users
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
-APP_PROFILE=dev go run ./bootstrap  # framework applies migrations at boot
+APP_PROFILE=dev go run -tags postgres ./bootstrap  # framework applies migrations at boot
 ```
 
 In another terminal, example POST:
@@ -1192,7 +1193,7 @@ Total: 21 cases.
 ```bash
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
-APP_PROFILE=dev go run ./bootstrap   # in another terminal
+APP_PROFILE=dev go run -tags postgres ./bootstrap   # in another terminal
 bash qa/httpclient.sh                # ~3 seconds
 ```
 
@@ -1255,7 +1256,7 @@ Total: 22 cases. Fast (~1s); operationally cheap so safe to chain with `e2e.sh` 
 ```bash
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
-APP_PROFILE=dev go run ./bootstrap   # in another terminal
+APP_PROFILE=dev go run -tags postgres ./bootstrap   # in another terminal
 bash qa/openapi.sh                   # ~1 second
 ```
 
@@ -1341,7 +1342,7 @@ Total: ~38 cases. Server-running pattern (no self-lifecycle); needs the CDC pipe
 ```bash
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
-APP_PROFILE=dev go run ./bootstrap   # in another terminal
+APP_PROFILE=dev go run -tags postgres ./bootstrap   # in another terminal
 bash qa/graphql.sh                   # ~10s
 ```
 
@@ -1349,9 +1350,11 @@ bash qa/graphql.sh                   # ~10s
 
 ## Build
 
+A relational engine build tag is **mandatory** — `-tags postgres` (this service's dialect) or `-tags mysql`. A binary links exactly one engine; building with neither registers no engine and the service aborts at boot (`db.NewEngine`: no engine registered), and building with both fails to compile.
+
 ```
-go build ./...
-go vet ./...
+go build -tags postgres ./...
+go vet -tags postgres ./...
 ```
 
 Run from inside this folder or from `omnicore-stack/` (workspace-aware).

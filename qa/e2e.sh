@@ -9,7 +9,7 @@
 # state/zipCode are validated by shape regex (country-agnostic), country is
 # ISO 3166-1 alpha-2 shape only.
 #
-# Requires the service to be running locally on :8080 (go run ./bootstrap),
+# Requires the service to be running locally on :8080 (go run -tags postgres ./bootstrap),
 # Postgres on :5433 (docker compose) and the Debezium connector registered.
 #
 # Run from anywhere:  bash qa/e2e.sh

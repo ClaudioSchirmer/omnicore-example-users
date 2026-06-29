@@ -12,7 +12,7 @@ service: omnicore-example-users
 # behavior verified by qa/httpclient.sh under `dev` keeps applying under
 # `dev-redis-cache` — only the cache backend swaps underneath.
 #
-# Boot with: APP_PROFILE=dev-redis-cache go run ./bootstrap
+# Boot with: APP_PROFILE=dev-redis-cache go run -tags postgres ./bootstrap
 # Prereq:    docker compose -f devops/docker-compose.yml up -d redis
 
 http:

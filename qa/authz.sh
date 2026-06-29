@@ -324,7 +324,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.2 Build server binary"
-(cd "$REPO_ROOT" && go build -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags postgres -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if lingering"

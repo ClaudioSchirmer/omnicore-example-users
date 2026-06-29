@@ -23,7 +23,7 @@ docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
 
 # 2. Start the service in dev profile (auth disabled, migrations auto-run)
-APP_PROFILE=dev go run ./bootstrap
+APP_PROFILE=dev go run -tags postgres ./bootstrap
 
 # 3. Open the Swagger UI
 open http://localhost:8080/docs

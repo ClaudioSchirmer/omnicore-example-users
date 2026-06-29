@@ -245,7 +245,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.1b Build server binary (once, reused across all profiles)"
-(cd "$REPO_ROOT" && go build -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags postgres -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.1c Free port 8080 if anything is lingering from a previous run"
