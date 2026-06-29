@@ -3,17 +3,19 @@ package infra
 import (
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
 	"github.com/ClaudioSchirmer/omnicore/domain"
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/command/read"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/command/write"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
 
 // UserRepository is a canonical aggregate-aware Repository: embeds
-// fwinfra.BaseAggregateRepository[*User], which itself bundles:
+// read.BaseAggregateRepository[*User], which itself bundles:
 //
 //   - BaseRepository[*User]: Insert/Update/Archive/Unarchive/Delete + New()
-//     via factory. Unique violations (PG 23505) become typed notifications
-//     via the Constraints map.
+//     via factory. Unique violations (classified by the engine's Dialect)
+//     become typed notifications via the Constraints map.
 //   - *AggregateLoader[*User]: FindByID/FindArchivedByID via auto-scan driven
 //     by the explicit UserSchema() (root + Address child). WithSchema threads
 //     the same map into the write binding, the criteria engine, and the scan.
@@ -22,17 +24,17 @@ import (
 // default "User". Override only for custom magic patterns (legacy / two Repos
 // on the same aggregate).
 type UserRepository struct {
-	fwinfra.BaseAggregateRepository[*appdomain.User]
+	read.BaseAggregateRepository[*appdomain.User]
 }
 
-func NewUserRepository(pg *fwinfra.Postgres) *UserRepository {
+func NewUserRepository(eng core.RelationalEngine) *UserRepository {
 	r := &UserRepository{
-		BaseAggregateRepository: fwinfra.NewBaseAggregateRepository[*appdomain.User](
-			pg,
+		BaseAggregateRepository: read.NewBaseAggregateRepository[*appdomain.User](
+			eng,
 			func() *appdomain.User { return &appdomain.User{} },
 		),
 	}
-	r.Constraints = map[string]fwinfra.ConstraintBinding{
+	r.Constraints = map[string]write.ConstraintBinding{
 		"users_email_active_idx": {Notification: appdomain.EmailAlreadyExistsNotification{}, Field: "email"},
 	}
 	r.WithSchema(UserSchema())

@@ -15,9 +15,14 @@ import (
 // Mutation, and the bodyless archive/delete mutations are all present, and
 // gqlparser accepts the generated SDL. Registration is cumulative: this drives
 // the same UsersFeature.MountGraphQL → web.MountUsersGraphQL path Wire uses.
-// Building the schema is pure reflection (no DB), so a nil Postgres is fine.
+// Building the schema is pure reflection (no DB), so a nil relational engine is
+// fine — the repo is constructed over it but never queried (and the test stays
+// backend-neutral: it names no concrete engine).
 func TestMountUsersGraphQL_SchemaBuilds(t *testing.T) {
-	d := bootstrap.Deps{Pipeline: pipeline.New(translation.Default())}
+	d := bootstrap.Deps{
+		Pipeline: pipeline.New(translation.Default()),
+		DB:       nil,
+	}
 	users := NewUsersFeature(d)
 
 	gql := fwgraphql.New(d.Pipeline)

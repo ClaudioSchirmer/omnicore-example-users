@@ -1,145 +1,114 @@
 //go:build integration
 
-// Integration test helpers for omnicore-example-users/infra. Defaults target
-// the local docker-compose Postgres (omnicore:omnicore@localhost:5433). Each
-// test creates a throw-away database, applies the service's domain schema
-// + the framework's outbox table, and tears it down on cleanup.
+// Dialect-driven integration harness for omnicore-example-users/infra.
 //
-// Run with:
+// The harness names no backend. It reads the configured dialect from the
+// service YAML (database.dialect) and the connection string from DATABASE_URL —
+// the same variable the YAML DSN interpolates — then builds the engine through
+// the neutral core.NewEngine and runs every test against it. The test bodies
+// assert through the backend-neutral repository API, so the SAME suite runs
+// against whatever relational backend the project is configured for: a
+// microservice is one backend, chosen in the YAML.
 //
-//	go test -tags=integration ./infra/...
+// Preconditions: the configured database must be reachable and already migrated
+// (the service applies its migrations at boot via migrations.autoRun — point
+// DATABASE_URL at that database, or at a disposable one migrated the same way).
+// Each test resets the domain tables first via neutral SQL, so it starts from a
+// known-empty state. Without DATABASE_URL the suite skips.
 //
-// Override via OMNICORE_TEST_PG_DSN when the bench listens elsewhere.
+// Run:
+//
+//	DATABASE_URL=... go test -tags=integration ./infra/...
 package infra
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/bootstrap"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
 )
 
-const defaultPGAdminDSN = "postgres://omnicore:omnicore@localhost:5433/postgres?sslmode=disable"
-
-func pgAdminDSN() string {
-	if v := os.Getenv("OMNICORE_TEST_PG_DSN"); v != "" {
-		return v
-	}
-	return defaultPGAdminDSN
-}
-
-// newTestPG provisions a throw-away PG database with the framework outbox
-// + the service's users/addresses tables already applied. Returns a
-// *fwinfra.Postgres + cleanup func that drops the database.
-func newTestPG(t *testing.T) (*fwinfra.Postgres, func()) {
+// newTestEngine connects to the configured relational backend and returns the
+// neutral engine the repositories run on, plus a cleanup that resets state and
+// closes the engine.
+func newTestEngine(t *testing.T) (core.RelationalEngine, func()) {
 	t.Helper()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set DATABASE_URL to the configured database to run the integration suite")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	dbName := fmt.Sprintf("example_users_test_%s", strings.ReplaceAll(uuid.NewString(), "-", ""))
-
-	adminPool, err := pgxpool.New(ctx, pgAdminDSN())
+	eng, err := core.NewEngine(configuredDialect(t), ctx, dsn, false)
 	if err != nil {
-		t.Skipf("skipping integration test: cannot reach Postgres at %s (%v)", pgAdminDSN(), err)
-	}
-	defer adminPool.Close()
-
-	if _, err := adminPool.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %q`, dbName)); err != nil {
-		t.Fatalf("CREATE DATABASE %q: %v", dbName, err)
+		t.Skipf("cannot build the engine for the configured dialect: %v", err)
 	}
 
-	dsn := swapDB(pgAdminDSN(), dbName)
-	pg, err := fwinfra.NewPostgres(ctx, dsn)
-	if err != nil {
-		_, _ = adminPool.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, dbName))
-		t.Fatalf("NewPostgres: %v", err)
+	resetState(t, eng)
+	return eng, func() {
+		resetState(t, eng)
+		eng.Close()
 	}
-
-	if err := installSchema(ctx, pg.Pool()); err != nil {
-		pg.Close()
-		_, _ = adminPool.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, dbName))
-		t.Fatalf("install schema: %v", err)
-	}
-
-	cleanup := func() {
-		pg.Close()
-		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		admin, err := pgxpool.New(c, pgAdminDSN())
-		if err != nil {
-			return
-		}
-		defer admin.Close()
-		_, _ = admin.Exec(c, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, dbName)
-		_, _ = admin.Exec(c, fmt.Sprintf(`DROP DATABASE IF EXISTS %q`, dbName))
-	}
-	return pg, cleanup
 }
 
-func swapDB(dsn, db string) string {
-	idx := strings.LastIndex(dsn, "/")
-	q := strings.Index(dsn, "?")
-	if idx == -1 || q == -1 || q < idx {
-		return dsn
+// configuredDialect reads database.dialect from the service YAML the same way
+// the service does, so the test follows the project's configuration.
+func configuredDialect(t *testing.T) string {
+	t.Helper()
+	profile := os.Getenv("APP_PROFILE")
+	if profile == "" {
+		profile = "dev"
 	}
-	return dsn[:idx+1] + db + dsn[q:]
+	path := filepath.Join(moduleRoot(t), fmt.Sprintf("microservice.%s.yaml", profile))
+	cfg, err := bootstrap.LoadConfigFrom(path)
+	if err != nil {
+		t.Skipf("cannot load service config %s: %v", path, err)
+	}
+	return cfg.Database.Dialect
 }
 
-// installSchema seeds the throw-away DB with everything the example's infra
-// touches: framework outbox + the service's users/addresses tables (mirroring
-// migrations/0002_init.up.sql). Inlined here to avoid pulling the migration
-// package into the test.
-func installSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	stmts := []string{
-		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
-		`CREATE TABLE outbox (
-			id BIGSERIAL PRIMARY KEY,
-			aggregate_type TEXT NOT NULL,
-			aggregate_id TEXT NOT NULL,
-			event_type TEXT NOT NULL,
-			payload JSONB NOT NULL,
-			created_at TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE TABLE users (
-			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			name        VARCHAR(255) NOT NULL,
-			email       VARCHAR(255) NOT NULL,
-			phone       VARCHAR(20),
-			deleted_at  TIMESTAMP,
-			created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
-			updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
-		`CREATE UNIQUE INDEX users_email_active_idx ON users (email) WHERE deleted_at IS NULL`,
-		`CREATE TABLE addresses (
-			id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-			label         VARCHAR(50),
-			street        VARCHAR(255) NOT NULL,
-			number        VARCHAR(20) NOT NULL,
-			complement    VARCHAR(100),
-			neighborhood  VARCHAR(100) NOT NULL,
-			city          VARCHAR(100) NOT NULL,
-			state         VARCHAR(50) NOT NULL,
-			zip_code      VARCHAR(12) NOT NULL,
-			country       CHAR(2) NOT NULL,
-			deleted_at    TIMESTAMP,
-			created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
-			updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
-		)`,
+// moduleRoot walks up from the test's working directory to the directory that
+// holds go.mod, so the YAML resolves regardless of the package the test runs in.
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Skipf("cannot resolve working directory: %v", err)
 	}
-	for _, s := range stmts {
-		if _, err := pool.Exec(ctx, s); err != nil {
-			return err
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Skip("module root (go.mod) not found from the test working directory")
+		}
+		dir = parent
+	}
+}
+
+// resetState empties the domain tables via neutral SQL so each test starts from
+// a known-empty state. The DELETE order respects the addresses→users FK; the
+// engine's Querier runs the statements through whatever driver the dialect uses.
+// A failure here means the configured database is unreachable or not migrated.
+func resetState(t *testing.T, eng core.RelationalEngine) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	q := eng.Querier()
+	for _, table := range []string{"addresses", "users", "outbox"} {
+		if err := q.Exec(ctx, "DELETE FROM "+table); err != nil {
+			t.Skipf("cannot reset the configured database (reachable and migrated?): %v", err)
 		}
 	}
-	return nil
 }
 
 func ptr(s string) *string { return &s }

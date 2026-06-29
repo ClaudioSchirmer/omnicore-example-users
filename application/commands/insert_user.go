@@ -98,14 +98,14 @@ type InsertUserResult struct {
 //                tx persistence.TxHandle, userID domain.ID) error
 //        }
 //
-//   2. Implement the port in infra/ — the adapter recovers the pgx.Tx
-//      via fwinfra.UnwrapPgxTx(tx) and owns the SQL + table name:
-//        func (NotificationOutboxPG) EnqueueActivationRequested(
+//   2. Implement the port in infra/ — the adapter recovers the neutral
+//      infra.Tx via fwdb.UnwrapTx(tx) and owns the SQL + table name
+//      (render placeholders via tx.Dialect() so it runs on any engine):
+//        func (NotificationOutboxAdapter) EnqueueActivationRequested(
 //            ctx *configuration.AppContext, tx persistence.TxHandle, id domain.ID,
 //        ) error {
-//            pgxTx := fwinfra.UnwrapPgxTx(tx)
-//            _, err := pgxTx.Exec(ctx, `INSERT INTO notification_outbox …`, …)
-//            return err
+//            x := fwdb.UnwrapTx(tx)
+//            return x.Exec(ctx, `INSERT INTO notification_outbox …`, …)
 //        }
 //
 //   3. Inject the port on the Cmd (constructor / wire) and call it from

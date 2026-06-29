@@ -13,7 +13,7 @@ import (
 // loadedUserWithAddress returns a User in CONSTRUCTOR state (mirrors the
 // "loaded from DB" snapshot the framework's AggregateLoader produces) with
 // one Address attached. The address ID lets the tests verify both the
-// happy-path mutation and the not-found path without touching pgx.
+// happy-path mutation and the not-found path without touching a database.
 func loadedUserWithAddress(addressID string) *appdomain.User {
 	phone := "14155552671"
 	u := &appdomain.User{

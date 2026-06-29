@@ -8,7 +8,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "==> Bringing up local bench (Postgres + Mongo + Kafka + Debezium)"
+echo "==> Bringing up local bench (relational backend + Mongo + Kafka + Debezium)"
 docker compose -f devops/docker-compose.yml up -d
 
 echo "==> Waiting for Debezium Connect to be ready"

@@ -7,7 +7,9 @@ Reference microservice that consumes the [`omnicore`](https://github.com/Claudio
 This service is two things at once:
 
 1. **Canonical example** — a complete, runnable microservice showing every framework feature in production-shaped wire-up. Read its source when you want to know "how do I do X with omnicore?".
-2. **Test bench** — exercises the framework's public surface and surfaces gaps. New framework features ship with new cases here; the QA scripts under [`qa/`](qa/) (`e2e.sh`, `auth.sh`, `audit.sh`, `httpclient.sh`) prove the contract end-to-end against real Postgres + Mongo + Kafka + Debezium + Keycloak.
+2. **Test bench** — exercises the framework's public surface and surfaces gaps. New framework features ship with new cases here; the QA scripts under [`qa/`](qa/) (`e2e.sh`, `auth.sh`, `audit.sh`, `httpclient.sh`) prove the contract end-to-end against a real relational backend + Mongo + Kafka + Debezium + Keycloak.
+
+The persistence layer is **database-agnostic**: the relational backend is selected by `database.dialect` in the YAML, so the service code, repositories, and Go tests name no specific database.
 
 ## Domain
 
@@ -16,7 +18,7 @@ A users CRUD service with `Address` as an aggregate child of `User`. The domain 
 ## Run it locally
 
 ```bash
-# 1. Bring up Postgres + Mongo + Kafka + Debezium (+ Keycloak for auth profiles)
+# 1. Bring up the relational backend + Mongo + Kafka + Debezium (+ Keycloak for auth profiles)
 docker compose -f devops/docker-compose.yml up -d
 ./devops/debezium/register-connector.sh
 
@@ -35,7 +37,7 @@ Other profiles ship as `microservice.prd.yaml`, `microservice.prd-pem.yaml`, `mi
 - `application/commands/` — Insert/Update/Patch/Archive/Unarchive/Delete commands per aggregate.
 - `application/handlers/` — manual handlers (e.g. Keycloak-aware showcase); the Auto handlers from omnicore cover the trivial CRUD.
 - `application/translations/` — service-specific notification messages (PT-BR, ENG, ESP, FRA, DEU, ITA, NLD).
-- `infra/` — `UserRepository`, `ViewDefinition`, optional outbound HTTP services.
+- `infra/` — `UserRepository`, `ViewDefinition`, optional outbound HTTP services. Backend-agnostic: repositories take the neutral relational engine (`core.RelationalEngine`), never a concrete driver.
 - `web/` — Fiber routes via `MountUsers`.
 - `bootstrap/` — `package main` (entry point), Wire, UsersFeature.
 - `migrations/` — service schema (versions `0002+`; the framework owns version `0001`).

@@ -161,7 +161,7 @@ omnicore-example-users/
 │   ├── 0002_init.up.sql           # users + addresses (version 1 is the framework's embedded outbox)
 │   └── 0002_init.down.sql         # DROP TABLE addresses + users
 ├── devops/                        # Scaffolding the service doesn't know about (framework pipeline + local bench)
-│   ├── docker-compose.yml         # Postgres + Mongo + Kafka (KRaft) + Debezium + Keycloak + Jaeger + ELK
+│   ├── docker-compose.yml         # relational backend + Mongo + Kafka (KRaft) + Debezium + Keycloak + Jaeger + ELK
 │   ├── debezium/                  # Framework CDC pipeline scaffolding — outbox → Kafka Connect
 │   │   ├── users-outbox-connector.json  # Connector config (parameterized: name, DSN, topic prefix; maps traceparent → Kafka header)
 │   │   └── register-connector.sh         # Idempotent registration script
@@ -266,11 +266,11 @@ omnicore-example-users/
 
 - `domain/` — pure rules (zero IO)
 - `application/` — commands + handlers
-- `infra/` — implementation of domain ports (Postgres, views, repos) in Go. **No non-Go artifacts live here** — `infra/` is a DDD layer, not an operational dump.
+- `infra/` — implementation of domain ports (relational backend, views, repos) in Go. **No non-Go artifacts live here** — `infra/` is a DDD layer, not an operational dump.
 - `web/` — owner of Fiber routes (`MountXxx` per aggregate)
 - `bootstrap/` — composition + entry point (`package main`). Contains `main.go` (≤ 10 lines: `bootstrap.Run(Wire)`), `wire.go` (translations + features), `users_feature.go` (struct `UsersFeature` that bundles repo + view and delegates `Mount` to `web.MountUsers`), `showcase_feature.go` (struct `ShowcaseFeature` that bundles the outbound adapters and delegates to `web.MountWhoami` + `web.MountEcho` + `web.MountShowcase`), `admin_feature.go` (struct `AdminFeature` — mount-only, no domain; registers `POST /admin/retries/upstream` and `POST /admin/retries/integration` behind `RequirePermission("admin:retry")`, under Swagger tag `Admin`), and `audit_feature.go` (struct `AuditFeature` — mount-only, no domain; registers `GET /audit/:aggregateId` behind `RequirePermission("audit:read")`, under Swagger tag `Audit`). Run: `go run ./bootstrap`; build: `go install ./bootstrap` produces the binary `bootstrap` (rename via `-o` if you want a different name). Mirrors the name of the framework's `omnicore/bootstrap` package — same intent (assemble and wire everything up), except in the consumer it is the entry point (`package main`)
 - `migrations/` — non-Go but **part of the service's contract**: SQL DDL for the domain tables, versioned alongside `domain/*.go`. Each `.up.sql` requires a matching `.down.sql`. Path declared in `microservice.*.yaml` (`migrations.dir: ./migrations`).
-- `devops/` — non-Go scaffolding the service doesn't know about: `docker-compose.yml` for the local bench, `debezium/` (framework outbox→Kafka pipeline boilerplate — parameterized by service name + DSN + topic prefix), `keycloak/` (test IdP only used by `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh`). In production, `devops/` is replaced by whatever real infrastructure the operator provisions (managed PG/Mongo/Kafka/IdP); the service binary doesn't read anything from this folder.
+- `devops/` — non-Go scaffolding the service doesn't know about: `docker-compose.yml` for the local bench, `debezium/` (framework outbox→Kafka pipeline boilerplate — parameterized by service name + DSN + topic prefix), `keycloak/` (test IdP only used by `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh`). In production, `devops/` is replaced by whatever real infrastructure the operator provisions (managed relational/Mongo/Kafka/IdP); the service binary doesn't read anything from this folder.
 - `qa/` — end-to-end suites operated by bash + curl + python (`e2e.sh`, `auth.sh`, `audit.sh`, `httpclient.sh`, `openapi.sh`, `authz.sh`).
 
 ### Feature struct convention
@@ -279,8 +279,8 @@ A `bootstrap/<name>_feature.go` struct holds **infra-level adapters that need co
 
 | Field on a feature struct? | Examples |
 |---|---|
-| ✅ Yes | `repo` (`NewUserRepository(d.Postgres)` wraps with NewEntity factory + ConstraintBindings), `svc` (`NewUserService(...)` configures a domain service), `view` (`UserView()` declares the Mongo view shape consumed by Views() AND Mount()), `kc` / `echo` (vendor adapter structs `NewKeycloakService(d.HttpClient)` / `NewEchoService(d.HttpClient)` configure the per-vendor httpclient surface). |
-| ❌ No | `*pgxpool.Pool`, `*translation.Translator`, `*pipeline.Pipeline`, `bootstrap.Deps` itself, application handlers (`InsertCommandHandler[*User, ...]`, `FindAuditByAggregateQueryHandler{Pool, Translator}`, etc.). These are read straight from `d` at `Mount` time or built inline inside the route's closure. |
+| ✅ Yes | `repo` (`NewUserRepository(d.DB)` wraps with NewEntity factory + ConstraintBindings — the repo takes the backend-neutral `core.RelationalEngine` directly, so the SQL backend is a YAML dialect change, not a code edit), `svc` (`NewUserService(d.DB)` configures a domain service), `view` (`UserView()` declares the Mongo view shape consumed by Views() AND Mount()), `kc` / `echo` (vendor adapter structs `NewKeycloakService(d.HttpClient)` / `NewEchoService(d.HttpClient)` configure the per-vendor httpclient surface). |
+| ❌ No | `the relational driver pool`, `*translation.Translator`, `*pipeline.Pipeline`, `bootstrap.Deps` itself, application handlers (`InsertCommandHandler[*User, ...]`, `FindAuditByAggregateQueryHandler{Pool, Translator}`, etc.). These are read straight from `d` at `Mount` time or built inline inside the route's closure. |
 
 **Decision rule:** if the constructor you would call is `appinfra.NewXxx(...)` (a configured infra adapter) or `appexternal.NewXxx(...)` (a configured vendor surface), it belongs on the feature struct. If the constructor is `&appcmd.YyyCommandHandler{...}` / `&appquery.YyyQueryHandler{...}` (an application handler that just wraps Deps fields verbatim), it goes inside the per-request closure. When a feature has nothing in the first category (admin / audit / pure mount-only routes), the struct is empty (`type AuditFeature struct{}`, `NewAuditFeature() *AuditFeature`) and `Mount(app, d)` reads everything off `d` — same shape `AdminFeature` follows.
 
@@ -313,7 +313,7 @@ Implements two framework interfaces:
 
 **Field validations:** name (required + maximum length of 100), email (regex), phone (10-15 digits, nullable). No country-specific fields in the root — the example is deliberately international. The 100-char cap lives in `domain/user.go` as the package-private constant `nameMaxLength` — a pure domain rule of this aggregate, not a configurable per-tenant value. The application layer never references the constant; the rule fires inside `BuildRules.IfInsertOrUpdate`, comparing `len(u.Name)` directly against `nameMaxLength` and emitting `NameMaxLengthExceededNotification{MaxLength: nameMaxLength}` on overflow. The framework's parameterized-notification mechanism substitutes the emitted value into the translated message via the `tvar:"maxLength"` tag on the notification struct (catalog entries declare `{maxLength}` and the renderer substitutes "100" at the wire boundary). If a future requirement demanded per-tenant variability, the rule would migrate from a constant to a `domain.Service` lookup consulted inside `BuildRules` — same notification type, same wire shape, only the source of the value changes.
 
-**Nullables:** `Phone *string` — column `users.phone` is nullable. Convention of the example: empty input from JSON becomes nil via `commands.NilIfEmpty` at the boundary (Insert/Update/Patch commands). Domain tests `if u.Phone != nil && *u.Phone != ""`. pgx writes NULL when nil; auto-scan reads NULL as nil. No `db:` tags on the struct — the Go↔column map lives in `infra/schema.go` (`Field("Phone","phone")`).
+**Nullables:** `Phone *string` — column `users.phone` is nullable. Convention of the example: empty input from JSON becomes nil via `commands.NilIfEmpty` at the boundary (Insert/Update/Patch commands). Domain tests `if u.Phone != nil && *u.Phone != ""`. the engine writes NULL when nil; auto-scan reads NULL as nil. No `db:` tags on the struct — the Go↔column map lives in `infra/schema.go` (`Field("Phone","phone")`).
 
 ### Address (`domain/address.go`)
 
@@ -331,7 +331,7 @@ Implements two framework interfaces:
 |---|---|---|
 | `InvalidEmailNotification`, `InvalidPhoneNotification` | User's `BuildRules` | Validation (422) |
 | `InvalidStateNotification`, `InvalidZipCodeNotification`, `InvalidCountryNotification` | `Address.BuildRules` | Validation (422) |
-| `EmailAlreadyExistsNotification` | `BaseRepository` via `Constraints` upon detecting a PG unique violation | **Conflict (409)** via `Semantic()` override |
+| `EmailAlreadyExistsNotification` | `BaseRepository` via `Constraints` upon detecting a unique violation | **Conflict (409)** via `Semantic()` override |
 | `DuplicateAddressNotification` | `User.AddAddress` upon detecting `sameBusinessIdentity` with an address already in the aggregate | Validation (422) — request shape carries the duplicate |
 | `EmailCannotChangeNotification` | `User.BuildRules.IfUpdate` when `domain.Old(u).Email != u.Email` | Validation (422) — transition-aware invariant |
 | `NameMaxLengthExceededNotification` | `User.BuildRules.IfInsertOrUpdate` when `len(u.Name) > nameMaxLength` (pure domain constant in `domain/user.go`) | Validation (422) — **parameterized notification showcase**: carries `MaxLength int \`tvar:"maxLength"\`` so the translated message substitutes the value the domain emitted |
@@ -342,11 +342,13 @@ All embed `domain.DomainNotificationBase`. Translated in `application/translatio
 
 ## Infra
 
+**Database-agnostic.** The persistence layer names no specific relational backend. Repositories, the service, and every Go test take the neutral `core.RelationalEngine` (`Deps.DB`) and run SQL through its `Querier`/`Dialect`; the backend is chosen once by `database.dialect` in the YAML. Swapping it is a config change — no edit in `infra/`, `application/`, `web/`, or the tests. The only places that name a concrete backend are the YAML config (`microservice.*.yaml`, `devops/docker-compose.yml`) and the `qa/*.sh` E2E scripts that inspect the running container.
+
 ### UserRepository (`infra/user_repository.go`)
 
 Composes two framework primitives:
 
-- **`fwinfra.BaseRepository[*User]`** embedded — provides `Scope(ctx, opts...) domain.Writer` whose boundWriter carries the 5 writes as one-liners delegating to `Postgres`. Aggregate-aware dispatch happens transparently because User implements `AggregateRootProvider`. Unique violations (PG `23505`) turn into typed notifications via the `Constraints` map:
+- **`fwinfra.BaseRepository[*User]`** embedded — provides `Scope(ctx, opts...) domain.Writer` whose boundWriter carries the 5 writes as one-liners delegating to the relational engine. Aggregate-aware dispatch happens transparently because User implements `AggregateRootProvider`. Unique violations (classified by the dialect) turn into typed notifications via the `Constraints` map:
   ```go
   Constraints: map[string]fwinfra.ConstraintBinding{
       "users_email_active_idx": {Notification: EmailAlreadyExistsNotification{}, Field: "email"},
@@ -371,7 +373,7 @@ fwinfra.View("users").
 ```
 
 - **Collection in Mongo:** `"users"`
-- **Root table in Postgres:** `users`
+- **Root table:** `users`
 - **Embed many in doc field `addresses`**: query `addresses WHERE user_id = root.id AND deleted_at IS NULL` — the table and the join FK (`user_id`) both come from `AddressSchema()`
 - **Same schemas as the repository:** `.Schema(UserSchema())` on the root and `fwinfra.FromSchema(AddressSchema())` on the embed (the single embed source constructor — schema mandatory on root + every embed). Because `AddressSchema()` is type-anchored (a local source), the parent-side Go segment `"Addresses"` is **derived** from the Go type (pluralized) — no `.As(...)` needed; it is only an optional override. The composer writes physical columns to Mongo and the reader translates each leaf back to its Go field name (`zip_code`→`ZipCode`) before the typed Response projects — so write and read agree on every name.
 
@@ -414,7 +416,7 @@ Full description in [`../omnicore/CLAUDE.md`](../omnicore/CLAUDE.md) section "Au
 
 `AddressInput` (DTO shared between the canonical Insert/Update Commands) lives in `application/dtos/address_input.go` — co-located with the application layer, separated from the Commands that use it to anticipate other shared DTOs such as PaginationInput, FilterInput, etc. The manual showcase has its own `AddressInputCustom` in `address_input_custom.go` — the two surfaces share nothing above `domain/`.
 
-None of these Commands has `Handle`. They are consumed by the framework's **Auto Command Handlers** (`handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]`, `handlers.PartialUpdateCommandHandler[*User, *PatchUserCommand, commands.PatchUserResult]`, etc.) wired in `web/user_routes.go`. Each handler struct just carries `Repo` and an optional `Service` — no `Auditor`, no `Project` field. Audit emission is automatic via `infra.Postgres` (configured at boot from `audit.destinations`); handlers never thread an auditor. The projection lives on the Cmd as `cmd.FromEntity(ctx, T) (TResult, error)` (symmetric with `cmd.ToEntity`/`ApplyTo` on the input side); bodyless verbs (Archive/Unarchive/Delete) declare `FromEntity` returning `fwresults.None{}`. **Zero manual handlers** — all update/patch/archive logic fits in commands + Entity.
+None of these Commands has `Handle`. They are consumed by the framework's **Auto Command Handlers** (`handlers.InsertCommandHandler[*User, *InsertUserCommand, commands.InsertUserResult]`, `handlers.PartialUpdateCommandHandler[*User, *PatchUserCommand, commands.PatchUserResult]`, etc.) wired in `web/user_routes.go`. Each handler struct just carries `Repo` and an optional `Service` — no `Auditor`, no `Project` field. Audit emission is automatic via the relational engine (configured at boot from `audit.destinations`); handlers never thread an auditor. The projection lives on the Cmd as `cmd.FromEntity(ctx, T) (TResult, error)` (symmetric with `cmd.ToEntity`/`ApplyTo` on the input side); bodyless verbs (Archive/Unarchive/Delete) declare `FromEntity` returning `fwresults.None{}`. **Zero manual handlers** — all update/patch/archive logic fits in commands + Entity.
 
 ### Request DTOs (`web/requests/`)
 
@@ -641,7 +643,7 @@ The manual surface gives up three small things the canonical `HandleCommandWithB
 2. **`FullBody` marker support.** The canonical PUT enforces "all exported fields of the Request DTO must be present in the JSON" via the `FullBody` marker + reflection. The manual PUT does not — missing fields surface as 422 from `BuildRules` instead of 400 from the wire. Acceptable here because PUT/PATCH custom drop the immutable `Email` field; what's required is short enough that domain validation covers it.
 3. **Boilerplate.** Each Fiber handler explicitly performs the 5-step dance the wrapper hides. Reading is the point; writing every new manual endpoint by hand is the cost.
 
-Repository-side, `UserCustomRepository.Insert/Update/Archive/Unarchive/Delete` are **1-line delegations to `fwinfra.Postgres`** — the same primitives `BaseRepository` calls under the hood. Going further (managing `pgx.Tx` + outbox INSERT + aggregate cascade by hand) would break the framework's "outbox is atomic with the write" invariant for no didactic gain — that transaction engineering already lives inside `fwinfra.Postgres` and is not part of what "manual" means in this showcase. The custom Repository writes **no lookup SQL of its own**: `FindByEmail` / `FindArchivedByEmail` resolve the email through the framework's entity search engine (`criteria.Eq("Email", email)` → `loader.FindOne`, the `.OnlyArchived()` scope for the archived twin), and `FindByID` / `FindArchivedByID` go through `criteria.ByID(id)`. The only hand-written SQL-adjacent code left is the constraint-violation translation (`mapErr` replicated because `BaseRepository.mapErr` is package-private).
+Repository-side, `UserCustomRepository.Insert/Update/Archive/Unarchive/Delete` are **1-line delegations to the relational engine** — the same primitives `BaseRepository` calls under the hood. Going further (managing the engine's TX + outbox INSERT + aggregate cascade by hand) would break the framework's "outbox is atomic with the write" invariant for no didactic gain — that transaction engineering already lives inside the relational engine and is not part of what "manual" means in this showcase. The custom Repository writes **no lookup SQL of its own**: `FindByEmail` / `FindArchivedByEmail` resolve the email through the framework's entity search engine (`criteria.Eq("Email", email)` → `loader.FindOne`, the `.OnlyArchived()` scope for the archived twin), and `FindByID` / `FindArchivedByID` go through `criteria.ByID(id)`. The only hand-written SQL-adjacent code left is the constraint-violation translation (`mapErr` replicated because `BaseRepository.mapErr` is package-private).
 
 ### Read side
 
@@ -754,9 +756,12 @@ type UsersFeature struct {
 }
 
 func NewUsersFeature(d bootstrap.Deps) *UsersFeature {
+    // repo + svc are backend-neutral: they take the relational engine
+    // (Deps.DB, a core.RelationalEngine) directly, so swapping the SQL
+    // backend is a YAML dialect change with no edit here.
     return &UsersFeature{
-        repo: appinfra.NewUserRepository(d.Postgres),
-        svc:  appinfra.NewUserService(d.Postgres),
+        repo: appinfra.NewUserRepository(d.DB),
+        svc:  appinfra.NewUserService(d.DB),
         view: appinfra.UserView(), // called ONCE for the entire service
     }
 }
@@ -795,10 +800,10 @@ func (f *ShowcaseFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 Behavior `bootstrap.Run` covers automatically:
 
 - Reads `APP_PROFILE` env (`dev`\|`prd`, required), loads `microservice.${APP_PROFILE}.yaml`, interpolates `${VAR:default}` with env vars, validates required, and rejects boot if `auth.mode=disabled` under any profile other than `dev`
-- Connects Postgres + Mongo (defer Close)
+- Connects the relational backend + Mongo (defer Close)
 - Rejects boot if wiring has no `Features` and no `BeforeServe` (nothing to serve)
 - Applies pending migrations — first version 1 (outbox, embedded in the framework), then the service's `migrations/0002+`
-- Builds `Translator`, `Pipeline`, `MongoViewReader`, `QueryHandler`; configures audit on the Postgres adapter via `pg.WithAudit(&cfg.Audit, logger, cfg.Auth.AuditClaims)` so every subsequent write emits the configured destinations automatically
+- Builds `Translator`, `Pipeline`, `MongoViewReader`, `QueryHandler`; configures audit on the relational engine via `WithAudit(&cfg.Audit, logger, cfg.Auth.AuditClaims)` so every subsequent write emits the configured destinations automatically
 - Imports `Wiring.Translations` into the Translator
 - Collects Views from every `ReadableFeature` and rejects boot if 2 features declare the same view name (Mongo collection collision)
 - Starts `SyncEngine` if at least one view was collected
@@ -927,7 +932,7 @@ httpClient:
 **AdminFeature surfaces.** The `bootstrap/admin_feature.go` struct registers two HTTP routes that drive the framework's retry primitives:
 
 - `POST /admin/retries/upstream` — walks `d.UpstreamSubscribers` calling `RetryPendingFailures(ctx)` on each; returns `{"retried": N}`.
-- `POST /admin/retries/integration` — walks `d.IntegrationRegistry.Receivers()` calling `RetryPendingFailures(ctx, pg.Pool(), pipe, logger)` on each; returns `{"retried": N}`.
+- `POST /admin/retries/integration` — walks `d.IntegrationRegistry.Receivers()` calling `RetryPendingFailures(ctx, d.DB, pipe, logger)` on each (the receiver retry takes the neutral `infra.RelationalEngine`); returns `{"retried": N}`.
 
 Both routes sit behind `fwopenapi.RequirePermission("admin:retry")` and surface under Swagger tag `Admin`. The handlers read the registry / subscriber slice via closure at request time — by the time HTTP starts serving (after Phase Receivers + ConsumerPool.Start completed) both are fully populated. Operators expose the routes through the same JWT / claim machinery any other gated endpoint uses.
 
@@ -940,7 +945,7 @@ The schema is managed by the framework's **Migration Manager** (`golang-migrate/
 
 Every `.up.sql` must have a `.down.sql` counterpart (validated by `mgr.ValidateDownExists()` on boot).
 
-> Outbox SQL **no longer lives in this service.** It is injected by the framework. If another service comes up against the same Postgres with the same table, the signature is guaranteed identical (Debezium depends on it).
+> Outbox SQL **no longer lives in this service.** It is injected by the framework. If another service comes up against the same relational backend with the same table, the signature is guaranteed identical (Debezium depends on it).
 
 ---
 
@@ -950,15 +955,15 @@ Core data-plane services plus a Keycloak IdP and an observability stack (Jaeger 
 
 | Service | Host port | Notes |
 |---|---|---|
-| `postgres` | `5433` | PG 16 with `wal_level=logical` (required by Debezium). The schema is created by the framework on Go boot — **migrations are NO LONGER mounted in `docker-entrypoint-initdb.d`** |
+| `relational` | `5433` | the relational backend, with logical decoding enabled (required by Debezium CDC). See `devops/docker-compose.yml` for the concrete image. The schema is created by the framework on Go boot — **migrations are NO LONGER mounted in `docker-entrypoint-initdb.d`** |
 | `mongo` | `27018` | Mongo 7, no auth (dev only) |
 | `kafka` | `9094` | KRaft single-broker, auto-creates topics, dual listener (internal/external) |
-| `debezium` | `8083` | Kafka Connect with Debezium plugins, only comes up after PG+Kafka healthy |
+| `debezium` | `8083` | Kafka Connect with Debezium plugins, only comes up after the relational backend + Kafka healthy |
 | `keycloak` | `8088` | Test IdP (realm `omnicore-test`); only `qa/auth.sh` + `qa/audit.sh` + `qa/authz.sh` use it |
 | `jaeger` | `16686` (UI), `4317`/`4318` (OTLP) | OpenTelemetry collector + UI. The dev profile's `observability.tracing` (exporter=otlp) ships spans here; the host-run app exports to `localhost:4317`. In-memory storage — traces are throwaway, optional, a request never blocks on it |
 | `elasticsearch` · `kibana` · `filebeat` | `9200` · `5601` · — | Log stack (the OTHER pillar). `run-dev.sh` tees the service's JSON stdout into `devops/elk/logs/`; Filebeat ships it to Elasticsearch; Kibana searches it at `:5601`. Heavy (~2GB), security disabled, single-node — dev bench only |
 
-**Postgres credentials (dev):** user `omnicore`, pass `omnicore`, db `users_db`.
+**Relational backend credentials (dev):** user `omnicore`, pass `omnicore`, db `users_db`.
 
 The observability containers are optional — nothing in the data plane depends on them. Tracing is opt-in via `observability.tracing` (see [`../omnicore/`](../omnicore/) docs "Distributed tracing"); the dev profile enables it with `exporter: otlp` pointed at the `jaeger` container. The ELK mirror is driven by `run-dev.sh` (`… | tee -a devops/elk/logs/<service>.log`); `devops/elk/` carries `filebeat.yml` + the Kibana bootstrap (`setup-kibana.sh`, `kibana-objects.ndjson`, `es-template.json`). The `devops/elk/logs/` directory is gitignored (runtime artifact; only `.gitkeep` is tracked).
 
@@ -980,8 +985,8 @@ The script registers the connector via the Kafka Connect REST API — POST if ne
 
 | Setting | Why |
 |---|---|
-| `connector.class: PostgresConnector` | CDC source from Postgres |
-| `plugin.name: pgoutput` | Native plugin, no extra installation in PG |
+| `connector.class: …Connector` | CDC source from the relational backend |
+| `plugin.name: …` | Native logical-decoding plugin (see `devops/debezium/`), no extra installation in the relational backend |
 | `publication.autocreate.mode: filtered` | Automatic publication creation only for tables in `include.list` |
 | `table.include.list: public.outbox` | Watches only outbox (no domain table CDC leak) |
 | `transforms.outbox.type: EventRouter` | Outbox pattern — transforms an outbox row into a Kafka msg |
@@ -1015,7 +1020,7 @@ The script registers the connector via the Kafka Connect REST API — POST if ne
             └─ checkAllNotifications → *DomainError if any
             └─ extractAggregateMeta(user) attaches *aggregateMeta
          └─ repo.Scope(ctx).Insert(insertable)
-            └─ boundWriter.Insert → pg.Insert
+            └─ boundWriter.Insert → engine.Insert
                └─ AggregateInfo() ok → insertAggregate
                   └─ BEGIN TX
                   └─ INSERT users RETURNING id
@@ -1023,7 +1028,7 @@ The script registers the connector via the Kafka Connect REST API — POST if ne
                   └─ INSERT outbox (single row, payload = root+children snapshot)
                   └─ COMMIT
                └─ pgErr 23505 + known constraint → FieldErrorWithCause (Conflict 409)
-            (inside Postgres.insertAggregate, IN-TX before COMMIT:)
+            (inside the relational engine's insertAggregate, IN-TX before COMMIT:)
             └─ ev := audit.BuildInsertEvent(ctx, insertable, id, cfg.AuditClaims)
             └─ IF cfg.Audit.Includes(database):
                └─ audit.InsertAuditEvent(ctx, tx, ev) ← atomic with data + outbox row
@@ -1301,7 +1306,7 @@ Boots the service once under `APP_PROFILE=dev` (autoRun=true) and exercises the 
 5. Assert `GET /users` returns 3 documents AND `db.users.countDocuments({})` returns 3.
 6. Stop the server.
 7. Run `db.users.drop()` via mongosh — simulates an operator wiping the read side (the §1 motivation case of the design doc).
-8. Restart the server. Boot reads the registry (still present) + scans Mongo (empty) → detects `DriftMongoWiped` → `autoRun=true` authorizes the rebuild → `ExecuteRebuild` cycles the registry through `processing` → `done` while recomposing from PG.
+8. Restart the server. Boot reads the registry (still present) + scans Mongo (empty) → detects `DriftMongoWiped` → `autoRun=true` authorizes the rebuild → `ExecuteRebuild` cycles the registry through `processing` → `done` while recomposing from the relational backend.
 9. Assert the slog log carries `view.rebuild.start` + `view.rebuild.end` events.
 10. Assert Mongo is rebuilt: `GET /users` returns 3, `db.users.countDocuments({})` returns 3.
 11. Assert the registry's `previous_*` fields capture the prior state (`previous_version`, `previous_applied_at IS NOT NULL`) and that `started_at IS NULL` (transition back to `done` cleared the in-flight columns).

@@ -23,7 +23,7 @@ var errNotFound = errors.New("user not found")
 // repo := h.Repo.Scope(ctx) and then drives reads + writes on the same double.
 // Counters let each test assert which write methods reached the repo; the
 // foundUser fields seed FindByEmail / FindArchivedByEmail with a preconstructed
-// *User so the handler chain can exercise the application layer without pgx.
+// *User so the handler chain can exercise the application layer without a database.
 type fakeRepo struct {
 	insertCalled    int
 	updateCalled    int
@@ -101,7 +101,7 @@ func (r *fakeRepo) New() *appdomain.User {
 }
 
 // fakeService satisfies appdomain.UserService. EmailExists always returns
-// false so happy-path tests do not have to thread a real Postgres pool.
+// false so happy-path tests do not have to thread a real database connection.
 type fakeService struct {
 	domain.ServiceBase
 }

@@ -14,22 +14,22 @@ import (
 // context so the User aggregate's feature stays focused on user CRUD.
 // Four Mount entry points are called:
 //
-//   appweb.MountWhoami      → GET /whoami (auth identity demo)
-//   appweb.MountShowcase    → /showcase/keycloak/* + /showcase/httpclient/*
-//   appweb.MountEcho        → /echo/* in-process upstream for the
-//                              /showcase/httpclient/* demos
-//   appweb.MountUsersCustom → /showcase/users-custom/* manual chain over
-//                              the User aggregate (write side — read side
-//                              arrives in a follow-up)
+//	appweb.MountWhoami      → GET /whoami (auth identity demo)
+//	appweb.MountShowcase    → /showcase/keycloak/* + /showcase/httpclient/*
+//	appweb.MountEcho        → /echo/* in-process upstream for the
+//	                           /showcase/httpclient/* demos
+//	appweb.MountUsersCustom → /showcase/users-custom/* manual chain over
+//	                           the User aggregate (write side — read side
+//	                           arrives in a follow-up)
 //
 // The feature does not contribute a view to the SyncEngine — implements
 // bootstrap.Feature only (no Views method). The KeycloakService and
 // EchoService are constructed over the shared HttpClient registry the
 // framework exposes on bootstrap.Deps; the custom repo + service for the
-// users-custom showcase are constructed over the shared *Postgres so the
-// surface persists to the same `users` table the canonical UsersFeature
-// writes to — both routes exercising the same aggregate is the whole
-// point of the side-by-side comparison.
+// users-custom showcase are constructed over the shared relational engine
+// (Deps.DB) so the surface persists to the same `users` table the canonical
+// UsersFeature writes to — both routes exercising the same aggregate is the
+// whole point of the side-by-side comparison.
 //
 // Splitting showcase from UsersFeature keeps the canonical example
 // (UsersFeature) free of demo routes that would otherwise dilute the
@@ -43,16 +43,19 @@ type ShowcaseFeature struct {
 
 // NewShowcaseFeature builds the outbound adapters over the shared
 // HttpClient and the manual showcase Repository + Service over the shared
-// *Postgres. The duplicate UserService instance (UsersFeature already
+// relational engine. The duplicate UserService instance (UsersFeature already
 // constructs one) is intentional and cheap: UserService is stateless and
 // the alternative — threading it across features — would couple
 // ShowcaseFeature to UsersFeature, breaking the bootstrap.Feature contract.
 func NewShowcaseFeature(d bootstrap.Deps) *ShowcaseFeature {
+	// customRepo + customSvc are backend-neutral: they take the relational
+	// engine (Deps.DB) directly, so swapping the SQL backend is a YAML dialect
+	// change with no edit here.
 	return &ShowcaseFeature{
 		kc:         appexternal.NewKeycloakService(d.HttpClient),
 		echo:       appexternal.NewEchoService(d.HttpClient),
-		customRepo: appinfra.NewUserCustomRepository(d.Postgres),
-		customSvc:  appinfra.NewUserService(d.Postgres),
+		customRepo: appinfra.NewUserCustomRepository(d.DB),
+		customSvc:  appinfra.NewUserService(d.DB),
 	}
 }
 

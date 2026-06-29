@@ -17,7 +17,7 @@ import (
 // on the canonical surface.
 //
 // FK ON DELETE CASCADE on addresses handles the child rows; the framework's
-// Postgres.Delete runs the DELETE + outbox INSERT in the same TX.
+// relational engine Delete runs the DELETE + outbox INSERT in the same TX.
 type DeleteUserCustomCommandHandler struct {
 	Repo    ScopedUserRepository
 	Service domain.Service

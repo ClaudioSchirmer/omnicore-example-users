@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/ClaudioSchirmer/omnicore/domain"
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
@@ -22,11 +22,11 @@ import (
 // example doesn't justify (the query is sub-millisecond and the index covers).
 type UserService struct {
 	domain.ServiceBase
-	pg *fwinfra.Postgres
+	eng core.RelationalEngine
 }
 
-func NewUserService(pg *fwinfra.Postgres) *UserService {
-	return &UserService{pg: pg}
+func NewUserService(eng core.RelationalEngine) *UserService {
+	return &UserService{eng: eng}
 }
 
 // EmailExists returns true when there is an active row (deleted_at IS NULL)
@@ -39,13 +39,17 @@ func NewUserService(pg *fwinfra.Postgres) *UserService {
 func (s *UserService) EmailExists(email string, excludeID *domain.ID) bool {
 	ctx := context.Background()
 
+	// Backend-neutral: the engine's Querier runs the SELECT and the Dialect
+	// renders the positional placeholder and encodes each arg (the id is encoded
+	// to the dialect's own form). No driver-specific surface — the same code
+	// runs on any engine.
+	d := s.eng.Dialect()
+	q := s.eng.Querier()
+
 	var exists bool
 	if excludeID == nil || excludeID.IsEmpty() {
-		err := s.pg.Pool().QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND deleted_at IS NULL)`,
-			email,
-		).Scan(&exists)
-		if err != nil {
+		sql := `SELECT EXISTS(SELECT 1 FROM users WHERE email = ` + d.Placeholder(1) + ` AND deleted_at IS NULL)`
+		if err := q.QueryRow(ctx, sql, d.EncodeArg(email)).Scan(&exists); err != nil {
 			// I/O failure — return false and let the DB unique index reject at
 			// COMMIT. Defensive: don't block a request because of a transient
 			// incident in the validation query.
@@ -54,11 +58,8 @@ func (s *UserService) EmailExists(email string, excludeID *domain.ID) bool {
 		return exists
 	}
 
-	err := s.pg.Pool().QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND id <> $2 AND deleted_at IS NULL)`,
-		email, excludeID.Value(),
-	).Scan(&exists)
-	if err != nil {
+	sql := `SELECT EXISTS(SELECT 1 FROM users WHERE email = ` + d.Placeholder(1) + ` AND id <> ` + d.Placeholder(2) + ` AND deleted_at IS NULL)`
+	if err := q.QueryRow(ctx, sql, d.EncodeArg(email), d.EncodeArg(*excludeID)).Scan(&exists); err != nil {
 		return false
 	}
 	return exists

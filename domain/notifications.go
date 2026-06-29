@@ -14,7 +14,7 @@ type InvalidZipCodeNotification struct{ domain.DomainNotificationBase }
 type InvalidCountryNotification struct{ domain.DomainNotificationBase }
 
 // Raised by the repository when a UNIQUE constraint violation comes back
-// from Postgres on the email column. Semantic() override is required so the
+// from the relational backend on the email column. Semantic() override is required so the
 // framework maps this to 409 Conflict instead of the default 422.
 type EmailAlreadyExistsNotification struct{ domain.DomainNotificationBase }
 

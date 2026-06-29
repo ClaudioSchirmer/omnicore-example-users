@@ -3,7 +3,7 @@ package infra
 import (
 	"testing"
 
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 )
 
 // UserView is the read-side projection consumed by /users GET endpoints.
@@ -41,12 +41,12 @@ func TestUserView_DeclaresExpectedIndexes(t *testing.T) {
 	}
 
 	// Asc index on email — lookup support for ?email=...
-	if specs[0].Keys[0].Field != "email" || specs[0].Keys[0].Order != fwinfra.IndexOrderAsc {
+	if specs[0].Keys[0].Field != "email" || specs[0].Keys[0].Order != query.IndexOrderAsc {
 		t.Errorf("specs[0] = %+v, want ascending index on email", specs[0].Keys)
 	}
 
 	// Desc index on created_at — sort support for ?sort=-created_at
-	if specs[1].Keys[0].Field != "created_at" || specs[1].Keys[0].Order != fwinfra.IndexOrderDesc {
+	if specs[1].Keys[0].Field != "created_at" || specs[1].Keys[0].Order != query.IndexOrderDesc {
 		t.Errorf("specs[1] = %+v, want descending index on created_at", specs[1].Keys)
 	}
 

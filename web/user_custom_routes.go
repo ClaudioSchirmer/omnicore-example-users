@@ -150,8 +150,8 @@ func MountUsersCustom(
 				fiber.StatusConflict: {
 					"duplicateEmail": {
 						Summary: "Email already registered (uniqueness violation surfaced from infra)",
-						Description: "Emitted when the unique partial index `users_email_active_idx` " +
-							"rejects the INSERT (PG SQLSTATE 23505). The framework translates the " +
+						Description: "Emitted when the unique index `users_email_active_idx` " +
+							"rejects the INSERT (a unique-constraint violation classified per dialect). The framework translates the " +
 							"constraint into `EmailAlreadyExistsNotification` with semantic `Conflict`, " +
 							"mapping to HTTP 409.",
 						Value: map[string]any{

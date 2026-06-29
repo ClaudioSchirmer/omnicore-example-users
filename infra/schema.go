@@ -1,7 +1,7 @@
 package infra
 
 import (
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
@@ -21,8 +21,8 @@ import (
 // Managed columns: deleted_at (soft-delete predicate), created_at + updated_at
 // (framework-stamped NOW() on write). The framework never relies on a DB
 // DEFAULT it does not own.
-func UserSchema() *fwinfra.TableSchema {
-	return fwinfra.NewTableSchema[*appdomain.User]("users").
+func UserSchema() *core.TableSchema {
+	return core.NewTableSchema[*appdomain.User]("users").
 		PK("id").
 		Field("Name", "name").
 		Field("Email", "email").
@@ -38,8 +38,8 @@ func UserSchema() *fwinfra.TableSchema {
 // embed source schema (so the Mongo reader translates the embed's leaf fields
 // between Go names and physical columns). The FK column referencing the root is
 // declared via FK; it is injected by the persister and is not a struct field.
-func AddressSchema() *fwinfra.TableSchema {
-	return fwinfra.NewTableSchema[appdomain.Address]("addresses").
+func AddressSchema() *core.TableSchema {
+	return core.NewTableSchema[appdomain.Address]("addresses").
 		PK("id").
 		FK("user_id").
 		Field("Label", "label").

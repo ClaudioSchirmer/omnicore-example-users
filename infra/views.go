@@ -1,8 +1,6 @@
 package infra
 
-import (
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
-)
+import "github.com/ClaudioSchirmer/omnicore/infra/db/query"
 
 // UserView is the read-side projection of the User aggregate for MongoDB.
 //
@@ -16,7 +14,7 @@ import (
 // the root and AddressSchema() for the embed source. The composer writes
 // physical columns (mail/zip_code/...) to Mongo; the reader translates each leaf
 // back to its Go field name (Email/ZipCode/...) using these schemas, so the wire
-// surface speaks Go names while Mongo mirrors PostgreSQL physically. The view
+// surface speaks Go names while Mongo mirrors the relational backend physically. The view
 // also honors the schema's soft-delete column when DeleteOnArchive is set.
 //
 // On ARCHIVED/DELETED events the doc is removed; on UNARCHIVED it is
@@ -32,15 +30,15 @@ import (
 // idempotent on steady state, strict on divergence.
 //
 // Called exactly once per process via bootstrap.NewUsersFeature.
-func UserView() *fwinfra.ViewDefinition {
-	return fwinfra.View("users").
+func UserView() *query.ViewDefinition {
+	return query.View("users").
 		Version(1).
 		Root("users").
 		Schema(UserSchema()).
-		EmbedMany("addresses", fwinfra.FromSchema(AddressSchema())).
+		EmbedMany("addresses", query.FromSchema(AddressSchema())).
 		Indexes(
-			fwinfra.Index("email"),
-			fwinfra.Index("created_at").Desc(),
-			fwinfra.TextIndex("name", "email").DefaultLanguage("english"),
+			query.Index("email"),
+			query.Index("created_at").Desc(),
+			query.TextIndex("name", "email").DefaultLanguage("english"),
 		)
 }

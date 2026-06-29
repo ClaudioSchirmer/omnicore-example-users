@@ -6,7 +6,7 @@ import (
 	fwresults "github.com/ClaudioSchirmer/omnicore/application/results"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/domain"
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/commands"
@@ -39,7 +39,7 @@ func MountUsersGraphQL(
 	reg *fwgraphql.Registry,
 	repo persistence.ScopedRepository[*appdomain.User],
 	svc domain.Service,
-	view *fwinfra.ViewDefinition,
+	view *query.ViewDefinition,
 	d bootstrap.Deps,
 ) {
 	// READ → QueryWithParams `users(where, first, after, orderBy, …)` → Relay connection.

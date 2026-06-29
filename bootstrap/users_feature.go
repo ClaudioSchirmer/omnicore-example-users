@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 
 	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/infra"
@@ -26,24 +26,27 @@ import (
 type UsersFeature struct {
 	repo *appinfra.UserRepository
 	svc  *appinfra.UserService
-	view *fwinfra.ViewDefinition
+	view *query.ViewDefinition
 }
 
 // NewUsersFeature builds the feature's singletons exactly once: the
-// repository over the shared Postgres, the service (same pool), and the
-// declarative view. UserView() is called here — the service's single call
-// site.
+// repository over the shared relational engine, the service (same engine),
+// and the declarative view. UserView() is called here — the service's single
+// call site.
 func NewUsersFeature(d bootstrap.Deps) *UsersFeature {
+	// repo + svc are backend-neutral: they take the relational engine
+	// (Deps.DB) directly, so swapping the SQL backend is a YAML dialect change
+	// with no edit here.
 	return &UsersFeature{
-		repo: appinfra.NewUserRepository(d.Postgres),
-		svc:  appinfra.NewUserService(d.Postgres),
+		repo: appinfra.NewUserRepository(d.DB),
+		svc:  appinfra.NewUserService(d.DB),
 		view: appinfra.UserView(),
 	}
 }
 
 // Views satisfies bootstrap.ReadableFeature.
-func (f *UsersFeature) Views() []*fwinfra.ViewDefinition {
-	return []*fwinfra.ViewDefinition{f.view}
+func (f *UsersFeature) Views() []*query.ViewDefinition {
+	return []*query.ViewDefinition{f.view}
 }
 
 // Mount satisfies bootstrap.Feature — delegates HTTP registration to the

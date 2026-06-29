@@ -12,8 +12,8 @@ import (
 // Phone is *string because the users.phone column is nullable. Convention:
 // nil → NULL in the DB; *"" also becomes NULL (the handler/command normalizes
 // empty to nil at the boundary). This form fits directly with the
-// AggregateLoader auto-scan: pgx populates *string from NULL as nil with no
-// extra conversion.
+// AggregateLoader auto-scan: it populates *string from NULL as nil with no
+// extra conversion, on any backend.
 type User struct {
 	domain.AggregateRoot
 	// labelKey:"..." declares the catalog key for the human-readable name of each
