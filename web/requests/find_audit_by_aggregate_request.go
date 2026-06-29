@@ -1,7 +1,7 @@
 package requests
 
 import (
-	"github.com/ClaudioSchirmer/omnicore/infra/audit"
+	"github.com/ClaudioSchirmer/omnicore/application/audit"
 	"github.com/google/uuid"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/queries"

@@ -1,10 +1,10 @@
 package web
 
 import (
+	"github.com/ClaudioSchirmer/omnicore/application/audit"
 	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
-	"github.com/ClaudioSchirmer/omnicore/infra/audit"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/command/read"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"

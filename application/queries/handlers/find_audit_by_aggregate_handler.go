@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"github.com/ClaudioSchirmer/omnicore/application/audit"
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
-	"github.com/ClaudioSchirmer/omnicore/infra/audit"
 
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
 )
