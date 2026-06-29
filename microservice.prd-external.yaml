@@ -3,7 +3,8 @@ service: omnicore-example-users
 http:
   addr: "${HTTP_ADDR::8080}"
 
-postgres:
+relational:
+  dialect: postgres
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
 
 mongo:

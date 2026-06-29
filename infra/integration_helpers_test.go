@@ -59,7 +59,7 @@ func newTestEngine(t *testing.T) (core.RelationalEngine, func()) {
 	}
 }
 
-// configuredDialect reads database.dialect from the service YAML the same way
+// configuredDialect reads relational.dialect from the service YAML the same way
 // the service does, so the test follows the project's configuration.
 func configuredDialect(t *testing.T) string {
 	t.Helper()
@@ -72,7 +72,7 @@ func configuredDialect(t *testing.T) string {
 	if err != nil {
 		t.Skipf("cannot load service config %s: %v", path, err)
 	}
-	return cfg.Database.Dialect
+	return cfg.Relational.Dialect
 }
 
 // moduleRoot walks up from the test's working directory to the directory that

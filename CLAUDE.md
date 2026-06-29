@@ -342,7 +342,7 @@ All embed `domain.DomainNotificationBase`. Translated in `application/translatio
 
 ## Infra
 
-**Database-agnostic.** The persistence layer names no specific relational backend. Repositories, the service, and every Go test take the neutral `core.RelationalEngine` (`Deps.DB`) and run SQL through its `Querier`/`Dialect`; the backend is chosen once by `database.dialect` in the YAML. Swapping it is a config change — no edit in `infra/`, `application/`, `web/`, or the tests. The only places that name a concrete backend are the YAML config (`microservice.*.yaml`, `devops/docker-compose.yml`) and the `qa/*.sh` E2E scripts that inspect the running container.
+**Database-agnostic.** The persistence layer names no specific relational backend. Repositories, the service, and every Go test take the neutral `core.RelationalEngine` (`Deps.DB`) and run SQL through its `Querier`/`Dialect`; the backend is chosen once by `relational.dialect` in the YAML. Swapping it is a config change — no edit in `infra/`, `application/`, `web/`, or the tests. The only places that name a concrete backend are the YAML config (`microservice.*.yaml`, `devops/docker-compose.yml`) and the `qa/*.sh` E2E scripts that inspect the running container.
 
 ### UserRepository (`infra/user_repository.go`)
 
@@ -821,7 +821,8 @@ http:
   addr: "${HTTP_ADDR::8080}"
   requestTimeoutSeconds: 30   # inbound request deadline; unset would also default to 30, 0 disables
 
-postgres:
+relational:
+  dialect: postgres   # postgres | mysql — MANDATORY (no default; absence aborts boot)
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
 
 mongo:
