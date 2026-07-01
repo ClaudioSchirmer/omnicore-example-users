@@ -59,14 +59,14 @@ func MountUsers(
 	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
 		requests.InsertUserRequest{},
 		requests.InsertUserResponse{}.FromResult,
-		&handlers.InsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
+		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
 			Repo: repo, Service: svc,
 		}, fiber.StatusCreated)
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPost, "/",
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Create a user",
-			Description: "Inserts a user with optional addresses as aggregate children. Validates root fields and each address through `BuildRules`; the `users_email_active_idx` unique partial index translates duplicates to 409 `EmailAlreadyExistsNotification`. Emits a single outbox row covering the aggregate snapshot — Debezium routes it to `users.events` and the SyncEngine projects the document to Mongo asynchronously (~100-300ms).",
+			Description: "Creates a user backed by the shared Person identity (SharedBase). Because the person is deduplicated by `document` (the natural key), this POST is an UPSERT: the framework loads any existing person by document first, then the command applies the request on top — so a new person+user is created, or an existing person gains its user (its shared fields updated last-write-wins, its addresses deduped). Re-POSTing the same document for a person who already has an ACTIVE user returns 409 `EntityAlreadyAddedNotification`; if that user was archived, it is revived. The notification flags persist to the `user_configurations` sibling table. Emits the aggregate outbox row plus a person-base event the SyncEngine fans out; the Mongo document lands asynchronously (~100-300ms).",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:write"))
@@ -81,7 +81,7 @@ func MountUsers(
 		updateH, updateSpec,
 		fwopenapi.Doc{
 			Summary:     "Replace a user (full body)",
-			Description: "Full replacement. Body is strict — the `FullBody` marker rejects requests missing any exported field with 400 `RequiredFieldNotification`. The `addresses` slice replaces the entire child collection atomically: items present in the previous aggregate but absent here become `REMOVED`; new ones become `ADDED`. The `EmailCannotChangeNotification` domain rule blocks email rename — attempting to change it returns 422.",
+			Description: "Full replacement. Body is strict — the `FullBody` marker rejects requests missing any exported field with 400 `RequiredFieldNotification`. The shared Person fields (name/email/phone) are updated last-write-wins on the base; `userName` updates the role; the notification flags upsert (or, sent null in a PUT, clear) the `user_configurations` sibling. The `addresses` slice replaces the person's address collection atomically: items present before but absent here become `REMOVED`; new ones `ADDED`. `document` is the immutable natural key and is not part of the body; the `DocumentCannotChangeNotification` rule guards any attempt to change it (422).",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:write"))
@@ -110,7 +110,7 @@ func MountUsers(
 		deleteH, deleteSpec,
 		fwopenapi.Doc{
 			Summary:     "Hard-delete a user",
-			Description: "Hard delete — irreversible. Removes the user row and cascades to addresses via FK `ON DELETE CASCADE`. Emits a `DELETED` outbox event; the SyncEngine drops the Mongo document unconditionally (regardless of the view's `DeleteOnArchive` flag — that opt-in only governs ARCHIVED). For reversible removal, use `/archive` instead.",
+			Description: "Hard delete — irreversible. Removes the user (role) row; the framework then reference-counts the shared Person: with no remaining user referencing it, `OrphanPolicy(DeleteWhenUnreferenced)` hard-deletes the person and its addresses too — explicitly in Go, same TX (the FK `ON DELETE CASCADE` is only a safety net). Emits a `DELETED` outbox event; the SyncEngine drops the Mongo document unconditionally (regardless of the view's `DeleteOnArchive` flag — that opt-in only governs ARCHIVED). For reversible removal, use `/archive` instead.",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:delete"))

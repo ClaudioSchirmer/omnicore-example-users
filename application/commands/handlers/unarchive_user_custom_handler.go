@@ -9,14 +9,14 @@ import (
 )
 
 // UnarchiveUserCustomCommandHandler restores a soft-deleted user. The lookup goes through
-// FindArchivedByEmail because the canonical FindByEmail filters
+// FindArchivedByDocument because the canonical FindByDocument filters
 // deleted_at IS NULL — an archived row would surface as NotFound. Hydrating
 // the archived aggregate (children included) before dispatch is what allows
 // the framework's aggregate persister to cascade the unarchive to the
 // addresses; without the children loaded, AllAggregateItems() returns
 // nothing and the cascade SQL has no typeNames to iterate.
 //
-// cmd.ApplyTo runs AFTER FindArchivedByEmail and BEFORE GetUnarchivable —
+// cmd.ApplyTo runs AFTER FindArchivedByDocument and BEFORE GetUnarchivable —
 // same seam for ctx → authz translation the framework's
 // UnarchiveCommandHandler exposes on the canonical surface.
 //
@@ -32,7 +32,7 @@ func (h *UnarchiveUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.UnarchiveUserCustomCommand,
 ) (fwresults.None, error) {
 	repo := h.Repo.Scope(ctx)
-	user, err := repo.FindArchivedByEmail(cmd.EmailKey)
+	user, err := repo.FindArchivedByDocument(cmd.DocumentKey)
 	if err != nil {
 		return fwresults.None{}, err
 	}

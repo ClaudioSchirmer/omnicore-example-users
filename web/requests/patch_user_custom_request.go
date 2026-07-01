@@ -3,25 +3,34 @@ package requests
 import "github.com/ClaudioSchirmer/omnicore-example-users/application/commands"
 
 // PatchUserCustomRequest is the wire shape of
-// PATCH /showcase/users-custom/:email. Mirrors PatchUserCustomCommand 1:1.
+// PATCH /showcase/users-custom/:document. Mirrors PatchUserCustomCommand 1:1.
 //
-// Email carries no `json` tag — its value comes from the URL segment via
-// `path:"email"`. Same rationale documented on UpdateUserCustomRequest:
-// the /:email segment is the identifier, not a body data field. Address
-// operations are NOT patchable here; use PUT to replace the collection.
+// Document carries no `json` tag — its value comes from the URL segment via
+// `path:"document"`. Same rationale documented on UpdateUserCustomRequest:
+// the /:document segment is the immutable identifier, not a body data field.
+// Email IS patchable here (a plain mutable shared field). Address operations
+// are NOT patchable here; use PUT to replace the collection.
 type PatchUserCustomRequest struct {
-	Email string  `path:"email"`
-	Name  *string `json:"name,omitempty"  example:"Alice Pereira"`
-	Phone *string `json:"phone,omitempty" example:"14155552671"`
+	Document          string  `path:"document"`
+	Name              *string `json:"name,omitempty"              example:"Alice Pereira"`
+	Email             *string `json:"email,omitempty"             example:"alice@example.com"`
+	Phone             *string `json:"phone,omitempty"             example:"14155552671"`
+	UserName          *string `json:"userName,omitempty"          example:"alice"`
+	EmailNotification *bool   `json:"emailNotification,omitempty" example:"true"`
+	SmsNotification   *bool   `json:"smsNotification,omitempty"   example:"false"`
 }
 
-// ToCommand converts the Request DTO into the Command. EmailKey comes from
-// req.Email — populated by fwweb.BindPath from the /:email URL segment
+// ToCommand converts the Request DTO into the Command. DocumentKey comes from
+// req.Document — populated by fwweb.BindPath from the /:document URL segment
 // before c.Bind().Body().
 func (r PatchUserCustomRequest) ToCommand() *commands.PatchUserCustomCommand {
 	return &commands.PatchUserCustomCommand{
-		EmailKey: r.Email,
-		Name:     r.Name,
-		Phone:    r.Phone,
+		DocumentKey:       r.Document,
+		Name:              r.Name,
+		Email:             r.Email,
+		Phone:             r.Phone,
+		UserName:          r.UserName,
+		EmailNotification: r.EmailNotification,
+		SmsNotification:   r.SmsNotification,
 	}
 }

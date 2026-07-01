@@ -5,21 +5,26 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/commands"
+	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
 
 // InsertUserCustomCommandHandler is the manual counterpart to the framework's
-// generic InsertCommandHandler. Same lifecycle the Auto handler performs,
-// written out so a reader can trace each step: hydrate entity from Command →
-// run domain validation via GetInsertable → bind the request scope via
-// repo := h.Repo.Scope(ctx) and Insert through the pure domain.Writer →
-// propagate the assigned ID back onto the entity → project to
-// commands.UserCustomResult so the wire layer receives an application-layer
-// DTO instead of the raw domain entity.
+// generic SharedBaseInsertCommandHandler — the User is SharedBase-backed, so a
+// POST is an UPSERT. Same lifecycle the Auto handler performs, written out so a
+// reader can trace each step:
 //
-// The projection step (cmd.FromEntity) is the manual analogue of the
-// framework's Auto handler Cmd-side projection: it decouples the wire
-// response shape from the domain entity shape so renames or new domain
-// fields don't leak straight into the HTTP contract.
+//  1. Apply the request onto a throwaway entity to read the natural key
+//     (Document) — cmd.ApplyTo is a pure mapper, so this is free.
+//  2. Load the existing shared Person identity by that key — its shared fields
+//     plus its addresses as Constructor items (existed=false → cold insert).
+//  3. On a warm upsert, apply the request again onto the loaded identity (so
+//     u.AddAddress dedups the request's addresses against the loaded ones) and
+//     switch the actionName to "GetUpsertable" — the framework's persister
+//     guard refuses a blind insert against a pre-existing identity, and
+//     BuildRules can branch on the path.
+//  4. Validate via GetInsertable → bind the request scope and Insert through the
+//     pure domain.Writer → propagate the assigned ID → project to
+//     commands.UserCustomResult.
 //
 // In-TX side effects would land as persistence.WriteOption[*User] options on
 // the Repo.Scope(ctx, opts...) call — same surface the Auto handler reaches via
@@ -32,12 +37,29 @@ type InsertUserCustomCommandHandler struct {
 func (h *InsertUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.InsertUserCustomCommand,
 ) (commands.UserCustomResult, error) {
-	user, err := cmd.ToEntity(ctx)
+	// Step 1 — read the natural key off a throwaway entity.
+	fresh := &appdomain.User{}
+	if err := cmd.ApplyTo(ctx, fresh); err != nil {
+		return commands.UserCustomResult{}, err
+	}
+
+	// Step 2 — load the existing shared identity by the natural key.
+	user, existed, err := h.Repo.LoadForSharedBaseInsert(ctx, fresh)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}
 
-	insertable, err := domain.GetInsertable(user, h.Service, "GetInsertable")
+	// Step 3 — warm upsert: re-apply onto the loaded identity, flip the action.
+	action := "GetInsertable"
+	if existed {
+		if err := cmd.ApplyTo(ctx, user); err != nil {
+			return commands.UserCustomResult{}, err
+		}
+		action = "GetUpsertable"
+	}
+
+	// Step 4 — validate, persist, project.
+	insertable, err := domain.GetInsertable(user, h.Service, action)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}

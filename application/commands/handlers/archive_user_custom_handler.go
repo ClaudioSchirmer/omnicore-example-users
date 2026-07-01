@@ -10,7 +10,7 @@ import (
 
 // ArchiveUserCustomCommandHandler is the manual soft-delete handler. State transition,
 // not field mutation — there is no apply closure; cmd.ApplyTo lands AFTER
-// FindByEmail and BEFORE GetArchivable as the seam for future ctx → authz
+// FindByDocument and BEFORE GetArchivable as the seam for future ctx → authz
 // translation, then GetArchivable snapshots the entity (so audit logs
 // `previous`) and validates that ModeArchive is declared. Orchestrator.Archive
 // cascades to addresses transparently because *User implements
@@ -31,7 +31,7 @@ func (h *ArchiveUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.ArchiveUserCustomCommand,
 ) (fwresults.None, error) {
 	repo := h.Repo.Scope(ctx)
-	user, err := repo.FindByEmail(cmd.EmailKey)
+	user, err := repo.FindByDocument(cmd.DocumentKey)
 	if err != nil {
 		return fwresults.None{}, err
 	}

@@ -268,11 +268,11 @@ assert_log_not_contains() {
 }
 
 post_user() {
-  local name="$1" email="$2"
+  local name="$1" email="$2" document="$3"
   curl -sS -X POST "$BASE/users" \
     -H "Content-Type: application/json" \
     -H "Accept-Language: en-US" \
-    --data "{\"name\":\"$name\",\"email\":\"$email\",\"phone\":\"14155552671\",\"addresses\":[]}" \
+    --data "{\"name\":\"$name\",\"email\":\"$email\",\"phone\":\"14155552671\",\"document\":\"$document\",\"userName\":\"$document\",\"addresses\":[]}" \
     -o /dev/null -w "%{http_code}"
 }
 
@@ -428,9 +428,9 @@ assert_eq "omnicore_mongo_views.version" "1" "$version"
 
 sec "Phase 2 — POST 3 users + CDC propagation"
 
-s1=$(post_user "Alice Smith" "alice.scm@example.test")
-s2=$(post_user "Bob Jones"   "bob.scm@example.test")
-s3=$(post_user "Carol Diaz"  "carol.scm@example.test")
+s1=$(post_user "Alice Smith" "alice.scm@example.test" "10000000201")
+s2=$(post_user "Bob Jones"   "bob.scm@example.test"   "10000000202")
+s3=$(post_user "Carol Diaz"  "carol.scm@example.test" "10000000203")
 assert_eq "POST user1 status" "201" "$s1"
 assert_eq "POST user2 status" "201" "$s2"
 assert_eq "POST user3 status" "201" "$s3"

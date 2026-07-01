@@ -12,51 +12,72 @@ import (
 // ─── INPUT ──────────────────────────────────────────────────────────────────
 
 // InsertUserCommand is the application-layer vocabulary for the "create User"
-// use case. No JSON tags (wire format lives in web/requests/InsertUserRequest);
-// types mirror the Request 1:1.
+// use case. The User is backed by a SharedBase (the Person identity), so the
+// POST is an UPSERT: the framework loads the existing identity by the natural
+// key (Document) first, then the command applies the request on top. That is
+// why this command declares ApplyTo (mutate the loaded-or-fresh entity), NOT
+// ToEntity — it satisfies pipeline.SharedBaseInsertCommand, consumed by the
+// SharedBaseInsertCommandHandler. No JSON tags (wire format lives in
+// web/requests/InsertUserRequest); types mirror the Request 1:1.
 type InsertUserCommand struct {
 	pipeline.CommandBase
-	Name      string
-	Email     string
-	Phone     *string
-	Addresses []dtos.AddressInput
+	Name              string
+	Email             string
+	Phone             *string
+	Document          string
+	UserName          string
+	EmailNotification *bool
+	SmsNotification   *bool
+	Addresses         []dtos.AddressInput
 }
 
-// ToEntity receives *AppContext so the command can translate identity-derived
-// claims (JWT subject, tenant id, custom claims) into business-named fields on
-// the entity. Today this showcase doesn't consume ctx — the framework wires
-// the parameter so a future authz field on User would be populated here
-// without touching the handler/wrapper signatures.
-func (c InsertUserCommand) ToEntity(_ *configuration.AppContext) (*appdomain.User, error) {
-	u := &appdomain.User{
-		Name:  c.Name,
-		Email: c.Email,
-		Phone: c.Phone,
-	}
+// ApplyTo mutates the entity the handler supplies. On a COLD insert that entity
+// is fresh; on a WARM upsert (the person already exists) it arrives loaded with
+// the shared fields and the person's existing addresses as Constructor items —
+// so u.AddAddress dedups the request's addresses against them and the infra
+// never inserts a duplicate. ApplyTo MUST be a pure mapper (the framework also
+// calls it once on a throwaway entity to read the natural key), which it is:
+// it only copies request fields and delegates to domain methods.
+//
+// Receives *AppContext so a future authz field on User could be populated from
+// identity-derived claims without touching the handler/wrapper signatures.
+func (c InsertUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
+	u.Name = c.Name
+	u.Email = c.Email
+	u.Phone = c.Phone
+	u.Document = c.Document
+	u.UserName = c.UserName
+	u.EmailNotification = c.EmailNotification
+	u.SmsNotification = c.SmsNotification
 	// Command speaks domain vocabulary to the root, not the framework's typed
-	// primitives. User.AddAddress runs aggregate-spanning invariants
-	// (duplicate detection) and delegates to AddAggregateChild (which enforces
-	// the type-guard via AggregateChildren()).
+	// primitives. User.AddAddress runs aggregate-spanning invariants (duplicate
+	// detection against the loaded base children, on a warm upsert) and
+	// delegates to AddAggregateChild (which enforces the type-guard via
+	// AggregateChildren()).
 	for _, a := range c.Addresses {
 		u.AddAddress(a.ToAddress(), nil)
 	}
-	return u, nil
+	return nil
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
-// FromEntity is the symmetric inverse of ToEntity — Entity → Result. Lives on
+// FromEntity is the symmetric inverse of ApplyTo — Entity → Result. Lives on
 // the Command (not on Result) so both boundaries of the use case sit side by
-// side under the Cmd's surface. Receives ctx for symmetry with ToEntity; a
+// side under the Cmd's surface. Receives ctx for symmetry with ApplyTo; a
 // future authz overlay (project only fields the requesting principal is
 // allowed to see) would consume it here. The framework calls this AFTER
 // orchestrator.Insert + SetID.
 func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (InsertUserResult, error) {
 	return InsertUserResult{
-		ID:    *u.GetID(),
-		Name:  u.Name,
-		Email: u.Email,
-		Phone: u.Phone,
+		ID:                *u.GetID(),
+		Name:              u.Name,
+		Email:             u.Email,
+		Phone:             u.Phone,
+		Document:          u.Document,
+		UserName:          u.UserName,
+		EmailNotification: u.EmailNotification,
+		SmsNotification:   u.SmsNotification,
 	}, nil
 }
 
@@ -65,10 +86,14 @@ func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.
 // via InsertUserResponse.FromResult (also pure data mapping). Result stays in
 // application/ (no JSON tags); Response stays in web/ (with JSON tags).
 type InsertUserResult struct {
-	ID    domain.ID
-	Name  string
-	Email string
-	Phone *string
+	ID                domain.ID
+	Name              string
+	Email             string
+	Phone             *string
+	Document          string
+	UserName          string
+	EmailNotification *bool
+	SmsNotification   *bool
 }
 
 // ─── LIFECYCLE HOOKS — FICTITIOUS EXAMPLE ───────────────────────────────────

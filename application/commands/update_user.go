@@ -16,12 +16,18 @@ import (
 // so ApplyTo replaces root fields and the full address collection.
 //
 // No JSON tags; shape mirrors UpdateUserRequest 1:1.
+// Document is absent: it is the shared identity's immutable natural key, so the
+// PUT surface does not accept it (User.BuildRules also rejects a change as a
+// safety net).
 type UpdateUserCommand struct {
 	pipeline.CommandBaseWithID
-	Name      string
-	Email     string
-	Phone     *string
-	Addresses []dtos.AddressInput
+	Name              string
+	Email             string
+	Phone             *string
+	UserName          string
+	EmailNotification *bool
+	SmsNotification   *bool
+	Addresses         []dtos.AddressInput
 }
 
 // ApplyTo receives *AppContext alongside the loaded entity. Today the
@@ -32,6 +38,9 @@ func (c UpdateUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.Use
 	u.Name = c.Name
 	u.Email = c.Email
 	u.Phone = c.Phone
+	u.UserName = c.UserName
+	u.EmailNotification = c.EmailNotification
+	u.SmsNotification = c.SmsNotification
 
 	// Command speaks domain vocabulary to the root. ReplaceAddresses delegates
 	// to ReplaceAggregateChildrenOf (which type-guards each item) — commands
@@ -51,10 +60,14 @@ func (c UpdateUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.Use
 // gives access to whatever cmd-side data the projection needs.
 func (c UpdateUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (UpdateUserResult, error) {
 	return UpdateUserResult{
-		ID:    *u.GetID(),
-		Name:  u.Name,
-		Email: u.Email,
-		Phone: u.Phone,
+		ID:                *u.GetID(),
+		Name:              u.Name,
+		Email:             u.Email,
+		Phone:             u.Phone,
+		Document:          u.Document,
+		UserName:          u.UserName,
+		EmailNotification: u.EmailNotification,
+		SmsNotification:   u.SmsNotification,
 	}, nil
 }
 
@@ -62,8 +75,12 @@ func (c UpdateUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.
 // PUT completes. Pure data shape — no methods. The wire layer maps this to
 // JSON via UpdateUserResponse.FromResult.
 type UpdateUserResult struct {
-	ID    domain.ID
-	Name  string
-	Email string
-	Phone *string
+	ID                domain.ID
+	Name              string
+	Email             string
+	Phone             *string
+	Document          string
+	UserName          string
+	EmailNotification *bool
+	SmsNotification   *bool
 }

@@ -8,20 +8,20 @@ import (
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
 )
 
-// FindAddressByEmailAndIDQueryHandler is the manual showcase twin of
+// FindAddressByDocumentAndIDQueryHandler is the manual showcase twin of
 // FindAddressByIDQueryHandler. Same projection — one address sub-document —
-// reached via the email-keyed lookup the manual showcase uses on the read
-// side. ReadPage with Filter[email]+Limit:1, walks the embedded addresses[],
+// reached via the document-keyed lookup the manual showcase uses on the read
+// side. ReadPage with Filter[Document]+Limit:1, walks the embedded addresses[],
 // returns the matching entry or a canonical 404 — User context when the
 // parent is absent, Address context when the parent is present but the
 // address id is not in the embedded array.
-type FindAddressByEmailAndIDQueryHandler struct {
+type FindAddressByDocumentAndIDQueryHandler struct {
 	Reader queries.ViewReader
 	View   string
 }
 
-func (h *FindAddressByEmailAndIDQueryHandler) Handle(
-	ctx *configuration.AppContext, q *appqueries.FindAddressByEmailAndIDQuery,
+func (h *FindAddressByDocumentAndIDQueryHandler) Handle(
+	ctx *configuration.AppContext, q *appqueries.FindAddressByDocumentAndIDQuery,
 ) (map[string]any, error) {
 	criteria, err := q.ToCriteria(ctx)
 	if err != nil {
@@ -47,7 +47,7 @@ func (h *FindAddressByEmailAndIDQueryHandler) Handle(
 		return nil, err
 	}
 	if len(page.Items) == 0 {
-		return nil, domain.NotFoundError("User", "email", q.Email)
+		return nil, domain.NotFoundError("User", "document", q.Document)
 	}
 	doc := page.Items[0]
 

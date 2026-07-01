@@ -6,7 +6,7 @@ func TestChangeAddressCustomRequest_ToCommand_HappyPath(t *testing.T) {
 	label := "office"
 	complement := "Suite 9"
 	r := ChangeAddressCustomRequest{
-		Email:        "alice@example.com",
+		Document:     "10000000001",
 		AddressID:    "addr-1",
 		Label:        &label,
 		Street:       "2 New Way",
@@ -21,8 +21,8 @@ func TestChangeAddressCustomRequest_ToCommand_HappyPath(t *testing.T) {
 
 	cmd := r.ToCommand()
 
-	if cmd.EmailKey != "alice@example.com" {
-		t.Errorf("EmailKey mismatch: got %q", cmd.EmailKey)
+	if cmd.DocumentKey != "10000000001" {
+		t.Errorf("DocumentKey mismatch: got %q", cmd.DocumentKey)
 	}
 	if cmd.AddressID != "addr-1" {
 		t.Errorf("AddressID mismatch: got %q", cmd.AddressID)

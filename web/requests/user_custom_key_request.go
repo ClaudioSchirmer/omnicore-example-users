@@ -2,9 +2,9 @@ package requests
 
 // UserCustomKeyRequest is the shared Request DTO for the bodyless verbs of
 // /showcase/users-custom/* — Archive, Unarchive, Delete. Each of the three
-// routes chains fwweb.BindPath(c, &req) to populate Email from the :email
-// URL segment, then assembles its specific *XxxUserCustomCommand inline
-// (the Command-side mapping is a one-liner: cmd.EmailKey = req.Email).
+// routes chains fwweb.BindPath(c, &req) to populate Document from the
+// :document URL segment, then assembles its specific *XxxUserCustomCommand
+// inline (the Command-side mapping is a one-liner: cmd.DocumentKey = req.Document).
 //
 // Shared rather than per-endpoint because the wire shape is identical
 // across the three verbs — the symmetric design choice to the response
@@ -18,7 +18,7 @@ package requests
 // exposes its identifier through a tagged struct field, so a reverse-
 // engineering pass (OpenAPI generator, client-codegen, contract diff tool)
 // can introspect the route's Request type via reflection and discover the
-// :email path parameter without having to grep the Fiber handler body.
+// :document path parameter without having to grep the Fiber handler body.
 type UserCustomKeyRequest struct {
-	Email string `path:"email"`
+	Document string `path:"document"`
 }

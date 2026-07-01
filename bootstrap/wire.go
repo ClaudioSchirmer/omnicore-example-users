@@ -41,9 +41,9 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 			NewAuditFeature(),
 		},
 		OpenAPI: &openapi.Config{
-			Title:       "OmniCore Example Users",
-			Version:     "0.1.0",
-			Description: "Reference microservice exercising every OmniCore feature: CRUD with addresses as an aggregate child, manual showcase, outbound HTTP showcases, and the auth identity demo.",
+			Title:            "OmniCore Example Users",
+			Version:          "0.1.0",
+			Description:      "Reference microservice exercising every OmniCore feature: CRUD with addresses as an aggregate child, manual showcase, outbound HTTP showcases, and the auth identity demo.",
 			LanguageSelector: true,
 		},
 		GraphQL: gql,

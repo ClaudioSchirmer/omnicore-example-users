@@ -240,6 +240,7 @@ sec "2. POST /users — happy path (multi-country)"
 title "2.1 Create Jane (US) — expected 201"
 BODY_A='{
   "name":"Jane Doe","email":"jane@example.com","phone":"14155552671",
+  "document":"10000000001","userName":"jane","emailNotification":true,"smsNotification":false,
   "addresses":[{
     "label":"home","street":"1 Infinite Loop","number":"1","complement":"apt 201",
     "neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"
@@ -262,6 +263,7 @@ if [ "$ST_A" = "201" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 title "2.2 Create Bob (UK) — will be used in conflict tests"
 BODY_B='{
   "name":"Bob Smith","email":"bob@example.com","phone":"442079460000",
+  "document":"10000000002","userName":"bob",
   "addresses":[{
     "label":"home","street":"10 Downing","number":"10",
     "neighborhood":"Westminster","city":"London","state":"England","zipCode":"SW1A 2AA","country":"GB"
@@ -283,6 +285,7 @@ if [ "$ST_B" = "201" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 title "2.3 Create Anna (DE) without phone (nullable)"
 BODY_C='{
   "name":"Anna Müller","email":"anna@example.com",
+  "document":"10000000003","userName":"anna",
   "addresses":[{
     "label":"home","street":"Unter den Linden","number":"1",
     "neighborhood":"Mitte","city":"Berlin","state":"Berlin","zipCode":"10117","country":"DE"
@@ -301,31 +304,36 @@ echo "USER_C_ID = $USER_C"
 if [ "$ST_C" = "201" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 
 ####################################
-sec "3. POST /users — Conflict notifications (409) + soft-delete reuse"
+sec "3. POST /users — SharedBase conflict (409) + archived-revive via document"
 ####################################
 
-show "3.1 EmailAlreadyExistsNotification (retry bob@example.com)" POST /users '{
-  "name":"Other","email":"bob@example.com","phone":"442079461111",
+# Identity is now the Person's `document` (natural key), not email. A POST whose
+# document already has an ACTIVE user is a 409 — the framework's SharedBase
+# matrix raises EntityAlreadyAddedNotification (email is just a shared field now,
+# freely reused). Retry Bob's document (10000000002) with different other fields.
+show "3.1 EntityAlreadyAddedNotification (retry Bob's document 10000000002, active user exists)" POST /users '{
+  "name":"Other","email":"other@example.com","phone":"442079461111",
+  "document":"10000000002","userName":"other",
   "addresses":[{"label":"home","street":"Other","number":"2","neighborhood":"X","city":"London","state":"England","zipCode":"SW1A 1AA","country":"GB"}]
 }' 409
 
-# 3.2 demonstrates that the unique index is soft-delete-aware
-# (`WHERE deleted_at IS NULL` in migration 0002): after archiving the record
-# that holds the email, a POST with the same email MUST be accepted (201)
-# because the previous value is logically deleted — the unique constraint is
-# reserved while the record is active, free again once it is archived.
-title "3.2 Soft-delete-aware uniqueness — archive USER_C, reuse of anna@example.com allowed"
-echo "Pre-step: PATCH USER_C/archive (then reuse the email)"
+# 3.2 demonstrates the archived-revive path: after archiving the user that holds
+# a document, a POST with the SAME document REVIVES the user (clears deleted_at,
+# last-write-wins on the shared fields) rather than conflicting — the second-row
+# is impossible because UNIQUE(person_id) is global.
+title "3.2 Archived-revive — archive USER_C (doc 10000000003), re-POST same document"
+echo "Pre-step: PATCH USER_C/archive"
 ARCH_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/users/$USER_C/archive" -H "Content-Type: application/json")
 echo "Archive USER_C status: $ARCH_STATUS"
-show "3.2 POST with the email of archived USER_C — expected 201" POST /users '{
-  "name":"Anna II","email":"anna@example.com","phone":"493012345678",
+show "3.2 POST with the document of archived USER_C — revives, expected 201" POST /users '{
+  "name":"Anna II","email":"anna.ii@example.com","phone":"493012345678",
+  "document":"10000000003","userName":"anna",
   "addresses":[{"label":"home","street":"Kurfürstendamm","number":"1","neighborhood":"Charlottenburg","city":"Berlin","state":"Berlin","zipCode":"10719","country":"DE"}]
 }' 201
-# Capture the new ID for later cleanup — USER_C is now archived and unreachable
-JSON_C2=$(curl -sS "$BASE/users?email=anna@example.com" 2>/dev/null || echo '{}')
+# The revived user keeps USER_C's id (same person, same role row). Create a
+# separate Anna III (new document) for the later DELETE case.
 USER_C2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
-  -d '{"name":"Anna III","email":"anna3@example.com","phone":"493012340000",
+  -d '{"name":"Anna III","email":"anna3@example.com","phone":"493012340000","document":"10000000033","userName":"anna3",
        "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"Y","city":"Berlin","state":"Berlin","zipCode":"10115","country":"DE"}]}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 echo "USER_C2 (Anna III, new for DELETE in 8.x) = $USER_C2"
@@ -538,7 +546,8 @@ sec "5. PUT /users/:id — strict (FullBody)"
 ####################################
 
 show "5.1 PUT happy (all fields)" PUT "/users/$USER_A" '{
-  "name":"Jane Doe (updated)","email":"jane@example.com","phone":"14155553333",
+  "name":"Jane Doe (updated)","email":"jane.updated@example.com","phone":"14155553333",
+  "userName":"jane","emailNotification":true,"smsNotification":true,
   "addresses":[{
     "label":"home","street":"New Address","number":"200",
     "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"
@@ -555,7 +564,7 @@ show "5.3 PUT without addresses (Phase 21: RequiredFieldNotification semantic Sc
 }' 400
 
 show "5.4 PUT /users/<nonexistent> (RecordNotFound)" PUT /users/00000000-0000-0000-0000-000000000000 '{
-  "name":"X","email":"x@x.com","phone":"14155553333",
+  "name":"X","email":"x@x.com","phone":"14155553333","userName":"x","emailNotification":false,"smsNotification":false,
   "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"SF","state":"CA","zipCode":"94103","country":"US"}]
 }' 404
 
@@ -578,18 +587,23 @@ show "6.3 PATCH empty body (noop, lenient)" PATCH "/users/$USER_A" '{}' 200
 
 show "6.4 PATCH with empty phone (Phase 21: *\"\" passes to domain, BuildRules tolerates)" PATCH "/users/$USER_A" '{"phone":""}' 200
 
-show "6.5 PATCH with Bob's duplicate email (Conflict 409)" PATCH "/users/$USER_A" '{"email":"bob@example.com"}' 409
+# Email is now a plain mutable shared Person field (no longer the identity and
+# no longer unique), so changing it — even to a value another user holds — is
+# accepted. Identity is the immutable `document`.
+show "6.5 PATCH email to Bob's email — now allowed (email not unique) → 200" PATCH "/users/$USER_A" '{"email":"bob@example.com"}' 200
+
+# Restore Jane's email — email is freely mutable both ways; restoring it keeps
+# jane@example.com stable for the later read/export assertions that pin it.
+show "6.5b PATCH email back to jane@example.com (still mutable) → 200" PATCH "/users/$USER_A" '{"email":"jane@example.com"}' 200
 
 show "6.6 PATCH invalid email (Validation 422)" PATCH "/users/$USER_A" '{"email":"not-an-email"}' 422
 
 show "6.7 PATCH /users/<nonexistent> (RecordNotFound)" PATCH /users/00000000-0000-0000-0000-000000000000 '{"name":"X"}' 404
 
-# 6.8 demonstrates the transition-aware invariant powered by domain.Old[*User]:
-# a PATCH whose new email is valid AND unused must still be rejected because
-# email is immutable once the user is created. The chosen email is a brand-new
-# address that no other user holds — so the rejection is purely the
-# EmailCannotChangeNotification (422 Validation), not EmailAlreadyExists (409).
-show "6.8 PATCH with valid unused email (immutable rule via domain.Old → 422)" PATCH "/users/$USER_A" '{"email":"jane.new@example.com"}' 422
+# 6.8 exercises the user_configurations SIBLING: a PATCH of the notification
+# flags upserts the 1:1 sibling row (shared PK with users). Materialization is
+# conditional — sending at least one flag creates/updates the row.
+show "6.8 PATCH notification flags — upserts the user_configurations sibling → 200" PATCH "/users/$USER_A" '{"emailNotification":false,"smsNotification":true}' 200
 
 ####################################
 sec "7. PATCH /users/:id/archive  and  /:id/unarchive — aggregate-aware"
@@ -597,15 +611,15 @@ sec "7. PATCH /users/:id/archive  and  /:id/unarchive — aggregate-aware"
 
 show "7.1 Archive (empty body accepted)" PATCH "/users/$USER_A/archive" "" 200
 
-title "7.1.b $BACKEND: Jane's addresses cascaded (deleted_at NOT NULL)"
-qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NOT NULL AS archived FROM addresses WHERE user_id=$(qa_uuid_lit "$USER_A");"
+title "7.1.b $BACKEND: Jane's addresses cascaded (deleted_at NOT NULL) — addresses are the person's (FK person_id), archived via convergeBase"
+qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NOT NULL AS archived FROM addresses WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
 
 show "7.2 Re-archive already archived (expected 404 — FindByID filters deleted_at NULL)" PATCH "/users/$USER_A/archive" "" 404
 
 show "7.3 Unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 200
 
-title "7.3.b $BACKEND: addresses are back (deleted_at NULL)"
-qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NULL AS active FROM addresses WHERE user_id=$(qa_uuid_lit "$USER_A");"
+title "7.3.b $BACKEND: addresses are back (deleted_at NULL) — convergeBase reactivated base + base-children"
+qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NULL AS active FROM addresses WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
 
 show "7.4 Unarchive on an active record (expected 404 — FindArchivedByID only sees deleted ones)" PATCH "/users/$USER_A/unarchive" "" 404
 
@@ -619,8 +633,9 @@ show "8.1 DELETE USER_C2 (Anna III) — expected 204" DELETE "/users/$USER_C2" "
 
 show "8.2 DELETE again (RecordNotFound)" DELETE "/users/$USER_C2" "" 404
 
-title "8.3 $BACKEND: ON DELETE cascade removed USER_C2's addresses"
-qa_db_query "SELECT COUNT(*) AS leftover_addresses FROM addresses WHERE user_id=$(qa_uuid_lit "$USER_C2");"
+title "8.3 $BACKEND: refcount removed the orphan person (doc 10000000033) + its addresses"
+qa_db_query "SELECT COUNT(*) AS leftover_persons FROM persons WHERE document='10000000033';"
+qa_db_query "SELECT COUNT(*) AS leftover_addresses FROM addresses a JOIN persons p ON a.person_id=p.id WHERE p.document='10000000033';"
 
 ####################################
 sec "9. Read side (Mongo) — re-check view after PATCH/Archive/Unarchive"
@@ -638,6 +653,74 @@ show "9.1 GET /users/USER_A (with PATCHes already applied via CDC)" GET "/users/
 show "9.2 GET /users (listing with default pagination)" GET /users "" 200
 
 ####################################
+sec "9.5 SharedBase partition — the flat User spread across four tables"
+####################################
+# The flat User entity is partitioned by infra/schema.go: shared Person fields
+# (document/name/email/phone + addresses) in persons/addresses, the role-private
+# field (user_name) in users, the notification prefs in the user_configurations
+# SIBLING (1:1, shared PK). Bob (document 10000000002, active since 2.2) probes it.
+
+title "9.5.a persons row exists for Bob (document is the natural key; id = UUIDv5(document))"
+qa_db_query "SELECT document, name FROM persons WHERE document='10000000002';"
+
+title "9.5.b users (role) row links to Bob's person via person_id, carries user_name"
+qa_db_query "SELECT user_name FROM users WHERE person_id=(SELECT id FROM persons WHERE document='10000000002');"
+
+title "9.5.c addresses are the person's (FK person_id), shared by every role of that person"
+qa_db_query "SELECT COUNT(*) AS person_addresses FROM addresses WHERE person_id=(SELECT id FROM persons WHERE document='10000000002');"
+
+title "9.5.d user_configurations sibling — Bob set no flags at create, so the row is NOT materialized (expect 0)"
+qa_db_query "SELECT COUNT(*) AS sibling_rows FROM user_configurations WHERE id=$(qa_uuid_lit "$USER_B");"
+
+show "9.5.e PATCH Bob's notification flags — materializes the user_configurations sibling (200)" PATCH "/users/$USER_B" '{"emailNotification":true,"smsNotification":false}' 200
+
+title "9.5.f user_configurations sibling now materialized for Bob (expect 1 row, email=t sms=f)"
+qa_db_query "SELECT email_notification, sms_notification FROM user_configurations WHERE id=$(qa_uuid_lit "$USER_B");"
+
+####################################
+sec "9.7 Golden record — 100% field-by-field read coverage (REST/JSON · GraphQL · CSV · XLSX)"
+####################################
+# One record with EVERY field populated (all shared Person fields + the role's
+# userName + both notification flags + two addresses — the 2nd omitting the
+# nullable label/complement) is created once, then EVERY read surface is asserted
+# field-by-field against the same expected values, proving write→read is 100%
+# synchronized on each surface and that no field is silently dropped.
+GDIR="$(dirname "$0")"
+GOLD_DOC="10000000500"
+GOLD_BODY='{"name":"Golden Record","email":"golden@example.com","phone":"15551234567","document":"'"$GOLD_DOC"'","userName":"golden","emailNotification":true,"smsNotification":false,"addresses":[{"label":"home","street":"1 Golden Way","number":"10","complement":"Suite 5","neighborhood":"Downtown","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"},{"street":"2 Silver Rd","number":"20","neighborhood":"Uptown","city":"Gotham","state":"NJ","zipCode":"07001","country":"US"}]}'
+
+title "9.7.0 POST golden record (all fields + 2 addresses)"
+GOLD_ID=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" --data "$GOLD_BODY" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))')
+echo "GOLD_ID=$GOLD_ID"
+if wait_for_view "$GOLD_ID" "200" 20; then echo "golden view ready"; else echo "TIMEOUT golden view"; fi
+
+golden_pf() { # <captured-output>
+  echo "$1"
+  if echo "$1" | grep -q "PASS"; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
+}
+
+title "9.7.1 REST/JSON — every field of GET /users/:id"
+golden_pf "$(curl -sS "$BASE/users/$GOLD_ID" -H "Accept-Language: en-US" | python3 "$GDIR/golden_check.py" json REST "$GOLD_ID")"
+
+title "9.7.2 GraphQL — every field of the users() node"
+GQL_Q='{"query":"{ users(where:{document:{eq:\"10000000500\"}}){ edges { node { id name email phone document userName emailNotification smsNotification addresses { id label street number complement neighborhood city state zipCode country } } } } }"}'
+golden_pf "$(curl -sS -X POST "$BASE/graphql" -H "Content-Type: application/json" --data "$GQL_Q" \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin);n=d["data"]["users"]["edges"];print(json.dumps(n[0]["node"]) if n else "{}")' \
+  | python3 "$GDIR/golden_check.py" json GraphQL "$GOLD_ID")"
+
+title "9.7.3 CSV export — every data value present in /users.csv"
+golden_pf "$(curl -sS "$BASE/users.csv?document.eq=$GOLD_DOC" -H "Accept-Language: en-US" | python3 "$GDIR/golden_check.py" flat CSV)"
+
+title "9.7.4 XLSX export — every data value present in /users.xlsx"
+curl -sS "$BASE/users.xlsx?document.eq=$GOLD_DOC" -H "Accept-Language: en-US" -o /tmp/qa-golden.xlsx
+golden_pf "$(unzip -p /tmp/qa-golden.xlsx 'xl/*.xml' 2>/dev/null | python3 "$GDIR/golden_check.py" flat XLSX)"
+rm -f /tmp/qa-golden.xlsx
+
+# Clean the golden record so re-runs start cold and it does not skew later counts.
+curl -sS -X DELETE "$BASE/users/$GOLD_ID" -o /dev/null -w "9.7.5 cleanup golden: %{http_code}\n"
+
+####################################
 sec "10. Query allowlist (filter tags + reserved by-id param)"
 ####################################
 # Exercises the HandleQueryWithParams / HandleQueryByID surface introduced by
@@ -650,7 +733,7 @@ show "10.1 GET /users?name=Jane Doe (filter:eq declared on name)" GET "/users?na
 show "10.2 GET /users?email.in=jane@example.com,bob@example.com (filter:eq,in on email)" GET "/users?email.in=jane@example.com,bob@example.com" "" 200
 show "10.3 GET /users?role=admin (field NOT in the allowlist → 400)" GET "/users?role=admin" "" 400
 show "10.4 GET /users?email.gte=Z (operator NOT in declared list for email → 400)" GET "/users?email.gte=Z" "" 400
-# 10.5–10.5b: by-id reads on USER_C (archived in 3.2) exercise the canonical
+# 10.5–10.5b: by-id reads on USER_C (revived+active after 3.2) exercise the canonical
 # framework invariant: Mongo mirrors PostgreSQL symmetrically — the
 # SyncEngine reacts to ARCHIVE with compose+upsert (default keep), so the
 # doc survives with deleted_at populated. The two by-id variants then
@@ -663,8 +746,11 @@ show "10.4 GET /users?email.gte=Z (operator NOT in declared list for email → 4
 # back-pressure of the reader-side filter that still hides archived from
 # the default surface. The ?includeArchived flag is a reserved param either way
 # (no SchemaViolationNotification on either variant).
-show "10.5 GET /users/USER_C?includeArchived=true while archived (keep-by-default → 200 with archived doc)" GET "/users/$USER_C?includeArchived=true" "" 200
-show "10.5b GET /users/USER_C while archived (default reader filter hides → 404)" GET "/users/$USER_C" "" 404
+# USER_C was archived and then REVIVED in 3.2 (same document → same person → same
+# role row reactivated), so it is ACTIVE again — both reads return 200. The
+# archived-by-id keep-by-default behavior is exercised on USER_A at 10.7/10.7b.
+show "10.5 GET /users/USER_C?includeArchived=true (revived in 3.2 → active → 200)" GET "/users/$USER_C?includeArchived=true" "" 200
+show "10.5b GET /users/USER_C default reader (revived → active → 200)" GET "/users/$USER_C" "" 200
 
 # 10.6–10.9: end-to-end Archive → ?includeArchived=true → Unarchive → ?includeArchived=false
 # cycle on USER_A (currently active after 7.3). Demonstrates that the read
@@ -709,51 +795,51 @@ show "10.8c GET /users/USER_A?includeArchived=false (explicit flag — default b
 show "10.9 GET /users/USER_A?role=admin (non-reserved param on by-id → 400)" GET "/users/$USER_A?role=admin" "" 400
 
 ####################################
-sec "11. /showcase/users-custom/* — manual write showcase (email as identifier)"
+sec "11. /showcase/users-custom/* — manual write showcase (document as identifier)"
 ####################################
-# Cross-checks the parallel surface that hand-rolls every layer above
-# domain/. Uses Mike's row (mike@example.com) — fresh across runs because
-# the suite TRUNCATEs the users table at 0.5. Email is the identifier in
-# the URL path; PUT/PATCH bodies intentionally omit Email (immutable on
-# this surface; documented in CLAUDE.md under "Manual showcase"). Writes
-# land on the same `users` + `addresses` tables the canonical /users/*
-# surface uses, so a successful POST here would surface on a canonical
-# GET /users/:id once CDC propagates (not asserted here — already covered
-# in sections 4 and 9 for the canonical surface).
+# Cross-checks the parallel surface that hand-rolls every layer above domain/,
+# now including the manual SharedBase upsert in the insert handler. Uses Mike's
+# row (document 10000000011) — fresh across runs because the suite TRUNCATEs at
+# 0.5. The Person `document` is the identifier in the URL path; PUT/PATCH bodies
+# omit Document (the immutable natural key) but DO carry email (now an editable
+# shared field). Writes land on the same persons/users/addresses tables the
+# canonical /users/* surface uses.
 
 show "11.1 POST /showcase/users-custom (create Mike, US)" POST /showcase/users-custom/ '{
   "name":"Mike Manual","email":"mike@example.com","phone":"14155556666",
+  "document":"10000000011","userName":"mike",
   "addresses":[{"label":"home","street":"1 Manual Way","number":"42","neighborhood":"Showcase","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}]
 }' 201
 
-show "11.2 POST same email — Conflict (proves write hit the same users table)" POST /showcase/users-custom/ '{
-  "name":"Mike Twin","email":"mike@example.com","phone":"14155557777",
+show "11.2 POST same document — Conflict (active user already exists for this person)" POST /showcase/users-custom/ '{
+  "name":"Mike Twin","email":"mike.twin@example.com","phone":"14155557777",
+  "document":"10000000011","userName":"miketwin",
   "addresses":[{"label":"twin","street":"2 Twin Ln","number":"1","neighborhood":"Twin","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}]
 }' 409
 
-show "11.3 PUT /showcase/users-custom/mike@example.com (full replace — no Email in body)" PUT /showcase/users-custom/mike@example.com '{
-  "name":"Mike Updated","phone":"14155558888",
+show "11.3 PUT /showcase/users-custom/10000000011 (full replace — no Document in body; email IS editable)" PUT /showcase/users-custom/10000000011 '{
+  "name":"Mike Updated","email":"mike.updated@example.com","phone":"14155558888","userName":"mike",
   "addresses":[{"label":"office","street":"1 Apple Park Way","number":"1","neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}]
 }' 200
 
-show "11.4 PATCH /showcase/users-custom/mike@example.com (name only — no Email in body)" PATCH /showcase/users-custom/mike@example.com '{"name":"Mike Patched"}' 200
+show "11.4 PATCH /showcase/users-custom/10000000011 (name only)" PATCH /showcase/users-custom/10000000011 '{"name":"Mike Patched"}' 200
 
-show "11.5 PATCH /showcase/users-custom/mike@example.com/archive (aggregate-aware soft-delete)" PATCH /showcase/users-custom/mike@example.com/archive "" 200
-show "11.6 PATCH /showcase/users-custom/mike@example.com/unarchive (FindArchivedByEmail path)" PATCH /showcase/users-custom/mike@example.com/unarchive "" 200
-show "11.7 DELETE /showcase/users-custom/mike@example.com (hard delete — 204 No Content)" DELETE /showcase/users-custom/mike@example.com "" 204
+show "11.5 PATCH /showcase/users-custom/10000000011/archive (aggregate-aware soft-delete)" PATCH /showcase/users-custom/10000000011/archive "" 200
+show "11.6 PATCH /showcase/users-custom/10000000011/unarchive (FindArchivedByDocument path)" PATCH /showcase/users-custom/10000000011/unarchive "" 200
+show "11.7 DELETE /showcase/users-custom/10000000011 (hard delete — 204 No Content)" DELETE /showcase/users-custom/10000000011 "" 204
 
-show "11.8 PUT on ghost email — RecordNotFound (404)" PUT /showcase/users-custom/ghost@example.com '{
-  "name":"X","phone":"14155550000","addresses":[]
+show "11.8 PUT on ghost document — RecordNotFound (404)" PUT /showcase/users-custom/99999999999 '{
+  "name":"X","email":"x@x.com","userName":"x","phone":"14155550000","addresses":[]
 }' 404
 
 show "11.9 POST with missing name — RequiredFieldNotification (422 — Domain BuildRules, not Schema)" POST /showcase/users-custom/ '{
-  "email":"nameless@example.com","addresses":[]
+  "email":"nameless@example.com","document":"10000000019","userName":"nameless","addresses":[]
 }' 422
 
 show "11.10 POST with malformed JSON — Schema violation (400)" POST /showcase/users-custom/ '{not json' 400
 
 ####################################
-sec "12. /showcase/users-custom/* — manual read showcase (by-email + list + reduced shape)"
+sec "12. /showcase/users-custom/* — manual read showcase (by-document + list + reduced shape)"
 ####################################
 # Reads against the same Mongo view the canonical /users/* surface uses
 # (UserView()). Two endpoints; both project the denormalized doc down to
@@ -763,17 +849,17 @@ sec "12. /showcase/users-custom/* — manual read showcase (by-email + list + re
 # no fresh fixtures, no CDC waits — section 9 already polled Mongo into
 # sync for these rows.
 
-show "12.1 GET /showcase/users-custom/jane@example.com — reduced shape (id+name+email only)" GET /showcase/users-custom/jane@example.com "" 200
-show "12.2 GET /showcase/users-custom/ghost@example.com — RecordNotFound (404)" GET /showcase/users-custom/ghost@example.com "" 404
+show "12.1 GET /showcase/users-custom/10000000001 — reduced shape (id+name+email only)" GET /showcase/users-custom/10000000001 "" 200
+show "12.2 GET /showcase/users-custom/99999999999 — RecordNotFound (404)" GET /showcase/users-custom/99999999999 "" 404
 show "12.3 GET /showcase/users-custom — list with pagination envelope top-level" GET /showcase/users-custom "" 200
 show "12.4 GET /showcase/users-custom?email=bob@example.com — filtered list" GET "/showcase/users-custom?email=bob@example.com" "" 200
 show "12.5 GET /showcase/users-custom?limit=1 — paged list (has_next:true expected)" GET "/showcase/users-custom?limit=1" "" 200
 show "12.6 GET /showcase/users-custom?role=admin — unknown query key rejected (400 via ParseCriteria allowlist)" GET "/showcase/users-custom?role=admin" "" 400
-show "12.7 GET /showcase/users-custom/jane@example.com?includeArchived=true — flag accepted, active row still surfaces" GET "/showcase/users-custom/jane@example.com?includeArchived=true" "" 200
+show "12.7 GET /showcase/users-custom/10000000001?includeArchived=true — flag accepted, active row still surfaces" GET "/showcase/users-custom/10000000001?includeArchived=true" "" 200
 show "12.8 GET /showcase/users-custom?includeArchived=true — flag accepted on list" GET "/showcase/users-custom?includeArchived=true" "" 200
 show "12.9 GET /showcase/users-custom?name.in=Jane,Bob — operator outside declared list rejected (400, name carries filter:\"eq\" only)" GET "/showcase/users-custom?name.in=Jane,Bob" "" 400
 show "12.10 GET /showcase/users-custom?name=Jane — allowed filter (200; happy path via the new allowlist)" GET "/showcase/users-custom?name=Jane" "" 200
-show "12.11 GET /showcase/users-custom/jane@example.com?tenant=acme — unknown query key on by-email rejected (400)" GET "/showcase/users-custom/jane@example.com?tenant=acme" "" 400
+show "12.11 GET /showcase/users-custom/10000000001?tenant=acme — unknown query key on by-email rejected (400)" GET "/showcase/users-custom/10000000001?tenant=acme" "" 400
 
 ####################################
 sec "13. /users/:id/addresses/:addressId  — Address subresource (canonical + custom)"
@@ -858,39 +944,39 @@ else
     sleep 0.25
   done
 
-  show "13.10 GET /showcase/users-custom/jane@example.com/addresses/ADDRESS_ID (custom happy path)" \
-    GET "/showcase/users-custom/jane@example.com/addresses/$ADDRESS_ID" "" 200
+  show "13.10 GET /showcase/users-custom/10000000001/addresses/ADDRESS_ID (custom happy path)" \
+    GET "/showcase/users-custom/10000000001/addresses/$ADDRESS_ID" "" 200
 
-  show "13.11 GET /showcase/users-custom/ghost@example.com/addresses/ADDRESS_ID (User absent → 404)" \
-    GET "/showcase/users-custom/ghost@example.com/addresses/$ADDRESS_ID" "" 404
+  show "13.11 GET /showcase/users-custom/99999999999/addresses/ADDRESS_ID (User absent → 404)" \
+    GET "/showcase/users-custom/99999999999/addresses/$ADDRESS_ID" "" 404
 
-  show "13.12 GET /showcase/users-custom/jane@example.com/addresses/<unknown> (Address absent → 404)" \
-    GET "/showcase/users-custom/jane@example.com/addresses/00000000-0000-0000-0000-000000000000" "" 404
+  show "13.12 GET /showcase/users-custom/10000000001/addresses/<unknown> (Address absent → 404)" \
+    GET "/showcase/users-custom/10000000001/addresses/00000000-0000-0000-0000-000000000000" "" 404
 
   show "13.13 GET /showcase/.../addresses/ADDRESS_ID?role=admin (unknown query key → 400)" \
-    GET "/showcase/users-custom/jane@example.com/addresses/$ADDRESS_ID?role=admin" "" 400
+    GET "/showcase/users-custom/10000000001/addresses/$ADDRESS_ID?role=admin" "" 400
 
   show "13.14 PUT /showcase/.../jane@example.com/addresses/ADDRESS_ID (custom happy path)" \
-    PUT "/showcase/users-custom/jane@example.com/addresses/$ADDRESS_ID" '{
+    PUT "/showcase/users-custom/10000000001/addresses/$ADDRESS_ID" '{
       "label":"home","street":"1 Custom Way","number":"1",
       "neighborhood":"Downtown","city":"San Francisco","state":"CA",
       "zipCode":"94103","country":"US"
     }' 200
 
   show "13.15 PUT /showcase/.../ghost@example.com/addresses/ADDRESS_ID (User absent → 404)" \
-    PUT "/showcase/users-custom/ghost@example.com/addresses/$ADDRESS_ID" '{
+    PUT "/showcase/users-custom/99999999999/addresses/$ADDRESS_ID" '{
       "label":"x","street":"x","number":"1","neighborhood":"x","city":"x",
       "state":"CA","zipCode":"94103","country":"US"
     }' 404
 
   show "13.16 PUT /showcase/.../jane@example.com/addresses/<unknown> (Address absent → 404)" \
-    PUT "/showcase/users-custom/jane@example.com/addresses/00000000-0000-0000-0000-000000000000" '{
+    PUT "/showcase/users-custom/10000000001/addresses/00000000-0000-0000-0000-000000000000" '{
       "label":"x","street":"x","number":"1","neighborhood":"x","city":"x",
       "state":"CA","zipCode":"94103","country":"US"
     }' 404
 
   show "13.17 PUT /showcase/.../jane@example.com/addresses/ADDRESS_ID with invalid state (422)" \
-    PUT "/showcase/users-custom/jane@example.com/addresses/$ADDRESS_ID" '{
+    PUT "/showcase/users-custom/10000000001/addresses/$ADDRESS_ID" '{
       "label":"x","street":"x","number":"1","neighborhood":"x","city":"x",
       "state":"@#","zipCode":"94103","country":"US"
     }' 422
@@ -1325,19 +1411,19 @@ else:
 # 18.1 — User.Name has `label:"UserNameField"`. Missing name → 422 with
 # fieldLabel rendered in the actor's locale.
 field_label_check "18.1 POST missing Name → 422 with fieldLabel=Nome (PT-BR)" \
-  "pt-BR" '{"name":"","email":"label-pt@example.com","phone":"14155553333","addresses":[]}' \
+  "pt-BR" '{"name":"","email":"label-pt@example.com","phone":"14155553333","document":"10000000081","userName":"labelpt","addresses":[]}' \
   "422" "Nome"
 
 # 18.2 — Same notification, different locale: ENG catalog renders "Name".
 field_label_check "18.2 POST missing Name → 422 with fieldLabel=Name (en-US)" \
-  "en-US" '{"name":"","email":"label-en@example.com","phone":"14155554444","addresses":[]}' \
+  "en-US" '{"name":"","email":"label-en@example.com","phone":"14155554444","document":"10000000082","userName":"labelen","addresses":[]}' \
   "422" "Name"
 
 # 18.3 — Aggregate child label: Address.ZipCode tag resolves through the
 # scoped Rules; the wire `field` retains the path "addresses[0].zipCode"
 # and `fieldLabel` carries the translated AVO field label.
 title "18.3 POST invalid Address.ZipCode → 422 with field=addresses[0].zipCode + fieldLabel=CEP (PT-BR)"
-ADDR_BODY='{"name":"With Address","email":"label-addr@example.com","phone":"14155555555","addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Centro","city":"Cidade","state":"SP","zipCode":"AB","country":"BR"}]}'
+ADDR_BODY='{"name":"With Address","email":"label-addr@example.com","phone":"14155555555","document":"10000000083","userName":"labeladdr","addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Centro","city":"Cidade","state":"SP","zipCode":"AB","country":"BR"}]}'
 TMP=$(mktemp)
 STATUS=$(curl -sS -o "$TMP" -w "%{http_code}" -X POST "$BASE/users" \
   -H "Content-Type: application/json" -H "Accept-Language: pt-BR" \
@@ -1463,10 +1549,10 @@ rm -f "$TMP"
 ####################################
 title "19.11 Seed export fixtures (Zelda/Yuri Exportprobe) + wait for the Mongo view"
 EXP1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
-  --data '{"name":"Zelda Exportprobe","email":"zelda.exp@example.com","phone":"14155550001","addresses":[{"label":"home","street":"1 Export St","number":"1","neighborhood":"Probe","city":"Exportville","state":"CA","zipCode":"94000","country":"US"}]}' \
+  --data '{"name":"Zelda Exportprobe","email":"zelda.exp@example.com","phone":"14155550001","document":"10000000091","userName":"zelda","addresses":[{"label":"home","street":"1 Export St","number":"1","neighborhood":"Probe","city":"Exportville","state":"CA","zipCode":"94000","country":"US"}]}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
 EXP2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
-  --data '{"name":"Yuri Exportprobe","email":"yuri.exp@example.com","phone":"14155550002","addresses":[{"label":"home","street":"2 Export Ave","number":"2","neighborhood":"Probe","city":"Exporton","state":"CA","zipCode":"94001","country":"US"}]}' \
+  --data '{"name":"Yuri Exportprobe","email":"yuri.exp@example.com","phone":"14155550002","document":"10000000092","userName":"yuri","addresses":[{"label":"home","street":"2 Export Ave","number":"2","neighborhood":"Probe","city":"Exporton","state":"CA","zipCode":"94001","country":"US"}]}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
 echo "EXP1=$EXP1 (Zelda)  EXP2=$EXP2 (Yuri)"
 if wait_for_view "$EXP1" "200" 15 && wait_for_view "$EXP2" "200" 15; then

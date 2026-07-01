@@ -16,7 +16,7 @@ import (
 //
 //  1. Identifier is Email instead of User UUID (matches the manual
 //     showcase's surface convention; ApplyTo doesn't see Email — it just
-//     mutates the User the handler already loaded via FindByEmail).
+//     mutates the User the handler already loaded via FindByDocument).
 //  2. No pipeline.CommandBaseWithID — the manual chain does not consume the
 //     SetPathID hook. The route handler assembles the command inline from
 //     the Request DTO's path-bound fields.
@@ -29,9 +29,9 @@ import (
 // (Insert/Update/Patch) plus this fourth verb that targets a child.
 type ChangeAddressCustomCommand struct {
 	pipeline.CommandBase
-	EmailKey  string
-	AddressID string
-	Address   dtos.AddressInputCustom
+	DocumentKey string
+	AddressID   string
+	Address     dtos.AddressInputCustom
 }
 
 // ApplyTo delegates to the addressed-by-id domain method — same shape as

@@ -6,19 +6,19 @@ import (
 )
 
 // ChangeAddressCustomRequest is the wire shape of PUT
-// /showcase/users-custom/:email/addresses/:addressId. Two `path:` tags
-// (Email + AddressID) keep the route's identifiers tagged on the DTO so
+// /showcase/users-custom/:document/addresses/:addressId. Two `path:` tags
+// (Document + AddressID) keep the route's identifiers tagged on the DTO so
 // a reverse-engineering pass introspects them via reflection without
 // grepping handler bodies — same convention every other manual showcase
 // route follows.
 //
-// Body shape mirrors AddressCustomRequest (no `Email` field — Email is
+// Body shape mirrors AddressCustomRequest (no `Document` field — Document is
 // the immutable surface key on this route). The manual route does NOT
 // enforce the FullBody strict-body check the canonical PUT applies; the
 // hand-rolled handler accepts whatever the consumer sent and lets
 // BuildRules reject missing required fields with 422.
 type ChangeAddressCustomRequest struct {
-	Email        string  `path:"email"`
+	Document     string  `path:"document"`
 	AddressID    string  `path:"addressId"`
 	Label        *string `json:"label,omitempty"      example:"home"`
 	Street       string  `json:"street"               example:"1 Infinite Loop"`
@@ -31,14 +31,14 @@ type ChangeAddressCustomRequest struct {
 	Country      string  `json:"country"              example:"US"`
 }
 
-// ToCommand converts the Request DTO into the Command. EmailKey + AddressID
+// ToCommand converts the Request DTO into the Command. DocumentKey + AddressID
 // come from req's path-tagged fields populated by fwweb.BindPath; the
 // address body fields go through dtos.AddressInputCustom — the same
 // application DTO Insert/Update Custom consume.
 func (r ChangeAddressCustomRequest) ToCommand() *commands.ChangeAddressCustomCommand {
 	return &commands.ChangeAddressCustomCommand{
-		EmailKey:  r.Email,
-		AddressID: r.AddressID,
+		DocumentKey: r.Document,
+		AddressID:   r.AddressID,
 		Address: dtos.AddressInputCustom{
 			Label:        r.Label,
 			Street:       r.Street,

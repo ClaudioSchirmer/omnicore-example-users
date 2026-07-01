@@ -130,14 +130,13 @@ func echoSSE(c fiber.Ctx) error {
 func echoSigned(c fiber.Ctx) error {
 	body := c.Body()
 	return c.JSON(fiber.Map{
-		"observed_at":     time.Now().UTC().Format(time.RFC3339),
-		"received_bytes":  len(body),
-		"received_body":   string(body),
-		"x_date":          string(c.Request().Header.Peek("X-Date")),
-		"x_content_sha":   string(c.Request().Header.Peek("X-Content-SHA256")),
-		"x_signature":     string(c.Request().Header.Peek("X-Signature")),
-		"x_key_id":        string(c.Request().Header.Peek("X-Key-Id")),
-		"authorization":   string(c.Request().Header.Peek("Authorization")),
+		"observed_at":    time.Now().UTC().Format(time.RFC3339),
+		"received_bytes": len(body),
+		"received_body":  string(body),
+		"x_date":         string(c.Request().Header.Peek("X-Date")),
+		"x_content_sha":  string(c.Request().Header.Peek("X-Content-SHA256")),
+		"x_signature":    string(c.Request().Header.Peek("X-Signature")),
+		"x_key_id":       string(c.Request().Header.Peek("X-Key-Id")),
+		"authorization":  string(c.Request().Header.Peek("Authorization")),
 	})
 }
-

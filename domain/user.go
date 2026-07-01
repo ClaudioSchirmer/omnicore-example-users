@@ -27,6 +27,29 @@ type User struct {
 	Email string  `labelKey:"UserEmailField"`
 	Phone *string `labelKey:"UserPhoneField"`
 
+	// Document is the natural key of the shared Person identity (infra maps it
+	// to the persons.document column — see infra/schema.go). It deduplicates
+	// the identity and derives its deterministic id, so it is IMMUTABLE once
+	// set: enforced below in IfUpdate and, atomically, by the framework's
+	// SharedBase write path (UUIDv5(document) = the person PK). It replaces
+	// email as the way a user record is located on the manual showcase surface.
+	Document string `labelKey:"UserDocumentField"`
+
+	// UserName is the ONLY field private to the user role (infra maps it to the
+	// users.user_name column); Name/Email/Phone/Document above are all shared
+	// Person identity, partitioned away into the persons SharedBase table.
+	UserName string `labelKey:"UserUserNameField"`
+
+	// EmailNotification / SmsNotification are the user's notification
+	// preferences, persisted to the user_configurations SIBLING table (1:1,
+	// shares the user's primary key). *bool is deliberate: a genuinely nil pair
+	// means "no configuration row" — the sibling materializes only when at
+	// least one is non-nil (PATCH leaves an absent facet untouched; a PUT
+	// clearing both removes the row), exercising the framework's conditional
+	// sibling write.
+	EmailNotification *bool `labelKey:"UserEmailNotificationField"`
+	SmsNotification   *bool `labelKey:"UserSmsNotificationField"`
+
 	// ─── Runtime-only authz fields ────────────────────────────────────────
 	//
 	// Populated by ArchiveUserCommand.ApplyTo from AppContext.Identity right
@@ -66,29 +89,14 @@ type User struct {
 // the User aggregate.
 const nameMaxLength = 100
 
-// UserService is the domain port that User needs for invariants that depend
-// on external lookups. Today only email uniqueness — between BuildRules and
-// COMMIT there is a small race window (another TX inserting the same email),
-// so this check is *defense in depth* over the partial unique index
-// `users_email_active_idx` (which remains the real atomic enforcement). The
-// purpose here is to declare the rule in the domain + return 409 with a clean
-// message in the happy path.
-//
-// Conventions:
-//   - `excludeID` is nil on Insert (no ID yet) and *u.GetID() on Update —
-//     avoids the false positive of "email equals your own".
-//   - Implementation queries `WHERE deleted_at IS NULL` to keep symmetry
-//     with the partial unique index (email can be reused after archive).
-type UserService interface {
-	domain.Service
-	EmailExists(email string, excludeID *domain.ID) bool
-}
-
-// RequiresService = true because User.BuildRules consults
-// UserService.EmailExists inside IfInsertOrUpdate. Without it, the framework
-// would let a nil service through and the type-assertion below would become a
-// no-op.
-func (u *User) RequiresService() bool { return true }
+// User needs no domain.Service: identity uniqueness is no longer a domain
+// concern. The shared Person identity is deduplicated by its natural key
+// (Document) through the framework's SharedBase write path — the deterministic
+// id UUIDv5(document) IS the person PK, so a second person with the same
+// document collides on the primary key, and a second active role for an
+// existing person collides on the role's UNIQUE(person_id). Both surface as a
+// 409 from infra. RequiresService therefore stays at its promoted default
+// (false), and BuildRules ignores the (nil) service argument.
 
 // ─── domain.Entity ───────────────────────────────────────────────────────────
 
@@ -242,16 +250,27 @@ func (u *User) BuildRules(actionName string, service domain.Service, r *domain.R
 			r.AddNotification("Name", NameMaxLengthExceededNotification{MaxLength: nameMaxLength}, u.Name)
 		}
 
+		// Document is the shared identity's natural key — required and
+		// format-checked, but NOT uniqueness-checked here: the framework's
+		// deterministic id (UUIDv5(document)) makes a duplicate document
+		// collide on the person PK, surfacing the 409 atomically. Email is a
+		// plain shared Person field now (mutable, last-write-wins across roles)
+		// — required + regex, but no longer unique and no longer immutable.
+		if u.Document == "" {
+			r.AddNotification("Document", domain.RequiredFieldNotification{})
+		} else if !documentRegex.MatchString(u.Document) {
+			r.AddNotification("Document", InvalidDocumentNotification{}, u.Document)
+		}
+
+		// UserName is the role's own field — required.
+		if u.UserName == "" {
+			r.AddNotification("UserName", domain.RequiredFieldNotification{})
+		}
+
 		if u.Email == "" {
 			r.AddNotification("Email", domain.RequiredFieldNotification{})
 		} else if !emailRegex.MatchString(u.Email) {
 			r.AddNotification("Email", InvalidEmailNotification{}, u.Email)
-		} else if us, ok := service.(UserService); ok {
-			// Unique email — Insert passes nil (no ID yet); Update passes its
-			// own ID to avoid a false positive when the email did not change.
-			// If the cast fails (service nil or unexpected type), we skip —
-			// the unique index in the DB still holds as atomic enforcement.
-			u.checkEmailUniqueness(us, r)
 		}
 
 		if u.Phone != nil && *u.Phone != "" && !phoneRegex.MatchString(*u.Phone) {
@@ -271,8 +290,15 @@ func (u *User) BuildRules(actionName string, service domain.Service, r *domain.R
 	// framework). Keeps the rule resilient to custom flows that hydrate the
 	// entity outside the standard loader path.
 	r.IfUpdate(func() {
-		if old := domain.Old(u); old != nil && old.Email != u.Email {
-			r.AddNotification("Email", EmailCannotChangeNotification{}, u.Email)
+		// Document is the shared identity's immutable natural key. Showcases
+		// domain.Old[T]: the Get* path snapshots the loaded entity BEFORE the
+		// command's mutation, so old.Document holds the pre-mutation value.
+		// Defense in depth — the framework's SharedBase write path also refuses
+		// to re-key the identity; this gives a clean 422 in the happy path.
+		// (The update/patch DTOs omit Document entirely, so this normally never
+		// fires — it guards custom flows that try to send it.)
+		if old := domain.Old(u); old != nil && old.Document != u.Document {
+			r.AddNotification("Document", DocumentCannotChangeNotification{}, u.Document)
 		}
 
 		// Layer-2 owner-check on Archive: actionName branches the rule so
@@ -300,19 +326,14 @@ func (u *User) BuildRules(actionName string, service domain.Service, r *domain.R
 	})
 }
 
-// checkEmailUniqueness encapsulates the exclusion query to keep BuildRules
-// readable. Insert: u.GetID() returns nil (freshly constructed entity) →
-// passes nil. Update: u.GetID() returns a pointer to its own ID → excludes
-// it from the query.
-func (u *User) checkEmailUniqueness(svc UserService, r *domain.Rules) {
-	if svc.EmailExists(u.Email, u.GetID()) {
-		r.AddNotification("Email", EmailAlreadyExistsNotification{}, u.Email)
-	}
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 var (
 	emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 	phoneRegex = regexp.MustCompile(`^\d{10,15}$`)
+	// documentRegex shapes the Person natural key: 3–32 chars of letters,
+	// digits, dot or hyphen (e.g. "12345678901", "AB-1029"). Kept permissive —
+	// the showcase point is "the natural key is validated like any other
+	// field", not a specific national-document format.
+	documentRegex = regexp.MustCompile(`^[A-Za-z0-9.\-]{3,32}$`)
 )

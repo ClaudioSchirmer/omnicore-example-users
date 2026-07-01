@@ -28,8 +28,10 @@ import (
 // the Query's ToCriteria(ctx), consumed by the handler — ToQuery itself is
 // pure body mapping, no ctx parameter.
 type FindUsersByParamsRequest struct {
-	Name      *string             `query:"name"  filter:"eq,startswith,icontains,istartswith"`
-	Email     *string             `query:"email" filter:"eq,in,ieq"`
+	Name      *string             `query:"name"     filter:"eq,startswith,icontains,istartswith"`
+	Email     *string             `query:"email"    filter:"eq,in,ieq"`
+	Document  *string             `query:"document" filter:"eq,in,startswith"`
+	UserName  *string             `query:"userName" filter:"eq,startswith,icontains"`
 	Addresses AddressFilterParams `query:"addresses"`
 
 	Limit           *int64  `query:"limit"`
@@ -74,11 +76,15 @@ func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *quer
 // Without pointers + omitempty, a stripped `name` would still render as
 // `"name":""` (zero value), defeating the point of the parameter.
 type FindUsersByParamsResponse struct {
-	ID        *string                          `json:"id,omitempty"        example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name      *string                          `json:"name,omitempty"      example:"Alice Pereira"`
-	Email     *string                          `json:"email,omitempty"     example:"alice@example.com"`
-	Phone     *string                          `json:"phone,omitempty"     example:"14155552671"`
-	Addresses []FindUsersByParamsAddressOutput `json:"addresses,omitempty"`
+	ID                *string                          `json:"id,omitempty"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name              *string                          `json:"name,omitempty"              example:"Alice Pereira"`
+	Email             *string                          `json:"email,omitempty"             example:"alice@example.com"`
+	Phone             *string                          `json:"phone,omitempty"             example:"14155552671"`
+	Document          *string                          `json:"document,omitempty"          example:"12345678901"`
+	UserName          *string                          `json:"userName,omitempty"          example:"alice"`
+	EmailNotification *bool                            `json:"emailNotification,omitempty" example:"true"`
+	SmsNotification   *bool                            `json:"smsNotification,omitempty"   example:"false"`
+	Addresses         []FindUsersByParamsAddressOutput `json:"addresses,omitempty"`
 }
 
 // FindUsersByParamsAddressOutput is the nested wire shape of one Address

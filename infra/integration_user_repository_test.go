@@ -19,26 +19,39 @@ func testCtx() *configuration.AppContext {
 }
 
 // --- helpers --------------------------------------------------------------
+//
+// The User is SharedBase-backed, so an insert is a load-first UPSERT: load the
+// existing Person identity by the natural key (document), apply the request,
+// then GetInsertable with "GetInsertable" (cold) or "GetUpsertable" (warm) and
+// Insert. sharedBaseInserter mimics the SharedBaseInsertCommandHandler the wire
+// path uses, so these integration tests exercise the same persister path. User
+// needs no domain service, so a nil service is passed throughout.
 
-// stubUserService is the domain.Service shim used by GetInsertable/GetUpdatable
-// to satisfy User's RequiresService=true gate. UserService.EmailExists always
-// returns false in the test path — the real uniqueness enforcement comes from
-// the database's unique index; the tests assert on that path explicitly.
-type stubUserService struct{ domain.ServiceBase }
-
-func (stubUserService) EmailExists(string, *domain.ID) bool { return false }
-
-func newInsertableUser(t *testing.T, name, email string, addresses ...appdomain.Address) domain.Insertable {
+// insertUser cold/warm-inserts a user for `document` through the SharedBase
+// upsert path on the canonical repository.
+func insertUser(t *testing.T, repo *UserRepository, document, name, email, userName string, addresses ...appdomain.Address) (domain.ID, error) {
 	t.Helper()
-	u := &appdomain.User{Name: name, Email: email}
-	for _, a := range addresses {
-		u.AddAddress(a, nil)
-	}
-	ins, err := domain.GetInsertable(u, stubUserService{}, "GetInsertable")
+	fresh := &appdomain.User{Document: document}
+	loaded, existed, err := repo.LoadForSharedBaseInsert(testCtx(), fresh)
 	if err != nil {
-		t.Fatalf("GetInsertable %q: %v", email, err)
+		t.Fatalf("LoadForSharedBaseInsert %q: %v", document, err)
 	}
-	return ins
+	loaded.Name = name
+	loaded.Email = email
+	loaded.Document = document
+	loaded.UserName = userName
+	for _, a := range addresses {
+		loaded.AddAddress(a, nil)
+	}
+	action := "GetInsertable"
+	if existed {
+		action = "GetUpsertable"
+	}
+	ins, err := domain.GetInsertable(loaded, nil, action)
+	if err != nil {
+		return domain.ID{}, err
+	}
+	return repo.Scope(testCtx()).Insert(ins)
 }
 
 func sampleAddress() appdomain.Address {
@@ -55,9 +68,7 @@ func TestUserRepository_InsertAndFindByID(t *testing.T) {
 	defer cleanup()
 
 	repo := NewUserRepository(eng)
-	ins := newInsertableUser(t, "Alice", "alice@x.com", sampleAddress())
-
-	id, err := repo.Scope(testCtx()).Insert(ins)
+	id, err := insertUser(t, repo, "10000000001", "Alice", "alice@x.com", "alice", sampleAddress())
 	if err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
@@ -72,34 +83,40 @@ func TestUserRepository_InsertAndFindByID(t *testing.T) {
 	if got.Name != "Alice" || got.Email != "alice@x.com" {
 		t.Errorf("FindByID root = %+v", got)
 	}
+	// Shared Person fields + role-private field round-trip flat.
+	if got.Document != "10000000001" || got.UserName != "alice" {
+		t.Errorf("FindByID document/userName = %q/%q", got.Document, got.UserName)
+	}
 
+	// Addresses are the person's base-children, hydrated onto the role.
 	addrs := domain.GetCurrentItemsOf[appdomain.Address](&got.AggregateRoot)
 	if len(addrs) != 1 || addrs[0].Street != "Main" {
 		t.Errorf("expected 1 hydrated address, got %+v", addrs)
 	}
 }
 
-func TestUserRepository_DuplicateEmailIsTypedConflict(t *testing.T) {
+// A second POST for a document whose person already has an ACTIVE user is a 409
+// EntityAlreadyAddedNotification (the SharedBase write matrix).
+func TestUserRepository_DuplicateActiveUserIsTypedConflict(t *testing.T) {
 	eng, cleanup := newTestEngine(t)
 	defer cleanup()
 
 	repo := NewUserRepository(eng)
-	if _, err := repo.Scope(testCtx()).Insert(newInsertableUser(t, "A", "same@x.com", sampleAddress())); err != nil {
+	if _, err := insertUser(t, repo, "10000000002", "A", "a@x.com", "a", sampleAddress()); err != nil {
 		t.Fatalf("first Insert: %v", err)
 	}
 
-	_, err := repo.Scope(testCtx()).Insert(newInsertableUser(t, "B", "same@x.com", sampleAddress()))
+	_, err := insertUser(t, repo, "10000000002", "B", "b@x.com", "b", sampleAddress())
 	if err == nil {
-		t.Fatal("expected duplicate email to error")
+		t.Fatal("expected duplicate active user to error")
 	}
-
 	var carrier domain.NotificationCarrier
 	if !errors.As(err, &carrier) {
 		t.Fatalf("expected NotificationCarrier, got %T", err)
 	}
 	msgs := carrier.NotificationContexts()[0].Messages()
-	if domain.NotificationKey(msgs[0].Notification) != "EmailAlreadyExistsNotification" {
-		t.Errorf("expected EmailAlreadyExistsNotification, got %v", msgs[0].Notification)
+	if domain.NotificationKey(msgs[0].Notification) != "EntityAlreadyAddedNotification" {
+		t.Errorf("expected EntityAlreadyAddedNotification, got %v", msgs[0].Notification)
 	}
 }
 
@@ -119,14 +136,14 @@ func TestUserRepository_ArchiveAndUnarchiveCascade(t *testing.T) {
 	defer cleanup()
 	repo := NewUserRepository(eng)
 
-	id, _ := repo.Scope(testCtx()).Insert(newInsertableUser(t, "X", "x@x.com", sampleAddress()))
+	id, _ := insertUser(t, repo, "10000000003", "X", "x@x.com", "x", sampleAddress())
 
 	loaded, err := repo.FindByID(id)
 	if err != nil {
 		t.Fatalf("FindByID: %v", err)
 	}
 
-	arch, err := domain.GetArchivable(loaded, stubUserService{}, "GetArchivable")
+	arch, err := domain.GetArchivable(loaded, nil, "GetArchivable")
 	if err != nil {
 		t.Fatalf("GetArchivable: %v", err)
 	}
@@ -147,7 +164,7 @@ func TestUserRepository_ArchiveAndUnarchiveCascade(t *testing.T) {
 		t.Errorf("archived root = %+v", archived)
 	}
 
-	una, err := domain.GetUnarchivable(archived, stubUserService{}, "GetUnarchivable")
+	una, err := domain.GetUnarchivable(archived, nil, "GetUnarchivable")
 	if err != nil {
 		t.Fatalf("GetUnarchivable: %v", err)
 	}
@@ -156,6 +173,32 @@ func TestUserRepository_ArchiveAndUnarchiveCascade(t *testing.T) {
 	}
 	if _, err := repo.FindByID(id); err != nil {
 		t.Errorf("FindByID should resolve after unarchive: %v", err)
+	}
+}
+
+// Re-POSTing an ARCHIVED user's document REVIVES it rather than conflicting.
+func TestUserRepository_ReviveArchivedUser(t *testing.T) {
+	eng, cleanup := newTestEngine(t)
+	defer cleanup()
+	repo := NewUserRepository(eng)
+
+	id, _ := insertUser(t, repo, "10000000004", "R", "r@x.com", "r", sampleAddress())
+	loaded, _ := repo.FindByID(id)
+	arch, _ := domain.GetArchivable(loaded, nil, "GetArchivable")
+	if err := repo.Scope(testCtx()).Archive(arch); err != nil {
+		t.Fatalf("Archive: %v", err)
+	}
+
+	// Warm upsert of the same document while the user is archived → revive.
+	if _, err := insertUser(t, repo, "10000000004", "R2", "r2@x.com", "r2", sampleAddress()); err != nil {
+		t.Fatalf("revive Insert: %v", err)
+	}
+	got, err := repo.FindByID(id)
+	if err != nil {
+		t.Fatalf("FindByID after revive: %v", err)
+	}
+	if got.Email != "r2@x.com" {
+		t.Errorf("expected revived user to carry last-write-wins fields, got %+v", got)
 	}
 }
 
@@ -169,109 +212,63 @@ func TestUserRepository_NewReturnsFactoryResult(t *testing.T) {
 	}
 }
 
-// --- UserService ----------------------------------------------------------
-
-func TestUserService_EmailExists(t *testing.T) {
-	eng, cleanup := newTestEngine(t)
-	defer cleanup()
-	repo := NewUserRepository(eng)
-	svc := NewUserService(eng)
-
-	id, _ := repo.Scope(testCtx()).Insert(newInsertableUser(t, "U", "u@x.com", sampleAddress()))
-
-	if !svc.EmailExists("u@x.com", nil) {
-		t.Error("EmailExists should be true for seeded email when excludeID is nil")
-	}
-	if svc.EmailExists("u@x.com", &id) {
-		t.Error("EmailExists should be false when excludeID matches the row's id")
-	}
-	if svc.EmailExists("missing@x", nil) {
-		t.Error("EmailExists should be false for absent email")
-	}
-
-	// Empty excludeID also takes the no-exclude branch.
-	empty := domain.ID{}
-	if !svc.EmailExists("u@x.com", &empty) {
-		t.Error("EmailExists with empty excludeID should behave like nil")
-	}
-}
-
-func TestUserService_EmailExists_IgnoresArchivedRows(t *testing.T) {
-	eng, cleanup := newTestEngine(t)
-	defer cleanup()
-	repo := NewUserRepository(eng)
-	svc := NewUserService(eng)
-
-	id, _ := repo.Scope(testCtx()).Insert(newInsertableUser(t, "U", "u@x.com", sampleAddress()))
-
-	loaded, _ := repo.FindByID(id)
-	arch, _ := domain.GetArchivable(loaded, stubUserService{}, "GetArchivable")
-	if err := repo.Scope(testCtx()).Archive(arch); err != nil {
-		t.Fatalf("Archive: %v", err)
-	}
-
-	if svc.EmailExists("u@x.com", nil) {
-		t.Error("EmailExists should be false for an archived email (soft-delete-aware uniqueness)")
-	}
-}
-
 // --- UserCustomRepository -------------------------------------------------
 
-func TestUserCustomRepository_FindByEmail_AndFindArchivedByEmail(t *testing.T) {
+func TestUserCustomRepository_FindByDocument_AndFindArchivedByDocument(t *testing.T) {
 	eng, cleanup := newTestEngine(t)
 	defer cleanup()
 
 	canonical := NewUserRepository(eng)
 	custom := NewUserCustomRepository(eng)
 
-	id, err := canonical.Scope(testCtx()).Insert(newInsertableUser(t, "Alice", "alice@x.com", sampleAddress()))
+	id, err := insertUser(t, canonical, "10000000005", "Alice", "alice@x.com", "alice", sampleAddress())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
-	got, err := custom.FindByEmail("alice@x.com")
+	got, err := custom.FindByDocument("10000000005")
 	if err != nil {
-		t.Fatalf("FindByEmail: %v", err)
+		t.Fatalf("FindByDocument: %v", err)
 	}
-	if got == nil || got.Email != "alice@x.com" {
-		t.Errorf("FindByEmail returned %+v", got)
+	if got == nil || got.Document != "10000000005" {
+		t.Errorf("FindByDocument returned %+v", got)
 	}
 	if got.GetID().Value() != id.Value() {
-		t.Errorf("FindByEmail ID = %v, want %v", got.GetID(), id)
+		t.Errorf("FindByDocument ID = %v, want %v", got.GetID(), id)
 	}
 
-	// Active row, FindArchivedByEmail should miss.
-	if _, err := custom.FindArchivedByEmail("alice@x.com"); err == nil {
-		t.Error("FindArchivedByEmail should miss while the row is active")
+	// Active row, FindArchivedByDocument should miss.
+	if _, err := custom.FindArchivedByDocument("10000000005"); err == nil {
+		t.Error("FindArchivedByDocument should miss while the row is active")
 	}
 
 	// Archive via canonical writes, then re-test.
 	loaded, _ := canonical.FindByID(id)
-	arch, _ := domain.GetArchivable(loaded, stubUserService{}, "GetArchivable")
+	arch, _ := domain.GetArchivable(loaded, nil, "GetArchivable")
 	if err := canonical.Scope(testCtx()).Archive(arch); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 
-	archived, err := custom.FindArchivedByEmail("alice@x.com")
+	archived, err := custom.FindArchivedByDocument("10000000005")
 	if err != nil {
-		t.Fatalf("FindArchivedByEmail after archive: %v", err)
+		t.Fatalf("FindArchivedByDocument after archive: %v", err)
 	}
-	if archived.Email != "alice@x.com" {
+	if archived.Document != "10000000005" {
 		t.Errorf("archived row = %+v", archived)
 	}
 
-	// FindByEmail (active-only) should now miss.
-	if _, err := custom.FindByEmail("alice@x.com"); err == nil {
-		t.Error("FindByEmail should miss after archive")
+	// FindByDocument (active-only) should now miss.
+	if _, err := custom.FindByDocument("10000000005"); err == nil {
+		t.Error("FindByDocument should miss after archive")
 	}
 }
 
-func TestUserCustomRepository_FindByEmail_NotFoundError(t *testing.T) {
+func TestUserCustomRepository_FindByDocument_NotFoundError(t *testing.T) {
 	eng, cleanup := newTestEngine(t)
 	defer cleanup()
 	custom := NewUserCustomRepository(eng)
 
-	_, err := custom.FindByEmail("ghost@nowhere")
+	_, err := custom.FindByDocument("99999999999")
 	if err == nil {
 		t.Fatal("expected NotFoundError")
 	}
@@ -290,8 +287,19 @@ func TestUserCustomRepository_WriteDelegations(t *testing.T) {
 	defer cleanup()
 	custom := NewUserCustomRepository(eng)
 
-	// Insert via the custom Repository (1-line delegation to the engine Insert + outbox).
-	ins := newInsertableUser(t, "C", "c@x.com", sampleAddress())
+	// Insert via the custom Repository's SharedBase upsert path.
+	fresh := &appdomain.User{Document: "10000000006"}
+	loaded0, existed, err := custom.LoadForSharedBaseInsert(testCtx(), fresh)
+	if err != nil {
+		t.Fatalf("LoadForSharedBaseInsert: %v", err)
+	}
+	loaded0.Name, loaded0.Email, loaded0.Document, loaded0.UserName = "C", "c@x.com", "10000000006", "c"
+	loaded0.AddAddress(sampleAddress(), nil)
+	action := "GetInsertable"
+	if existed {
+		action = "GetUpsertable"
+	}
+	ins, _ := domain.GetInsertable(loaded0, nil, action)
 	id, err := custom.Scope(testCtx()).Insert(ins)
 	if err != nil {
 		t.Fatalf("custom Insert: %v", err)
@@ -307,7 +315,7 @@ func TestUserCustomRepository_WriteDelegations(t *testing.T) {
 	}
 
 	// Update.
-	upd, err := domain.GetUpdatable(loaded, func(u *appdomain.User) error { u.Name = "C2"; return nil }, stubUserService{}, "GetUpdatable")
+	upd, err := domain.GetUpdatable(loaded, func(u *appdomain.User) error { u.Name = "C2"; return nil }, nil, "GetUpdatable")
 	if err != nil {
 		t.Fatalf("GetUpdatable: %v", err)
 	}
@@ -317,19 +325,19 @@ func TestUserCustomRepository_WriteDelegations(t *testing.T) {
 
 	// Archive + Unarchive.
 	reload, _ := custom.FindByID(id)
-	arch, _ := domain.GetArchivable(reload, stubUserService{}, "GetArchivable")
+	arch, _ := domain.GetArchivable(reload, nil, "GetArchivable")
 	if err := custom.Scope(testCtx()).Archive(arch); err != nil {
 		t.Fatalf("custom Archive: %v", err)
 	}
 	reArch, _ := custom.FindArchivedByID(id)
-	una, _ := domain.GetUnarchivable(reArch, stubUserService{}, "GetUnarchivable")
+	una, _ := domain.GetUnarchivable(reArch, nil, "GetUnarchivable")
 	if err := custom.Scope(testCtx()).Unarchive(una); err != nil {
 		t.Fatalf("custom Unarchive: %v", err)
 	}
 
-	// Delete.
+	// Delete (hard) — refcount drops the orphan person + its addresses too.
 	live, _ := custom.FindByID(id)
-	del, _ := domain.GetDeletable(live, stubUserService{}, "GetDeletable")
+	del, _ := domain.GetDeletable(live, nil, "GetDeletable")
 	if err := custom.Scope(testCtx()).Delete(del); err != nil {
 		t.Fatalf("custom Delete: %v", err)
 	}
@@ -344,26 +352,5 @@ func TestUserCustomRepository_New(t *testing.T) {
 	custom := NewUserCustomRepository(eng)
 	if got := custom.New(); got == nil {
 		t.Error("custom.New() should not return nil")
-	}
-}
-
-func TestUserCustomRepository_DuplicateEmailMapsToTypedConflict(t *testing.T) {
-	eng, cleanup := newTestEngine(t)
-	defer cleanup()
-	custom := NewUserCustomRepository(eng)
-
-	if _, err := custom.Scope(testCtx()).Insert(newInsertableUser(t, "A", "dup@x.com", sampleAddress())); err != nil {
-		t.Fatalf("first insert: %v", err)
-	}
-	_, err := custom.Scope(testCtx()).Insert(newInsertableUser(t, "B", "dup@x.com", sampleAddress()))
-	if err == nil {
-		t.Fatal("expected duplicate to fail")
-	}
-	var carrier domain.NotificationCarrier
-	if !errors.As(err, &carrier) {
-		t.Fatalf("expected NotificationCarrier, got %T", err)
-	}
-	if domain.NotificationKey(carrier.NotificationContexts()[0].Messages()[0].Notification) != "EmailAlreadyExistsNotification" {
-		t.Errorf("expected EmailAlreadyExistsNotification")
 	}
 }

@@ -12,11 +12,13 @@ import (
 )
 
 func ptr(s string) *string { return &s }
+func bptr(b bool) *bool    { return &b }
 
-// okService returns a UserService that always asserts "email does not exist"
-// — used by tests that are not exercising the uniqueness rule and only need
-// to satisfy User.RequiresService() = true.
-func okService() *fakeUserService { return &fakeUserService{exists: false} }
+// User needs no domain service now — identity uniqueness is enforced by the
+// SharedBase write path, not by a domain lookup. So every Get*/IsValid call
+// passes a nil service (RequiresService() is false, so the framework tolerates
+// it). The shared helpers below build a User that satisfies the now-required
+// Document (natural key) + UserName fields.
 
 // hasNotification returns true when at least one message across all contexts
 // matches both the resolved field name and the Go type name of the notification.
@@ -58,7 +60,18 @@ func validAddress() appdomain.Address {
 	}
 }
 
-// ─── User root validation ────────────────────────────────────────────────────
+// validUser returns a flat User that passes Insert validation: the shared
+// Person fields (Name/Email/Phone/Document) plus the role-private UserName, with
+// one address. No ID — Insert fixtures want a fresh entity.
+func validUser() *appdomain.User {
+	return &appdomain.User{
+		Name:     "Jane Doe",
+		Email:    "jane@example.com",
+		Phone:    ptr("14155552671"),
+		Document: "10000000001",
+		UserName: "jane",
+	}
+}
 
 // ─── Layer-2 owner-check on Archive ──────────────────────────────────────────
 
@@ -68,11 +81,7 @@ func validAddress() appdomain.Address {
 // FindByID would yield in production.
 func buildValidUser(t *testing.T) *appdomain.User {
 	t.Helper()
-	u := &appdomain.User{
-		Name:  "Jane Doe",
-		Email: "jane@example.com",
-		Phone: ptr("14155552671"),
-	}
+	u := validUser()
 	u.SetID(domain.NewRandomID())
 	u.AddAddress(validAddress(), nil)
 	return u
@@ -82,7 +91,7 @@ func TestUser_BuildRules_Archive_NoPrincipal_Allows(t *testing.T) {
 	// Auth disabled / no principal attached → degraded "trust" mode, no
 	// owner-check fires. Mirrors the dev profile.
 	u := buildValidUser(t)
-	_, err := domain.GetArchivable(u, okService(), "GetArchivable")
+	_, err := domain.GetArchivable(u, nil, "GetArchivable")
 	if err != nil {
 		var carrier domain.NotificationCarrier
 		if errors.As(err, &carrier) {
@@ -96,7 +105,7 @@ func TestUser_BuildRules_Archive_NoPrincipal_Allows(t *testing.T) {
 func TestUser_BuildRules_Archive_OwnerEmailMatches_Allows(t *testing.T) {
 	u := buildValidUser(t)
 	u.RequestingPrincipalEmail = "jane@example.com" // same as u.Email
-	_, err := domain.GetArchivable(u, okService(), "GetArchivable")
+	_, err := domain.GetArchivable(u, nil, "GetArchivable")
 	if err != nil {
 		t.Errorf("archive must succeed when principal email matches owner, got: %v", err)
 	}
@@ -106,7 +115,7 @@ func TestUser_BuildRules_Archive_PrincipalIsAdmin_Allows(t *testing.T) {
 	u := buildValidUser(t)
 	u.RequestingPrincipalEmail = "admin@example.com" // different email
 	u.RequestingPrincipalIsAdmin = true              // admin bypass
-	_, err := domain.GetArchivable(u, okService(), "GetArchivable")
+	_, err := domain.GetArchivable(u, nil, "GetArchivable")
 	if err != nil {
 		t.Errorf("archive must succeed for admin even when emails differ, got: %v", err)
 	}
@@ -116,7 +125,7 @@ func TestUser_BuildRules_Archive_NonOwnerNonAdmin_Rejects(t *testing.T) {
 	u := buildValidUser(t)
 	u.RequestingPrincipalEmail = "intruder@example.com"
 	u.RequestingPrincipalIsAdmin = false
-	_, err := domain.GetArchivable(u, okService(), "GetArchivable")
+	_, err := domain.GetArchivable(u, nil, "GetArchivable")
 	if err == nil {
 		t.Fatal("archive must reject when principal is neither owner nor admin")
 	}
@@ -137,7 +146,7 @@ func TestUser_BuildRules_OwnerCheck_DoesNotFireOnUpdate(t *testing.T) {
 	// gates the owner-check.
 	u := buildValidUser(t)
 	u.RequestingPrincipalEmail = "intruder@example.com" // would fail Archive
-	_, err := domain.GetUpdatable(u, func(*appdomain.User) error { return nil }, okService(), "GetUpdatable")
+	_, err := domain.GetUpdatable(u, func(*appdomain.User) error { return nil }, nil, "GetUpdatable")
 	if err != nil {
 		var carrier domain.NotificationCarrier
 		if errors.As(err, &carrier) {
@@ -149,24 +158,21 @@ func TestUser_BuildRules_OwnerCheck_DoesNotFireOnUpdate(t *testing.T) {
 }
 
 func TestUser_BuildRules_HappyPath(t *testing.T) {
-	u := &appdomain.User{
-		Name:  "Jane Doe",
-		Email: "jane@example.com",
-		Phone: ptr("14155552671"),
-	}
+	u := validUser()
 	u.AddAddress(validAddress(), nil)
 
-	ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 	if !ok {
 		t.Fatalf("expected validation to pass, got: %s", dumpContexts(ctxs))
 	}
 }
 
 func TestUser_BuildRules_NameRequired(t *testing.T) {
-	u := &appdomain.User{Email: "jane@example.com"}
+	u := validUser()
+	u.Name = ""
 	u.AddAddress(validAddress(), nil)
 
-	ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 	if ok {
 		t.Fatal("expected validation to fail")
 	}
@@ -176,10 +182,11 @@ func TestUser_BuildRules_NameRequired(t *testing.T) {
 }
 
 func TestUser_BuildRules_EmailRequired(t *testing.T) {
-	u := &appdomain.User{Name: "Jane"}
+	u := validUser()
+	u.Email = ""
 	u.AddAddress(validAddress(), nil)
 
-	ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 	if ok {
 		t.Fatal("expected validation to fail")
 	}
@@ -201,10 +208,11 @@ func TestUser_BuildRules_EmailInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			u := &appdomain.User{Name: "Jane", Email: c.email}
+			u := validUser()
+			u.Email = c.email
 			u.AddAddress(validAddress(), nil)
 
-			ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+			ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 			if ok {
 				t.Fatalf("expected validation to fail for %q", c.email)
 			}
@@ -215,26 +223,103 @@ func TestUser_BuildRules_EmailInvalid(t *testing.T) {
 	}
 }
 
-func TestUser_BuildRules_PhoneOptional_NilPasses(t *testing.T) {
-	u := &appdomain.User{Name: "Jane", Email: "jane@example.com", Phone: nil}
+// ─── Document (the natural key) validation ────────────────────────────────────
+
+func TestUser_BuildRules_DocumentRequired(t *testing.T) {
+	u := validUser()
+	u.Document = ""
 	u.AddAddress(validAddress(), nil)
 
-	ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
+	if ok {
+		t.Fatal("expected validation to fail when document is empty")
+	}
+	if !hasNotification(ctxs, "document", "RequiredFieldNotification") {
+		t.Fatalf("expected RequiredFieldNotification on document; got %s", dumpContexts(ctxs))
+	}
+}
+
+func TestUser_BuildRules_DocumentInvalid(t *testing.T) {
+	cases := []struct {
+		name string
+		doc  string
+	}{
+		{"too short", "ab"},
+		{"illegal char", "doc 123"},
+		{"too long", strings.Repeat("9", 33)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			u := validUser()
+			u.Document = c.doc
+			u.AddAddress(validAddress(), nil)
+
+			ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
+			if ok {
+				t.Fatalf("expected validation to fail for document %q", c.doc)
+			}
+			if !hasNotification(ctxs, "document", "InvalidDocumentNotification") {
+				t.Fatalf("expected InvalidDocumentNotification on document; got %s", dumpContexts(ctxs))
+			}
+		})
+	}
+}
+
+func TestUser_BuildRules_UserNameRequired(t *testing.T) {
+	u := validUser()
+	u.UserName = ""
+	u.AddAddress(validAddress(), nil)
+
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
+	if ok {
+		t.Fatal("expected validation to fail when userName is empty")
+	}
+	if !hasNotification(ctxs, "userName", "RequiredFieldNotification") {
+		t.Fatalf("expected RequiredFieldNotification on userName; got %s", dumpContexts(ctxs))
+	}
+}
+
+// Notification preference flags are optional (*bool) — a nil pair is valid and
+// the framework simply does not materialize the user_configurations sibling.
+func TestUser_BuildRules_NotificationFlagsOptional(t *testing.T) {
+	u := validUser()
+	u.EmailNotification = nil
+	u.SmsNotification = nil
+	u.AddAddress(validAddress(), nil)
+	if ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil); !ok {
+		t.Fatalf("expected validation to pass with nil notification flags; got %s", dumpContexts(ctxs))
+	}
+
+	u2 := validUser()
+	u2.EmailNotification = bptr(true)
+	u2.SmsNotification = bptr(false)
+	u2.AddAddress(validAddress(), nil)
+	if ok, ctxs := domain.IsValid(u2, domain.ModeInsert, nil); !ok {
+		t.Fatalf("expected validation to pass with set notification flags; got %s", dumpContexts(ctxs))
+	}
+}
+
+func TestUser_BuildRules_PhoneOptional_NilPasses(t *testing.T) {
+	u := validUser()
+	u.Phone = nil
+	u.AddAddress(validAddress(), nil)
+
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 	if !ok {
 		t.Fatalf("expected validation to pass; got %s", dumpContexts(ctxs))
 	}
 }
 
 func TestUser_BuildRules_PhoneOptional_EmptyStringPasses(t *testing.T) {
-	// Phase 21: web/requests/ does not normalize empty string to nil (Request
-	// shape identical to Command, no NilIfEmpty at the boundary). BuildRules
-	// short-circuits when *Phone == "" and tolerates the empty pointer
-	// without rejecting.
+	// web/requests/ does not normalize empty string to nil (Request shape
+	// identical to Command, no NilIfEmpty at the boundary). BuildRules
+	// short-circuits when *Phone == "" and tolerates the empty pointer.
 	empty := ""
-	u := &appdomain.User{Name: "Jane", Email: "jane@example.com", Phone: &empty}
+	u := validUser()
+	u.Phone = &empty
 	u.AddAddress(validAddress(), nil)
 
-	ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 	if !ok {
 		t.Fatalf("expected validation to pass; got %s", dumpContexts(ctxs))
 	}
@@ -251,10 +336,11 @@ func TestUser_BuildRules_PhoneInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			u := &appdomain.User{Name: "Jane", Email: "jane@example.com", Phone: ptr(c.phone)}
+			u := validUser()
+			u.Phone = ptr(c.phone)
 			u.AddAddress(validAddress(), nil)
 
-			ok, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+			ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 			if ok {
 				t.Fatalf("expected validation to fail for %q", c.phone)
 			}
@@ -265,10 +351,10 @@ func TestUser_BuildRules_PhoneInvalid(t *testing.T) {
 	}
 }
 
-// ─── AddAddress (Phase 20 invariants) ────────────────────────────────────────
+// ─── AddAddress invariants ────────────────────────────────────────────────────
 
 func TestUser_AddAddress_AcceptsDistinct(t *testing.T) {
-	u := &appdomain.User{Name: "Jane", Email: "jane@example.com"}
+	u := validUser()
 	a1 := validAddress()
 	a2 := validAddress()
 	a2.Number = "2"
@@ -283,10 +369,10 @@ func TestUser_AddAddress_AcceptsDistinct(t *testing.T) {
 }
 
 func TestUser_AddAddress_RejectsDuplicateBusinessIdentity(t *testing.T) {
-	u := &appdomain.User{Name: "Jane", Email: "jane@example.com"}
+	u := validUser()
 	a := validAddress()
 	dup := validAddress()
-	// Different label/complement but same Country+ZIP+Street+Number → same business identity.
+	// Different label but same Country+ZIP+Street+Number → same business identity.
 	other := "other"
 	dup.Label = &other
 
@@ -300,7 +386,7 @@ func TestUser_AddAddress_RejectsDuplicateBusinessIdentity(t *testing.T) {
 	// Construction-time notification surfaces via GetInsertable (IsValid clears
 	// the context; GetInsertable preserves construction notifs through
 	// checkAllNotifications).
-	if _, err := domain.GetInsertable(u, okService(), "GetInsertable"); err == nil {
+	if _, err := domain.GetInsertable(u, nil, "GetInsertable"); err == nil {
 		t.Fatal("expected GetInsertable to fail due to DuplicateAddressNotification")
 	} else {
 		var carrier domain.NotificationCarrier
@@ -328,96 +414,65 @@ func asCarrier(err error, target *domain.NotificationCarrier) bool {
 	return true
 }
 
-// ─── Email immutability (transition-aware invariant via domain.Old) ──────────
+// ─── Document immutability (transition-aware invariant via domain.Old) ────────
 //
+// Document is the natural key of the shared Person identity, so it is immutable.
 // These tests exercise the canonical use case of domain.Old[T]: comparing the
-// pre-mutation state of the entity (snapshotted by the framework's Get* path)
-// against the post-mutation state inside BuildRules.
+// pre-mutation state (snapshotted by the framework's Get* path) against the
+// post-mutation state inside BuildRules.
 
-func TestUser_EmailImmutable_RejectsChangeOnUpdate(t *testing.T) {
-	u := &appdomain.User{
-		Name:  "Jane Doe",
-		Email: "jane@example.com",
-		Phone: ptr("14155552671"),
-	}
-	u.SetID(domain.NewRandomID())
-	u.AddAddress(validAddress(), nil)
+func TestUser_DocumentImmutable_RejectsChangeOnUpdate(t *testing.T) {
+	u := buildValidUser(t)
+	apply := func(x *appdomain.User) error { x.Document = "99999999999"; return nil }
 
-	apply := func(x *appdomain.User) error { x.Email = "jane.new@example.com"; return nil }
-
-	_, err := domain.GetUpdatable(u, apply, okService(), "GetUpdatable")
+	_, err := domain.GetUpdatable(u, apply, nil, "GetUpdatable")
 	if err == nil {
-		t.Fatal("expected GetUpdatable to fail when email is changed (immutable rule)")
+		t.Fatal("expected GetUpdatable to fail when document is changed (immutable rule)")
 	}
 	var carrier domain.NotificationCarrier
 	if !asCarrier(err, &carrier) {
 		t.Fatalf("expected NotificationCarrier error; got %v", err)
 	}
-	if !hasNotification(carrier.NotificationContexts(), "email", "EmailCannotChangeNotification") {
-		t.Fatalf("expected EmailCannotChangeNotification on email; got %s",
+	if !hasNotification(carrier.NotificationContexts(), "document", "DocumentCannotChangeNotification") {
+		t.Fatalf("expected DocumentCannotChangeNotification on document; got %s",
 			dumpContexts(carrier.NotificationContexts()))
 	}
 }
 
-func TestUser_EmailImmutable_AcceptsSameEmailOnUpdate(t *testing.T) {
-	u := &appdomain.User{
-		Name:  "Jane Doe",
-		Email: "jane@example.com",
-		Phone: ptr("14155552671"),
-	}
-	u.SetID(domain.NewRandomID())
-	u.AddAddress(validAddress(), nil)
+func TestUser_DocumentImmutable_FiresOnPartialUpdateToo(t *testing.T) {
+	u := buildValidUser(t)
+	apply := func(x *appdomain.User) error { x.Document = "88888888888"; return nil }
 
-	// Apply mutates other fields but keeps email — the rule should be silent.
-	apply := func(x *appdomain.User) error {
-		x.Name = "Jane Renamed"
-		x.Phone = ptr("14155553333")
-		return nil
+	_, err := domain.GetPartialUpdatable(u, apply, nil, "GetPartialUpdatable")
+	if err == nil {
+		t.Fatal("expected GetPartialUpdatable to fail when document is changed")
 	}
-
-	if _, err := domain.GetUpdatable(u, apply, okService(), "GetUpdatable"); err != nil {
-		t.Fatalf("expected GetUpdatable to pass when email did not change; got %v", err)
+	var carrier domain.NotificationCarrier
+	if !asCarrier(err, &carrier) {
+		t.Fatalf("expected NotificationCarrier error; got %v", err)
+	}
+	if !hasNotification(carrier.NotificationContexts(), "document", "DocumentCannotChangeNotification") {
+		t.Fatalf("expected DocumentCannotChangeNotification on document; got %s",
+			dumpContexts(carrier.NotificationContexts()))
 	}
 }
 
-func TestUser_EmailImmutable_NoOpOnInsert(t *testing.T) {
+func TestUser_DocumentImmutable_NoOpOnInsert(t *testing.T) {
 	// Insert has no previous state (domain.Old returns nil) — the rule must
-	// short-circuit and let any valid email through.
-	u := &appdomain.User{
-		Name:  "Jane Doe",
-		Email: "jane@example.com",
-		Phone: ptr("14155552671"),
-	}
+	// short-circuit and let any valid document through.
+	u := validUser()
 	u.AddAddress(validAddress(), nil)
-
-	if _, err := domain.GetInsertable(u, okService(), "GetInsertable"); err != nil {
+	if _, err := domain.GetInsertable(u, nil, "GetInsertable"); err != nil {
 		t.Fatalf("expected GetInsertable to pass on a fresh user; got %v", err)
 	}
 }
 
-func TestUser_EmailImmutable_FiresOnPartialUpdateToo(t *testing.T) {
-	// PATCH (PartialUpdate) shares the same Get* path as PUT — the rule fires
-	// equally because the framework snapshots before either apply closure runs.
-	u := &appdomain.User{
-		Name:  "Jane Doe",
-		Email: "jane@example.com",
-		Phone: ptr("14155552671"),
-	}
-	u.SetID(domain.NewRandomID())
-	u.AddAddress(validAddress(), nil)
-
-	apply := func(x *appdomain.User) error { x.Email = "different@example.com"; return nil }
-
-	_, err := domain.GetPartialUpdatable(u, apply, okService(), "GetPartialUpdatable")
-	if err == nil {
-		t.Fatal("expected GetPartialUpdatable to fail when email is changed")
-	}
-	var carrier domain.NotificationCarrier
-	if !asCarrier(err, &carrier) {
-		t.Fatalf("expected NotificationCarrier error; got %v", err)
-	}
-	if !hasNotification(carrier.NotificationContexts(), "email", "EmailCannotChangeNotification") {
-		t.Fatalf("expected EmailCannotChangeNotification on email; got %s",
-			dumpContexts(carrier.NotificationContexts()))
+// Email is NOW a plain mutable shared field (no longer the identity) — changing
+// it on Update must be allowed, in contrast with the immutable document.
+func TestUser_Email_MutableOnUpdate(t *testing.T) {
+	u := buildValidUser(t)
+	apply := func(x *appdomain.User) error { x.Email = "jane.new@example.com"; return nil }
+	if _, err := domain.GetUpdatable(u, apply, nil, "GetUpdatable"); err != nil {
+		t.Fatalf("expected GetUpdatable to pass when only email changes; got %v", err)
 	}
 }

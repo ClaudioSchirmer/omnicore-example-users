@@ -6,9 +6,13 @@
 #   postgres -> users-outbox-connector.json       (tails public.outbox via pgoutput)
 #   mysql    -> users-outbox-connector-mysql.json  (tails users_db.outbox via binlog)
 #
-# Both connectors route to the SAME topic (users.events) via the outbox
-# EventRouter, so the service's SyncEngine consumes whichever backend is active.
-# Register only the connector matching the backend you are running; the QA model
+# Both connectors route by the outbox `aggregate_type` field via the EventRouter
+# (route.topic.replacement = ${routedByValue}.events), so each aggregate gets its
+# own topic: the users role -> users.events, and the shared Person base ->
+# persons.events (a base write emits an extra aggregate_type=persons outbox row,
+# which the SyncEngine subscribes to and fans out to recompose the user docs). The
+# SyncEngine creates the topics it subscribes to, so persons.events appears on its
+# own. Register only the connector matching the backend you are running; the QA model
 # runs one backend at a time. The connectors carry distinct names + topic
 # prefixes, so registering one never disturbs the other.
 #

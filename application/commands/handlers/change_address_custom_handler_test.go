@@ -28,8 +28,8 @@ func TestChangeAddressCustomCommandHandler_HappyPath(t *testing.T) {
 
 	newLabel := "office"
 	cmd := &commands.ChangeAddressCustomCommand{
-		EmailKey:  "jane@example.com",
-		AddressID: existingAddressID,
+		DocumentKey: "jane@example.com",
+		AddressID:   existingAddressID,
 		Address: dtos.AddressInputCustom{
 			Label:        &newLabel,
 			Street:       "2 New Way",
@@ -64,17 +64,17 @@ func TestChangeAddressCustomCommandHandler_HappyPath(t *testing.T) {
 }
 
 func TestChangeAddressCustomCommandHandler_NotFound(t *testing.T) {
-	repo := &fakeRepo{} // foundUser nil → FindByEmail returns errNotFound
+	repo := &fakeRepo{} // foundUser nil → FindByDocument returns errNotFound
 	h := &ChangeAddressCustomCommandHandler{Repo: repo, Service: fakeService{}}
 
 	cmd := &commands.ChangeAddressCustomCommand{
-		EmailKey:  "ghost@example.com",
-		AddressID: uuid.NewString(),
+		DocumentKey: "ghost@example.com",
+		AddressID:   uuid.NewString(),
 	}
 
 	_, err := h.Handle(testCtx(), cmd)
 	if err == nil {
-		t.Fatal("expected error from FindByEmail miss")
+		t.Fatal("expected error from FindByDocument miss")
 	}
 	if repo.updateCalled != 0 {
 		t.Errorf("expected Update NOT called, got %d", repo.updateCalled)

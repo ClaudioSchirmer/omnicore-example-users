@@ -13,22 +13,30 @@ import (
 
 // ─── Canonical commands ────────────────────────────────────────────────────
 
-func TestInsertUserCommand_ToEntity_CopiesFieldsAndAddresses(t *testing.T) {
+func TestInsertUserCommand_ApplyTo_CopiesFieldsAndAddresses(t *testing.T) {
 	phone := "11999"
+	emailNotif := true
 	cmd := InsertUserCommand{
-		Name:  "Alice",
-		Email: "a@x.com",
-		Phone: &phone,
+		Name:              "Alice",
+		Email:             "a@x.com",
+		Phone:             &phone,
+		Document:          "10000000001",
+		UserName:          "alice",
+		EmailNotification: &emailNotif,
 		Addresses: []dtos.AddressInput{
 			{Street: "St 1", Number: "1", Neighborhood: "N", City: "C", State: "ST", ZipCode: "00000", Country: "BR"},
 		},
 	}
-	u, _ := cmd.ToEntity(nil)
-	if u.Name != "Alice" || u.Email != "a@x.com" {
+	u := &appdomain.User{}
+	_ = cmd.ApplyTo(nil, u)
+	if u.Name != "Alice" || u.Email != "a@x.com" || u.Document != "10000000001" || u.UserName != "alice" {
 		t.Errorf("entity fields = %+v", u)
 	}
 	if u.Phone == nil || *u.Phone != "11999" {
 		t.Errorf("Phone = %v", u.Phone)
+	}
+	if u.EmailNotification == nil || !*u.EmailNotification {
+		t.Errorf("EmailNotification = %v", u.EmailNotification)
 	}
 	addrs := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
 	if len(addrs) != 1 || addrs[0].Street != "St 1" {
@@ -165,52 +173,57 @@ func TestDeleteUserCommand_FromEntityAndApplyTo(t *testing.T) {
 
 // ─── Custom commands (manual showcase) ────────────────────────────────────
 
-func TestInsertUserCustomCommand_ToEntityAndFromEntity(t *testing.T) {
+func TestInsertUserCustomCommand_ApplyToAndFromEntity(t *testing.T) {
 	phone := "999"
 	cmd := InsertUserCustomCommand{
-		Name:  "Alice",
-		Email: "a@x.com",
-		Phone: &phone,
+		Name:     "Alice",
+		Email:    "a@x.com",
+		Phone:    &phone,
+		Document: "10000000001",
+		UserName: "alice",
 		Addresses: []dtos.AddressInputCustom{
 			{Street: "S", Number: "1", Neighborhood: "N", City: "C", State: "ST", ZipCode: "0", Country: "BR"},
 		},
 	}
-	u, _ := cmd.ToEntity(nil)
-	if u.Name != "Alice" || u.Email != "a@x.com" {
-		t.Errorf("custom ToEntity root = %+v", u)
+	u := &appdomain.User{}
+	_ = cmd.ApplyTo(nil, u)
+	if u.Name != "Alice" || u.Email != "a@x.com" || u.Document != "10000000001" || u.UserName != "alice" {
+		t.Errorf("custom ApplyTo root = %+v", u)
 	}
 	if got := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot); len(got) != 1 {
-		t.Errorf("custom ToEntity addresses = %v", got)
+		t.Errorf("custom ApplyTo addresses = %v", got)
 	}
 
 	// FromEntity must populate ID via *u.GetID().
 	u.SetID(domain.NewRandomID())
 	res, _ := cmd.FromEntity(nil, u)
-	if res.Name != "Alice" || res.Email != "a@x.com" {
+	if res.Name != "Alice" || res.Email != "a@x.com" || res.Document != "10000000001" {
 		t.Errorf("custom FromEntity = %+v", res)
 	}
 }
 
-func TestUpdateUserCustomCommand_ApplyToReplacesAndDropsEmail(t *testing.T) {
-	u := &appdomain.User{Name: "Old", Email: "kept@x"}
+func TestUpdateUserCustomCommand_ApplyToReplacesFields(t *testing.T) {
+	u := &appdomain.User{Name: "Old", Email: "old@x", Document: "10000000001"}
 	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 
 	cmd := &UpdateUserCustomCommand{
-		EmailKey: "kept@x",
-		Name:     "New",
-		Phone:    nil,
+		DocumentKey: "10000000001",
+		Name:        "New",
+		Email:       "new@x",
+		UserName:    "newuser",
+		Phone:       nil,
 		Addresses: []dtos.AddressInputCustom{
 			{Street: "S", Number: "1", Neighborhood: "N", City: "C", State: "ST", ZipCode: "0", Country: "BR"},
 		},
 	}
 	cmd.ApplyTo(nil, u)
-	if u.Name != "New" {
-		t.Errorf("Name not replaced: %q", u.Name)
+	if u.Name != "New" || u.UserName != "newuser" {
+		t.Errorf("root fields not replaced: %+v", u)
 	}
-	// Email NOT replaced — surface drops it from the mutable shape.
-	if u.Email != "kept@x" {
-		t.Errorf("Email must stay immutable on custom surface, got %q", u.Email)
+	// Email IS now editable (a plain mutable shared field — document is the key).
+	if u.Email != "new@x" {
+		t.Errorf("Email must be replaced on the custom surface, got %q", u.Email)
 	}
 	current := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
 	if len(current) != 1 {
@@ -234,7 +247,7 @@ func TestPatchUserCustomCommand_ApplyPartiallyTo(t *testing.T) {
 	u.SetID(domain.NewID(uuid.NewString()))
 
 	newName := "New"
-	cmd := &PatchUserCustomCommand{EmailKey: email0, Name: &newName}
+	cmd := &PatchUserCustomCommand{DocumentKey: email0, Name: &newName}
 	cmd.ApplyPartiallyTo(nil, u)
 	if u.Name != "New" || u.Email != "kept@x" {
 		t.Errorf("patch custom: %+v", u)
@@ -275,8 +288,8 @@ func TestChangeAddressCustomCommand_ApplyAndFromEntity(t *testing.T) {
 	})
 
 	cmd := &ChangeAddressCustomCommand{
-		EmailKey:  "e@x",
-		AddressID: "addr-1",
+		DocumentKey: "e@x",
+		AddressID:   "addr-1",
 		Address: dtos.AddressInputCustom{
 			Street: "New", Number: "1", Neighborhood: "N", City: "C",
 			State: "ST", ZipCode: "0", Country: "BR",

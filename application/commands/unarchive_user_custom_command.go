@@ -9,15 +9,15 @@ import (
 )
 
 // UnarchiveUserCustomCommand restores a soft-deleted user in the manual
-// showcase chain. EmailKey comes from the /:email path segment.
+// showcase chain. DocumentKey comes from the /:email path segment.
 type UnarchiveUserCustomCommand struct {
 	pipeline.CommandBase
-	EmailKey string
+	DocumentKey string
 }
 
 // ApplyTo is the hook for ctx → business translation on the unarchive verb.
 // Symmetric to ArchiveUserCustomCommand.ApplyTo — the manual handler calls
-// it AFTER FindArchivedByEmail hydrates the archived aggregate and BEFORE
+// it AFTER FindArchivedByDocument hydrates the archived aggregate and BEFORE
 // GetUnarchivable runs BuildRules in ModeUpdate with
 // actionName="GetUnarchivable". No-op today; future authz would populate
 // the transient identity field here.

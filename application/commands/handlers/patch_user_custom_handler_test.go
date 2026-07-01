@@ -15,8 +15,8 @@ func TestPatchUserCustomCommandHandler_PartialUpdate(t *testing.T) {
 
 	newName := "Jane Patched"
 	cmd := &commands.PatchUserCustomCommand{
-		EmailKey: "jane@example.com",
-		Name:     &newName,
+		DocumentKey: "10000000001",
+		Name:        &newName,
 	}
 
 	result, err := h.Handle(testCtx(), cmd)
@@ -46,7 +46,7 @@ func TestPatchUserCustomCommandHandler_EmptyBody(t *testing.T) {
 	repo := &fakeRepo{foundUser: newPersistedUser(t)}
 	h := &PatchUserCustomCommandHandler{Repo: repo, Service: fakeService{}}
 
-	cmd := &commands.PatchUserCustomCommand{EmailKey: "jane@example.com"}
+	cmd := &commands.PatchUserCustomCommand{DocumentKey: "10000000001"}
 
 	result, err := h.Handle(testCtx(), cmd)
 	if err != nil {

@@ -38,24 +38,21 @@ type ShowcaseFeature struct {
 	kc         *appexternal.KeycloakService
 	echo       *appexternal.EchoService
 	customRepo *appinfra.UserCustomRepository
-	customSvc  *appinfra.UserService
 }
 
-// NewShowcaseFeature builds the outbound adapters over the shared
-// HttpClient and the manual showcase Repository + Service over the shared
-// relational engine. The duplicate UserService instance (UsersFeature already
-// constructs one) is intentional and cheap: UserService is stateless and
-// the alternative — threading it across features — would couple
-// ShowcaseFeature to UsersFeature, breaking the bootstrap.Feature contract.
+// NewShowcaseFeature builds the outbound adapters over the shared HttpClient
+// and the manual showcase Repository over the shared relational engine. The
+// User aggregate needs no domain service (the SharedBase write path enforces
+// identity), so none is constructed; the manual handlers receive a nil service,
+// tolerated by the framework when the entity requires none.
 func NewShowcaseFeature(d bootstrap.Deps) *ShowcaseFeature {
-	// customRepo + customSvc are backend-neutral: they take the relational
-	// engine (Deps.DB) directly, so swapping the SQL backend is a YAML dialect
-	// change with no edit here.
+	// customRepo is backend-neutral: it takes the relational engine (Deps.DB)
+	// directly, so swapping the SQL backend is a YAML dialect change with no
+	// edit here.
 	return &ShowcaseFeature{
 		kc:         appexternal.NewKeycloakService(d.HttpClient),
 		echo:       appexternal.NewEchoService(d.HttpClient),
 		customRepo: appinfra.NewUserCustomRepository(d.DB),
-		customSvc:  appinfra.NewUserService(d.DB),
 	}
 }
 
@@ -68,7 +65,7 @@ func (f *ShowcaseFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	appweb.MountWhoami(app, d)
 	appweb.MountEcho(app, d)
 	appweb.MountShowcase(app, f.kc, f.echo, d)
-	appweb.MountUsersCustom(app, f.customRepo, f.customSvc, d)
+	appweb.MountUsersCustom(app, f.customRepo, nil, d)
 	// /showcase/cache/* — minimal CRUD over Deps.Cache (private) and
 	// Deps.SharedCache (shared) so qa/cache.sh can drive the framework's
 	// cache subsystem end to end. Hidden in the OpenAPI spec because it's

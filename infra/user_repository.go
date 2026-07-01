@@ -10,38 +10,43 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
 
-// UserRepository is a canonical aggregate-aware Repository: embeds
-// read.BaseAggregateRepository[*User], which itself bundles:
+// UserRepository is the role repository for the User aggregate, which is backed
+// by a SharedBase (the Person identity). It embeds
+// read.SharedBaseRoleRepository[*User] — the aggregate repository PLUS the
+// persistence.SharedBaseInsertLoader[*User] capability the SharedBase upsert
+// insert needs (load-by-natural-key of the existing identity + its base
+// children before a POST).
 //
-//   - BaseRepository[*User]: Insert/Update/Archive/Unarchive/Delete + New()
-//     via factory. Unique violations (classified by the engine's Dialect)
-//     become typed notifications via the Constraints map.
-//   - *AggregateLoader[*User]: FindByID/FindArchivedByID via auto-scan driven
-//     by the explicit UserSchema() (root + Address child). WithSchema threads
-//     the same map into the write binding, the criteria engine, and the scan.
-//
-// ContextName not declared — derived from the Go type T via TypeName[T](),
-// default "User". Override only for custom magic patterns (legacy / two Repos
-// on the same aggregate).
+// The capability marries this repository to handlers.SharedBaseInsertCommandHandler:
+// the plain InsertCommandHandler refuses a SharedBase-backed repo, and this
+// handler refuses a non-SharedBase one. WithSchema asserts UserSchema() actually
+// declares a SharedBase.
 type UserRepository struct {
-	read.BaseAggregateRepository[*appdomain.User]
+	read.SharedBaseRoleRepository[*appdomain.User]
 }
 
 func NewUserRepository(eng core.RelationalEngine) *UserRepository {
 	r := &UserRepository{
-		BaseAggregateRepository: read.NewBaseAggregateRepository[*appdomain.User](
+		SharedBaseRoleRepository: read.NewSharedBaseRoleRepository[*appdomain.User](
 			eng,
 			func() *appdomain.User { return &appdomain.User{} },
 		),
 	}
+	// The happy-path 409 (POST for a person who already has an active user)
+	// comes from the framework's SharedBase write matrix directly
+	// (EntityAlreadyAddedNotification). This constraint binding is the
+	// concurrency safety net: two simultaneous POSTs for the same new document
+	// race past the existence probe and one loses on UNIQUE(person_id) — map
+	// that violation to the SAME 409 notification for a consistent envelope.
 	r.Constraints = map[string]write.ConstraintBinding{
-		"users_email_active_idx": {Notification: appdomain.EmailAlreadyExistsNotification{}, Field: "email"},
+		"users_person_unique": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 	}
 	r.WithSchema(UserSchema())
 	return r
 }
 
 var (
-	_ persistence.ScopedRepository[*appdomain.User] = (*UserRepository)(nil)
-	_ domain.ArchivedFinder[*appdomain.User]        = (*UserRepository)(nil)
+	_ persistence.ScopedRepository[*appdomain.User]       = (*UserRepository)(nil)
+	_ persistence.SharedBaseInsertLoader[*appdomain.User] = (*UserRepository)(nil)
+	_ domain.ArchivedFinder[*appdomain.User]              = (*UserRepository)(nil)
 )

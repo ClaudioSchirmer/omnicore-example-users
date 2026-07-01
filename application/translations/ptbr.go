@@ -15,14 +15,14 @@ func (ptbr) Language() configuration.Language { return configuration.LangPTBR }
 
 func (ptbr) Translations() map[string]string {
 	return map[string]string{
-		"InvalidEmailNotification":       "E-mail inválido.",
-		"InvalidPhoneNotification":       "Telefone inválido.",
-		"InvalidStateNotification":       "Estado inválido.",
-		"InvalidZipCodeNotification":     "Código postal inválido.",
-		"InvalidCountryNotification":     "País inválido (use código ISO de 2 letras).",
-		"EmailAlreadyExistsNotification": "E-mail já cadastrado.",
-		"EmailCannotChangeNotification":  "O e-mail não pode ser alterado após a criação do usuário.",
-		"DuplicateAddressNotification":   "Endereço duplicado neste usuário.",
+		"InvalidEmailNotification":         "E-mail inválido.",
+		"InvalidPhoneNotification":         "Telefone inválido.",
+		"InvalidDocumentNotification":      "Documento inválido.",
+		"InvalidStateNotification":         "Estado inválido.",
+		"InvalidZipCodeNotification":       "Código postal inválido.",
+		"InvalidCountryNotification":       "País inválido (use código ISO de 2 letras).",
+		"DocumentCannotChangeNotification": "O documento não pode ser alterado após a criação do usuário.",
+		"DuplicateAddressNotification":     "Endereço duplicado neste usuário.",
 		// Parameterized notification — {maxLength} é substituído em tempo de
 		// render pelo valor do campo `tvar:"maxLength"` da notification.
 		"NameMaxLengthExceededNotification": "O nome excede o tamanho máximo permitido de {maxLength} caracteres.",
@@ -39,17 +39,21 @@ func (ptbr) Translations() map[string]string {
 		// canais sem frontend (e-mail, SMS, push, leitura de auditoria) leem
 		// o envelope direto e enxergam "CEP" em vez de
 		// "addresses[0].zipCode".
-		"UserNameField":            "Nome",
-		"UserEmailField":           "E-mail",
-		"UserPhoneField":           "Telefone",
-		"AddressLabelField":        "Rótulo",
-		"AddressStreetField":       "Rua",
-		"AddressNumberField":       "Número",
-		"AddressComplementField":   "Complemento",
-		"AddressNeighborhoodField": "Bairro",
-		"AddressCityField":         "Cidade",
-		"AddressStateField":        "Estado",
-		"AddressZipCodeField":      "CEP",
-		"AddressCountryField":      "País",
+		"UserNameField":              "Nome",
+		"UserEmailField":             "E-mail",
+		"UserPhoneField":             "Telefone",
+		"UserDocumentField":          "Documento",
+		"UserUserNameField":          "Nome de usuário",
+		"UserEmailNotificationField": "Notificação por e-mail",
+		"UserSmsNotificationField":   "Notificação por SMS",
+		"AddressLabelField":          "Rótulo",
+		"AddressStreetField":         "Rua",
+		"AddressNumberField":         "Número",
+		"AddressComplementField":     "Complemento",
+		"AddressNeighborhoodField":   "Bairro",
+		"AddressCityField":           "Cidade",
+		"AddressStateField":          "Estado",
+		"AddressZipCodeField":        "CEP",
+		"AddressCountryField":        "País",
 	}
 }

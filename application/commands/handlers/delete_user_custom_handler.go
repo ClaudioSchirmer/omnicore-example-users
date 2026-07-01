@@ -12,7 +12,7 @@ import (
 // RespondWithSuccess with status 204 emits the success envelope without a
 // data field (struct{} marshals to {} and json:"data,omitempty" prunes it).
 //
-// cmd.ApplyTo runs AFTER FindByEmail and BEFORE GetDeletable — same seam
+// cmd.ApplyTo runs AFTER FindByDocument and BEFORE GetDeletable — same seam
 // for ctx → authz translation the framework's DeleteCommandHandler exposes
 // on the canonical surface.
 //
@@ -27,7 +27,7 @@ func (h *DeleteUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.DeleteUserCustomCommand,
 ) (struct{}, error) {
 	repo := h.Repo.Scope(ctx)
-	user, err := repo.FindByEmail(cmd.EmailKey)
+	user, err := repo.FindByDocument(cmd.DocumentKey)
 	if err != nil {
 		return struct{}{}, err
 	}

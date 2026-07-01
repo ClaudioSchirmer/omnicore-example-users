@@ -24,11 +24,15 @@ import (
 // value-add is the manual orchestration written out, not a divergent response
 // shape per verb.
 type UserCustomResult struct {
-	ID        domain.ID
-	Name      string
-	Email     string
-	Phone     *string
-	Addresses []AddressCustomResult
+	ID                domain.ID
+	Name              string
+	Email             string
+	Phone             *string
+	Document          string
+	UserName          string
+	EmailNotification *bool
+	SmsNotification   *bool
+	Addresses         []AddressCustomResult
 }
 
 // AddressCustomResult is the snapshot of one Address row inside UserCustomResult.
@@ -74,10 +78,14 @@ func userCustomResultFromUser(u *appdomain.User) UserCustomResult {
 		}
 	}
 	return UserCustomResult{
-		ID:        *u.GetID(),
-		Name:      u.Name,
-		Email:     u.Email,
-		Phone:     u.Phone,
-		Addresses: out,
+		ID:                *u.GetID(),
+		Name:              u.Name,
+		Email:             u.Email,
+		Phone:             u.Phone,
+		Document:          u.Document,
+		UserName:          u.UserName,
+		EmailNotification: u.EmailNotification,
+		SmsNotification:   u.SmsNotification,
+		Addresses:         out,
 	}
 }

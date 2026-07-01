@@ -128,11 +128,14 @@ gql "mutation { createUser(input: {
         name: \"GraphQL Tester\",
         email: \"${EMAIL}\",
         phone: \"14155552671\",
+        document: \"10000000050\",
+        userName: \"gqltester\",
         addresses: [{ label: \"home\", street: \"1 Infinite Loop\", number: \"1\",
                       neighborhood: \"Mariani\", city: \"Cupertino\", state: \"CA\",
                       zipCode: \"95014\", country: \"US\" }]
-     }) { id name email } }" >/dev/null
+     }) { id name email document userName } }" >/dev/null
 assert_jq "createUser returns the email" '.data.createUser.email' "${EMAIL}"
+assert_jq "createUser returns the document (natural key)" '.data.createUser.document' "10000000050"
 USER_ID=$(jq -r '.data.createUser.id' /tmp/qa-graphql.body 2>/dev/null)
 echo "USER_ID : ${USER_ID}"
 
@@ -174,18 +177,24 @@ assert_jq_true "unknown root field surfaces an error" '.errors | length > 0'
 if [ -n "${USER_ID}" ] && [ "${USER_ID}" != "null" ]; then
 
     # ── 11. updateUser (PUT, MutationWithBodyID, strict body) ───────────────────
-    # FullBody → every input field is NonNull, so the whole body is sent.
-    # Email is immutable on update (domain rule), so it is kept identical.
+    # FullBody → every NonNull input field is sent (userName is required;
+    # document is the immutable natural key and is NOT part of the update input).
+    # Email is now a plain mutable shared field, so the update changes it.
+    # PUT is strict (FullBody), so GraphQL reflects every field NonNull —
+    # including the notification flags (Boolean!) — so they must be supplied.
     gql "mutation { updateUser(id: \"${USER_ID}\", input: {
             name: \"GraphQL Updated\",
-            email: \"${EMAIL}\",
+            email: \"gql.updated@example.com\",
             phone: \"14155550000\",
+            userName: \"gqltester\",
+            emailNotification: true,
+            smsNotification: false,
             addresses: [{ label: \"work\", street: \"2 Loop\", number: \"2\",
                           neighborhood: \"Centro\", city: \"Cupertino\", state: \"CA\",
                           zipCode: \"95015\", country: \"US\" }]
          }) { id name email } }" >/dev/null
     assert_jq "updateUser applies the new name" '.data.updateUser.name' "GraphQL Updated"
-    assert_jq "updateUser keeps the (immutable) email" '.data.updateUser.email' "${EMAIL}"
+    assert_jq "updateUser applies the new (mutable) email" '.data.updateUser.email' "gql.updated@example.com"
 
     # ── 12. patchUser (PATCH, MutationWithBodyID, lenient body) ─────────────────
     gql "mutation { patchUser(id: \"${USER_ID}\", input: { name: \"GraphQL Patched\" }) { id name } }" >/dev/null
@@ -212,6 +221,7 @@ fi
 # createUser with a malformed email fires InvalidEmailNotification (Validation).
 gql "mutation { createUser(input: {
         name: \"Bad Email\", email: \"not-an-email\", phone: \"14155552671\",
+        document: \"10000000051\", userName: \"bademail\",
         addresses: [{ label: \"home\", street: \"1 Loop\", number: \"1\",
                       neighborhood: \"X\", city: \"Y\", state: \"CA\",
                       zipCode: \"95014\", country: \"US\" }]

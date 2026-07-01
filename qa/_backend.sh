@@ -17,7 +17,7 @@
 #      `docker exec omnicore-example-postgres psql ...` / `mongosh users_views`:
 #         qa_db_query "<sql>"   -> run a query, print rows (tab-separated, no header)
 #         qa_db_exec  "<sql>"   -> run a statement, discard output
-#         qa_db_reset_domain    -> wipe users+addresses+outbox (FK-safe per dialect)
+#         qa_db_reset_domain    -> wipe persons+users+addresses+user_configurations+outbox (FK-safe per dialect)
 #         qa_uuid_select <expr> -> SELECT expression that renders a UUID column as
 #                                  its canonical text (id is uuid on PG, BINARY(16)
 #                                  on MySQL — BIN_TO_UUID restores the text form)
@@ -50,8 +50,10 @@ case "$BACKEND" in
     qa_db_query() { docker exec "$QA_DB_CONTAINER" psql -U omnicore -d users_db -tA -c "$1"; }
     qa_db_exec()  { docker exec "$QA_DB_CONTAINER" psql -U omnicore -d users_db -c "$1" >/dev/null; }
     qa_db_reset_domain() {
+      # persons is the SharedBase root; CASCADE drops the dependent users /
+      # addresses / user_configurations rows in FK order.
       docker exec "$QA_DB_CONTAINER" psql -U omnicore -d users_db -c \
-        "TRUNCATE TABLE users CASCADE; TRUNCATE TABLE outbox;" >/dev/null
+        "TRUNCATE TABLE persons, users, addresses, user_configurations CASCADE; TRUNCATE TABLE outbox;" >/dev/null
     }
     # PG renders uuid columns as text already; the expression is used verbatim.
     qa_uuid_select() { printf '%s' "$1"; }
@@ -74,9 +76,9 @@ case "$BACKEND" in
     qa_db_exec()  { docker exec "$QA_DB_CONTAINER" mysql -uomnicore -pomnicore -D users_db -e "$1" 2>/dev/null; }
     qa_db_reset_domain() {
       # MySQL cannot TRUNCATE a table referenced by a FK; disable the check and
-      # truncate child-first. Scoped to this connection.
+      # truncate child-first (user_configurations + addresses + users → persons).
       docker exec "$QA_DB_CONTAINER" mysql -uomnicore -pomnicore -D users_db 2>/dev/null -e \
-        "SET FOREIGN_KEY_CHECKS=0; TRUNCATE TABLE addresses; TRUNCATE TABLE users; TRUNCATE TABLE outbox; SET FOREIGN_KEY_CHECKS=1;"
+        "SET FOREIGN_KEY_CHECKS=0; TRUNCATE TABLE user_configurations; TRUNCATE TABLE addresses; TRUNCATE TABLE users; TRUNCATE TABLE persons; TRUNCATE TABLE outbox; SET FOREIGN_KEY_CHECKS=1;"
     }
     # id/user_id are BINARY(16); BIN_TO_UUID(col, 0) restores the canonical text
     # (0 = no time-low swap, matching the framework's standard-order u[:] bytes).

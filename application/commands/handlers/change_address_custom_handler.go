@@ -12,7 +12,7 @@ import (
 // canonical UpdateCommandHandler[*User, *ChangeAddressCommand, …]. Same
 // lifecycle: load → snapshot via domain.Old (captured inside GetUpdatable)
 // → apply the command → validate → persist via Orchestrator.Update. The
-// only step that diverges is FindByEmail in place of FindByID — same
+// only step that diverges is FindByDocument in place of FindByID — same
 // reason the other manual update twins (UpdateUserCustomCommandHandler,
 // PatchUserCustomCommandHandler) keep their hand-rolled chain.
 //
@@ -28,7 +28,7 @@ func (h *ChangeAddressCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.ChangeAddressCustomCommand,
 ) (commands.UserCustomResult, error) {
 	repo := h.Repo.Scope(ctx)
-	user, err := repo.FindByEmail(cmd.EmailKey)
+	user, err := repo.FindByDocument(cmd.DocumentKey)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}

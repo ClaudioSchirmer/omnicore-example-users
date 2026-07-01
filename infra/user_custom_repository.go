@@ -6,10 +6,10 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
 	"github.com/ClaudioSchirmer/omnicore/domain"
-	"github.com/ClaudioSchirmer/omnicore/infra/db/criteria"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/command/read"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/command/write"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/criteria"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
@@ -19,8 +19,8 @@ import (
 // read.BaseAggregateRepository — New() + FindByID + FindArchivedByID +
 // Scope come "for free" via promotion. This struct deliberately does NOT
 // embed it: the reads + the scoped-write binding are written out so a reader
-// can see what the canonical wrapper hides, and so we can add the email-keyed
-// lookups (FindByEmail / FindArchivedByEmail) that no framework primitive
+// can see what the canonical wrapper hides, and so we can add the document-keyed
+// lookups (FindByDocument / FindArchivedByDocument) that no framework primitive
 // exposes.
 //
 // The repository PORT (read+write) is a domain concept — appdomain.UserCustomRepository
@@ -31,12 +31,19 @@ import (
 // are 1-line delegations to the neutral core.RelationalEngine — the same
 // primitives BaseRepository.Scope calls under the hood, on any backend.
 //
-// FindByEmail and FindArchivedByEmail are the actual reason this Repository
-// exists. The /:email path identifier on the showcase routes is an alternate
-// key the by-id contract does not cover; the custom Repository resolves it
-// through the framework's entity search engine — criteria.Eq("Email", email)
-// handed to the AggregateLoader's FindOne, which compiles the WHERE, hydrates
-// root + children, and returns RecordNotFound on a miss. No bespoke SQL.
+// FindByDocument and FindArchivedByDocument are the actual reason this
+// Repository exists. The /:document path identifier on the showcase routes is
+// an alternate key the by-id contract does not cover; the custom Repository
+// resolves it through the framework's entity search engine —
+// criteria.Eq("Document", document) handed to the AggregateLoader's FindOne,
+// which compiles the WHERE (a LEFT JOIN role→shared-base, since Document is a
+// base field), hydrates the role + its base fields + base children, and returns
+// RecordNotFound on a miss. No bespoke SQL.
+//
+// It also satisfies persistence.SharedBaseInsertLoader[*User] via
+// LoadForSharedBaseInsert, so the manual insert handler can hydrate the existing
+// Person identity (name + addresses as Constructor items) before a POST — the
+// same load the canonical SharedBaseInsertCommandHandler does automatically.
 type UserCustomRepository struct {
 	eng         core.RelationalEngine
 	loader      *read.AggregateLoader[*appdomain.User]
@@ -46,11 +53,12 @@ type UserCustomRepository struct {
 }
 
 // NewUserCustomRepository wires the Repository over the shared RelationalEngine
-// and builds an AggregateLoader that scans *User + its Address children driven by
-// the explicit UserSchema() (root + Address child). The same email-uniqueness constraint mapping is
-// copied from UserRepository so that a unique violation reaching this
-// surface emits EmailAlreadyExistsNotification (semantic Conflict → 409)
-// instead of leaking the raw driver error.
+// and builds an AggregateLoader that scans *User + its shared Person base + the
+// base's Address children, driven by the explicit UserSchema(). The same
+// duplicate-role constraint mapping is copied from UserRepository so a
+// UNIQUE(person_id) violation reaching this surface emits
+// EntityAlreadyAddedNotification (semantic Conflict → 409) instead of leaking
+// the raw driver error.
 func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
 	newUser := func() *appdomain.User { return &appdomain.User{} }
 	schema := UserSchema()
@@ -61,7 +69,7 @@ func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
 		schema:      schema,
 		contextName: "User",
 		constraints: map[string]write.ConstraintBinding{
-			"users_email_active_idx": {Notification: appdomain.EmailAlreadyExistsNotification{}, Field: "email"},
+			"users_person_unique": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		},
 	}
 }
@@ -141,19 +149,31 @@ func (r *UserCustomRepository) FindArchivedByID(id domain.ID) (*appdomain.User, 
 	return r.loader.FindOne(context.Background(), criteria.ByID(id).OnlyArchived())
 }
 
-// FindByEmail loads the active aggregate whose email matches, via the entity
-// search engine: criteria.Eq("Email", email) compiles to the WHERE clause and
-// FindOne hydrates root + children, returning RecordNotFound on a miss (same
-// 404 envelope as the canonical by-id miss).
-func (r *UserCustomRepository) FindByEmail(email string) (*appdomain.User, error) {
-	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)))
+// FindByDocument loads the active aggregate whose Person document matches, via
+// the entity search engine: criteria.Eq("Document", document) compiles to the
+// WHERE clause (a LEFT JOIN role→shared-base, since Document is a base field)
+// and FindOne hydrates role + base + base children, returning RecordNotFound on
+// a miss (same 404 envelope as the canonical by-id miss).
+func (r *UserCustomRepository) FindByDocument(document string) (*appdomain.User, error) {
+	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Document", document)))
 }
 
-// FindArchivedByEmail is the symmetric inverse used by the Unarchive flow —
+// FindArchivedByDocument is the symmetric inverse used by the Unarchive flow —
 // same criterion under the OnlyArchived scope (deleted_at IS NOT NULL), with
 // children loaded unfiltered so the cascade sees them.
-func (r *UserCustomRepository) FindArchivedByEmail(email string) (*appdomain.User, error) {
-	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)).OnlyArchived())
+func (r *UserCustomRepository) FindArchivedByDocument(document string) (*appdomain.User, error) {
+	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Document", document)).OnlyArchived())
+}
+
+// LoadForSharedBaseInsert satisfies persistence.SharedBaseInsertLoader[*User]:
+// it loads the existing shared Person identity (base fields + the base's
+// addresses as Constructor items) by the natural key carried on fresh. The
+// manual insert handler calls this BEFORE a POST so the command can dedup the
+// request's addresses against the ones the person already has, and so the
+// persister's forgot-guard (which rejects a blind insert against a pre-existing
+// identity) is satisfied. existed=false → cold insert.
+func (r *UserCustomRepository) LoadForSharedBaseInsert(ctx *configuration.AppContext, fresh *appdomain.User) (*appdomain.User, bool, error) {
+	return r.loader.LoadSharedBaseIdentity(ctx, fresh)
 }
 
 // ─── Constraint-violation translation ───────────────────────────────────────
@@ -184,7 +204,8 @@ func (r *UserCustomRepository) mapErr(err error) error {
 // port; the bound writer is a domain.Writer; the unscoped struct is an
 // ArchivedFinder for the unarchive flow.
 var (
-	_ appdomain.UserCustomRepository         = scopedUserRepo{}
-	_ domain.Writer                          = userCustomBoundWriter{}
-	_ domain.ArchivedFinder[*appdomain.User] = (*UserCustomRepository)(nil)
+	_ appdomain.UserCustomRepository                      = scopedUserRepo{}
+	_ domain.Writer                                       = userCustomBoundWriter{}
+	_ domain.ArchivedFinder[*appdomain.User]              = (*UserCustomRepository)(nil)
+	_ persistence.SharedBaseInsertLoader[*appdomain.User] = (*UserCustomRepository)(nil)
 )
