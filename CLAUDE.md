@@ -58,11 +58,11 @@ A relational engine build tag is **mandatory**: `-tags postgres`, `-tags mysql`,
 
 ## QA suites (`qa/`)
 
-Nine end-to-end bash+curl scripts. All need `docker compose up` + `register-connector.sh`; some also need Keycloak ready. **Dialect-driven**: every script sources `qa/_backend.sh` and runs against either backend via `BACKEND=postgres|mysql` (default postgres). The QA build is the dual-engine binary; all nine are green on both backends. Per rule #2, expectations are an oracle — don't edit them to mask a regression.
+Nine end-to-end bash+curl scripts. All need `docker compose up` + `register-connector.sh`; some also need Keycloak ready. **Dialect-driven**: every script sources `qa/_backend.sh` and runs against either backend via `BACKEND=postgres|mysql` (default postgres). The QA build is the dual-engine binary; all nine are green on both backends. **Running "the QA suite" means running against BOTH backends — postgres first, then mysql — never just one. The two engines diverge on dialect specifics (placeholder `$n` vs `?`, arg order, UUID codec), so a green postgres run does not imply mysql; validate both.** For mysql, register the mysql connector (`./devops/debezium/register-connector.sh mysql`) then re-run each script with `BACKEND=mysql`. Per rule #2, expectations are an oracle — don't edit them to mask a regression.
 
 | Script | Covers | Server | Notes |
 |---|---|---|---|
-| `e2e.sh` | every write/read route + every custom notification + CSV/XLSX export | self-managed | `APP_PROFILE=dev` |
+| `e2e.sh` | every write/read route + every custom notification + CSV/XLSX export | running already | `APP_PROFILE=dev` |
 | `auth.sh` | JWT middleware across 4 validator modes (`prd`/`prd-pem`/`prd-external`/`prd-external-cached`) | self-managed | needs Keycloak; ~5 min (cache-TTL wait) |
 | `audit.sh` | audit pipeline end-to-end (slog echo + in-TX row) per write verb | self-managed | `APP_PROFILE=prd`; ~10s |
 | `httpclient.sh` | outbound HTTP showcase (keycloak + echo: cache, oauth2, streaming, multipart, SSE, HMAC, inline auth) | running already | ~3s |
@@ -72,4 +72,4 @@ Nine end-to-end bash+curl scripts. All need `docker compose up` + `register-conn
 | `schema_evolution.sh` | Mongo wipe-and-recover via registry + advisory lock | self-managed | `APP_PROFILE=dev`; ~30s |
 | `graphql.sh` | GraphQL endpoint (introspection, Relay reads, mutations, validation errors, count-only, pagination) | running already | needs `jq` + CDC; ~10s |
 
-"Self-managed" scripts build + start + stop the server themselves; "running already" scripts need the service started in another terminal first. For MySQL, register the MySQL connector (`./devops/debezium/register-connector.sh mysql`) then `BACKEND=mysql bash qa/<script>.sh`.
+"Self-managed" scripts (`auth`, `audit`, `cache`, `authz`, `schema_evolution`) build + start + stop the server themselves. The four "running already" scripts (`e2e`, `httpclient`, `openapi`, `graphql`) need the service started in another terminal first — start the dual-engine binary (`go build -tags 'postgres mysql' -o /tmp/srv ./bootstrap`) with the target backend's env sourced from `qa/_backend.sh` (`export BACKEND=mysql; source qa/_backend.sh; APP_PROFILE=dev /tmp/srv`) so the boot dialect matches the suite's `BACKEND`.
