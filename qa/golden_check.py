@@ -82,9 +82,16 @@ elif mode == "flat":
         for v in a.values():
             values.append(str(v))
     missing = [v for v in dict.fromkeys(values) if v not in text]
+    # The sibling (user_configurations) columns render differently per format —
+    # true/false text in CSV, a native boolean cell (type "b": 1/0) in XLSX — so
+    # their VALUES are verified field-by-field on REST/GraphQL (json mode). Here we
+    # assert the two sibling COLUMN HEADERS are emitted, so the tabular export can
+    # never silently drop the partition. Header label text appears in both formats.
+    headers = ["Email notification", "SMS notification"]
+    missing += [f"column header {h!r}" for h in headers if h not in text]
     if missing:
         fail([f"value not present: {v!r}" for v in missing])
-    print(f"{surface} FIELD-BY-FIELD PASS: all {len(set(values))} data values present in the export")
+    print(f"{surface} FIELD-BY-FIELD PASS: all {len(set(values))} data values + 2 sibling column headers present in the export")
 
 else:
     print(f"unknown mode {mode!r}", file=sys.stderr)

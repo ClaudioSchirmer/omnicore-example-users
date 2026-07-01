@@ -326,19 +326,33 @@ for forbidden in ("sub","iss","aud","exp","iat","azp","sid","jti"):
     expect(forbidden not in claims, "actorClaims leaked claim " + repr(forbidden))
 '
 
-assert_audit "1.2 Insert audit — snapshot block + children op=added" '
+assert_audit "1.2 Insert audit — full snapshot (base+role+sibling) + children op=added with every address subfield" '
 snap = a.get("snapshot") or {}
-eq(snap.get("Name"),  "Jane Doe",        "snapshot.name")
-eq(snap.get("Email"), "alice@omnicore.test", "snapshot.email")
-eq(snap.get("Phone"), "14155552671",     "snapshot.phone")
+# The flat User entity is partitioned across persons (base), users (role) and
+# user_configurations (sibling); the audit snapshot must carry EVERY field
+# regardless of which table it lives in — not just the role column.
+eq(snap.get("Name"),     "Jane Doe",             "snapshot.Name (base)")
+eq(snap.get("Email"),    "alice@omnicore.test",  "snapshot.Email (base)")
+eq(snap.get("Phone"),    "14155552671",          "snapshot.Phone (base)")
+eq(snap.get("Document"), "10000000401",          "snapshot.Document (base natural key)")
+eq(snap.get("UserName"), "jane",                 "snapshot.UserName (role)")
+eq(snap.get("EmailNotification"), True,  "snapshot.EmailNotification (sibling)")
+eq(snap.get("SmsNotification"),   False, "snapshot.SmsNotification (sibling)")
 expect("changes" not in a, "kind=snapshot must NOT carry changes (got " + repr(a.get("changes")) + ")")
+# base-child: the addresses list — every subfield of every entry, not just street.
 children = a.get("children") or {}
 addrs = children.get("Address") or []
 eq(len(addrs), 1, "children.Address length")
 if addrs:
     e = addrs[0]
     eq(e.get("op"), "inserted", "children.Address[0].op (SQL-grounded: INSERT INTO addresses)")
-    eq((e.get("snapshot") or {}).get("Street"), "1 Audit Way", "children.Address[0].snapshot.street")
+    s = e.get("snapshot") or {}
+    want = {"Label": "home", "Street": "1 Audit Way", "Number": "1",
+            "Neighborhood": "Downtown", "City": "San Francisco", "State": "CA",
+            "ZipCode": "94103", "Country": "US"}
+    for k, v in want.items():
+        eq(s.get(k), v, "children.Address[0].snapshot." + k)
+    expect(s.get("Complement") is None, "unset Complement must be null/absent, got " + repr(s.get("Complement")))
     expect("changes" not in e, "inserted child must not carry changes")
 '
 
@@ -553,6 +567,34 @@ INSERT_BODY_8='{
 capture_audit POST /users "$INSERT_BODY_8" "$VALID" 201
 USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
 echo "USER_ID = $USER_ID"
+
+# Before touching a single address, assert the INSERT audit captured the whole
+# address LIST (two entries) with every subfield — proving base-children audit
+# is field-complete for a multi-item collection, not just a single row.
+assert_audit "8.0 Insert audit — children list carries BOTH addresses with every subfield" '
+children = a.get("children") or {}
+addrs = children.get("Address") or []
+eq(len(addrs), 2, "children.Address length (list of 2)")
+by_street = {}
+for e in addrs:
+    eq(e.get("op"), "inserted", "child op")
+    expect("changes" not in e, "inserted child must not carry changes")
+    s = e.get("snapshot") or {}
+    by_street[s.get("Street")] = s
+want = {
+    "1 Audit Way": {"Label": "home", "Street": "1 Audit Way", "Number": "1",
+                    "Neighborhood": "Downtown", "City": "San Francisco", "State": "CA",
+                    "ZipCode": "94103", "Country": "US"},
+    "2 Office Pl": {"Label": "work", "Street": "2 Office Pl", "Number": "2",
+                    "Neighborhood": "FiDi", "City": "San Francisco", "State": "CA",
+                    "ZipCode": "94104", "Country": "US"},
+}
+for street, w in want.items():
+    s = by_street.get(street) or {}
+    for k, v in w.items():
+        eq(s.get(k), v, "addr(" + street + ").snapshot." + k)
+    expect(s.get("Complement") is None, "addr(" + street + ").Complement must be null/absent, got " + repr(s.get("Complement")))
+'
 
 # Pull the address row ids from Postgres so we know which slot to PUT and
 # which one to leave untouched. Order-stable by created_at to keep the
