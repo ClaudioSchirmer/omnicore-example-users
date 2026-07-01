@@ -7,9 +7,10 @@
 --     deterministic UUIDv5(document) for the person base) and bound as 16 raw
 --     bytes by the engine's value codec — so there is NO column default.
 --   * TIMESTAMP -> DATETIME, BOOLEAN -> TINYINT(1).
---   * UNIQUE/constraint NAMES match the Postgres migration so the repository's
---     ConstraintBinding maps a 1062 the same way on both backends
---     (users_person_unique -> EntityAlreadyAddedNotification / 409).
+--   * Constraint NAMES match the Postgres migration so the repository's
+--     ConstraintBinding maps a 1062 the same way on both backends. For the shared-PK
+--     user role the uniqueness IS the PRIMARY KEY: MySQL reports a PK collision as
+--     key `PRIMARY`, mapped (alongside Postgres' `users_pkey`) to a 409.
 -- FKs carry ON DELETE CASCADE only as a safety net — the framework deletes
 -- children/siblings and the orphaned base explicitly in Go, in the same TX.
 -- ============================================================================
@@ -49,18 +50,18 @@ CREATE TABLE addresses (
     CONSTRAINT fk_addresses_person FOREIGN KEY (person_id) REFERENCES persons (id) ON DELETE CASCADE
 );
 
--- users: the role. UNIQUE(person_id) enforces 0..1 user per person (re-POST of an
--- archived user revives the same row rather than inserting a second).
+-- users: the role, in the shared-PK model — its own id IS the person's deterministic
+-- id (users.id == persons.id), so there is no separate person_id column and the
+-- PRIMARY KEY enforces 0..1 user per person (a re-POST of an archived user revives
+-- the same row rather than inserting a second).
 CREATE TABLE users (
     id          BINARY(16)   NOT NULL,
-    person_id   BINARY(16)   NOT NULL,
     user_name   VARCHAR(100) NOT NULL,
     deleted_at  DATETIME     NULL,
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY users_person_unique (person_id),
-    CONSTRAINT fk_users_person FOREIGN KEY (person_id) REFERENCES persons (id) ON DELETE CASCADE
+    CONSTRAINT fk_users_person FOREIGN KEY (id) REFERENCES persons (id) ON DELETE CASCADE
 );
 
 -- user_configurations: the sibling slice (notification preferences). Shares the

@@ -94,7 +94,8 @@ const nameMaxLength = 100
 // (Document) through the framework's SharedBase write path — the deterministic
 // id UUIDv5(document) IS the person PK, so a second person with the same
 // document collides on the primary key, and a second active role for an
-// existing person collides on the role's UNIQUE(person_id). Both surface as a
+// existing person collides on the role's PRIMARY KEY (shared-PK: the role's id
+// IS the person id). Both surface as a
 // 409 from infra. RequiresService therefore stays at its promoted default
 // (false), and BuildRules ignores the (nil) service argument.
 

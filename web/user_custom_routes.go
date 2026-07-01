@@ -162,7 +162,7 @@ func MountUsersCustom(
 							"has an ACTIVE user. The SharedBase write path detects the existing role " +
 							"and raises `EntityAlreadyAddedNotification` (semantic `Conflict`), mapping " +
 							"to HTTP 409. (A concurrency race that slips past the probe loses on " +
-							"UNIQUE(person_id) and surfaces the identical envelope.) If the existing " +
+							"the PRIMARY KEY (shared-PK) and surfaces the identical envelope.) If the existing " +
 							"user was archived, it is revived instead of conflicting.",
 						Value: map[string]any{
 							"success":     false,

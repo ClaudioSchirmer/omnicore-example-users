@@ -320,7 +320,7 @@ show "3.1 EntityAlreadyAddedNotification (retry Bob's document 10000000002, acti
 # 3.2 demonstrates the archived-revive path: after archiving the user that holds
 # a document, a POST with the SAME document REVIVES the user (clears deleted_at,
 # last-write-wins on the shared fields) rather than conflicting — the second-row
-# is impossible because UNIQUE(person_id) is global.
+# is impossible because the user PK IS the person id (shared-PK), globally unique.
 title "3.2 Archived-revive — archive USER_C (doc 10000000003), re-POST same document"
 echo "Pre-step: PATCH USER_C/archive"
 ARCH_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/users/$USER_C/archive" -H "Content-Type: application/json")
@@ -612,14 +612,14 @@ sec "7. PATCH /users/:id/archive  and  /:id/unarchive — aggregate-aware"
 show "7.1 Archive (empty body accepted)" PATCH "/users/$USER_A/archive" "" 200
 
 title "7.1.b $BACKEND: Jane's addresses cascaded (deleted_at NOT NULL) — addresses are the person's (FK person_id), archived via convergeBase"
-qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NOT NULL AS archived FROM addresses WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
+qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NOT NULL AS archived FROM addresses WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
 
 show "7.2 Re-archive already archived (expected 404 — FindByID filters deleted_at NULL)" PATCH "/users/$USER_A/archive" "" 404
 
 show "7.3 Unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 200
 
 title "7.3.b $BACKEND: addresses are back (deleted_at NULL) — convergeBase reactivated base + base-children"
-qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NULL AS active FROM addresses WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
+qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NULL AS active FROM addresses WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
 
 show "7.4 Unarchive on an active record (expected 404 — FindArchivedByID only sees deleted ones)" PATCH "/users/$USER_A/unarchive" "" 404
 
@@ -663,8 +663,8 @@ sec "9.5 SharedBase partition — the flat User spread across four tables"
 title "9.5.a persons row exists for Bob (document is the natural key; id = UUIDv5(document))"
 qa_db_query "SELECT document, name FROM persons WHERE document='10000000002';"
 
-title "9.5.b users (role) row links to Bob's person via person_id, carries user_name"
-qa_db_query "SELECT user_name FROM users WHERE person_id=(SELECT id FROM persons WHERE document='10000000002');"
+title "9.5.b users (role) row IS Bob's person (shared PK: users.id == persons.id), carries user_name"
+qa_db_query "SELECT user_name FROM users WHERE id=(SELECT id FROM persons WHERE document='10000000002');"
 
 title "9.5.c addresses are the person's (FK person_id), shared by every role of that person"
 qa_db_query "SELECT COUNT(*) AS person_addresses FROM addresses WHERE person_id=(SELECT id FROM persons WHERE document='10000000002');"

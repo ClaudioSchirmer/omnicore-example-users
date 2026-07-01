@@ -601,12 +601,12 @@ for street, w in want.items():
 # assertion language consistent across runs.
 TARGET_ADDR_ID=$(qa_db_query "
   SELECT $(qa_uuid_select id) FROM addresses
-  WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='1 Audit Way' LIMIT 1
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='1 Audit Way' LIMIT 1
 ")
 export TARGET_ADDR_ID=$(printf '%s' "$TARGET_ADDR_ID" | tr -d '[:space:]')
 UNTOUCHED_ADDR_ID=$(qa_db_query "
   SELECT $(qa_uuid_select id) FROM addresses
-  WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='2 Office Pl' LIMIT 1
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='2 Office Pl' LIMIT 1
 ")
 export UNTOUCHED_ADDR_ID=$(printf '%s' "$UNTOUCHED_ADDR_ID" | tr -d '[:space:]')
 echo "TARGET_ADDR_ID    = $TARGET_ADDR_ID"
@@ -687,7 +687,7 @@ sec "9. Change one address — op=changed (custom PUT subresource — same shape
 # we can mutate it again via the email-keyed surface.
 TARGET2_ADDR_ID=$(qa_db_query "
   SELECT $(qa_uuid_select id) FROM addresses
-  WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='100 Market St' LIMIT 1
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='100 Market St' LIMIT 1
 ")
 export TARGET2_ADDR_ID=$(printf '%s' "$TARGET2_ADDR_ID" | tr -d '[:space:]')
 echo "TARGET2_ADDR_ID = $TARGET2_ADDR_ID (same row as TARGET_ADDR_ID after section 8)"
@@ -1014,7 +1014,7 @@ for c in ch:
 # uses for single-address mutations.
 LABEL_ADDR_ID=$(qa_db_query "
   SELECT $(qa_uuid_select id) FROM addresses
-  WHERE person_id=(SELECT person_id FROM users WHERE id=$(qa_uuid_lit "$LABEL_USER_ID")) AND deleted_at IS NULL LIMIT 1
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$LABEL_USER_ID")) AND deleted_at IS NULL LIMIT 1
 " | tr -d '[:space:]')
 CHANGE_BODY_LABEL=$(cat <<'JSON'
 {

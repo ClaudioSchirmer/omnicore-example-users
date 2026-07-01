@@ -55,8 +55,8 @@ type UserCustomRepository struct {
 // NewUserCustomRepository wires the Repository over the shared RelationalEngine
 // and builds an AggregateLoader that scans *User + its shared Person base + the
 // base's Address children, driven by the explicit UserSchema(). The same
-// duplicate-role constraint mapping is copied from UserRepository so a
-// UNIQUE(person_id) violation reaching this surface emits
+// duplicate-role constraint mapping is copied from UserRepository so a PRIMARY
+// KEY violation (shared-PK: users.id == persons.id) reaching this surface emits
 // EntityAlreadyAddedNotification (semantic Conflict → 409) instead of leaking
 // the raw driver error.
 func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
@@ -69,7 +69,8 @@ func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
 		schema:      schema,
 		contextName: "User",
 		constraints: map[string]write.ConstraintBinding{
-			"users_person_unique": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
+			"users_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
+			"PRIMARY":    {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		},
 	}
 }

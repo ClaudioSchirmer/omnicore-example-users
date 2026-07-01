@@ -17,8 +17,9 @@ import (
 //
 // User needs NO domain service: identity uniqueness is enforced by the
 // SharedBase write path (the deterministic id UUIDv5(document) makes a
-// duplicate document collide; a duplicate active role collides on
-// UNIQUE(person_id)), so RequiresService() stays at its default (false) and
+// duplicate document collide; a duplicate active role collides on the
+// role's PRIMARY KEY (shared-PK: users.id == persons.id)), so RequiresService()
+// stays at its default (false) and
 // the handlers receive a nil service — tolerated by the framework when the
 // entity requires none.
 //

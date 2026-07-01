@@ -15,7 +15,7 @@ import (
 //                         (document/name/email/phone) and OWNS the addresses.
 //   addresses           — base-child of persons (FK person_id, 1:N). The address
 //                         list is the person's, shared by every role of that person.
-//   users               — the role/anchor root: own v7 PK + FK person_id (UNIQUE),
+//   users               — the role/anchor root (shared PK: users.id == persons.id),
 //                         carrying the one role-private field (user_name).
 //   user_configurations — Sibling of users (1:1, shares the user PK): the
 //                         notification preference flags.
@@ -38,7 +38,7 @@ import (
 func UserSchema() *core.TableSchema {
 	return core.NewTableSchema[*appdomain.User]("users").
 		PK("id").
-		SharedBase(personBase(), "person_id").
+		SharedBase(personBase(), "id").
 		Field("UserName", "user_name").
 		SoftDelete("deleted_at").
 		CreatedAt("created_at").

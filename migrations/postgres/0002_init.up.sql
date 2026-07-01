@@ -5,7 +5,7 @@
 -- Go entity stays a single flat *User, and infra/schema.go partitions it:
 --   persons             — SharedBase (Party-Role identity), deduplicated by document
 --   addresses           — base-children of persons (1:N), shared across the person's roles
---   users               — the role/anchor root (own PK + FK person_id, UNIQUE)
+--   users               — the role/anchor root (shared PK: users.id == persons.id)
 --   user_configurations — Sibling of users (1:1, shares the user PK)
 --
 -- All ids are application-supplied UUIDs: the framework generates v7 for the role
@@ -50,19 +50,18 @@ CREATE TABLE addresses (
 );
 CREATE INDEX addresses_person_id_idx ON addresses (person_id);
 
--- users: the role. UNIQUE(person_id) enforces 0..1 user per person (a re-POST for
--- an archived user revives the same row rather than inserting a second one). The
--- constraint name `users_person_unique` is mapped by the repository to a 409 so a
--- concurrency race that loses on it surfaces the same envelope as the happy-path
--- conflict.
+-- users: the role, in the shared-PK model — its own id IS the person's deterministic
+-- id (users.id == persons.id), so there is no separate person_id column and the
+-- PRIMARY KEY itself enforces 0..1 user per person. A re-POST for an archived user
+-- revives the same row rather than inserting a second one; a concurrency race that
+-- loses on the PK (`users_pkey`) is mapped by the repository to the same 409 as the
+-- happy-path conflict.
 CREATE TABLE users (
-    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-    person_id   UUID         NOT NULL REFERENCES persons (id) ON DELETE CASCADE,
+    id          UUID         PRIMARY KEY REFERENCES persons (id) ON DELETE CASCADE,
     user_name   VARCHAR(100) NOT NULL,
     deleted_at  TIMESTAMP,
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
-    updated_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
-    CONSTRAINT users_person_unique UNIQUE (person_id)
+    updated_at  TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
 -- user_configurations: the sibling slice (notification preferences). Shares the
