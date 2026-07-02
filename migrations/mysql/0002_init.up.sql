@@ -11,8 +11,11 @@
 --     ConstraintBinding maps a 1062 the same way on both backends. For the shared-PK
 --     user role the uniqueness IS the PRIMARY KEY: MySQL reports a PK collision as
 --     key `PRIMARY`, mapped (alongside Postgres' `users_pkey`) to a 409.
--- FKs carry ON DELETE CASCADE only as a safety net — the framework deletes
--- children/siblings and the orphaned base explicitly in Go, in the same TX.
+-- Child/sibling FKs carry ON DELETE CASCADE only as a safety net — the framework
+-- deletes children/siblings explicitly in Go, in the same TX. The role→persons FK
+-- is deliberately RESTRICT: the framework's orphan purge runs under a savepoint
+-- and treats an FK violation as a veto, so RESTRICT is what gives any other
+-- role/table referencing the person the power to block the purge.
 -- ============================================================================
 
 -- persons: the shared identity. id = UUIDv5(document); document is the natural key.
@@ -61,7 +64,7 @@ CREATE TABLE users (
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    CONSTRAINT fk_users_person FOREIGN KEY (id) REFERENCES persons (id) ON DELETE CASCADE
+    CONSTRAINT fk_users_person FOREIGN KEY (id) REFERENCES persons (id) ON DELETE RESTRICT
 );
 
 -- user_configurations: the sibling slice (notification preferences). Shares the
@@ -73,4 +76,72 @@ CREATE TABLE user_configurations (
     sms_notification   TINYINT(1) NULL,
     PRIMARY KEY (id),
     CONSTRAINT fk_user_configurations_user FOREIGN KEY (id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Employee: the SECOND role over the same persons SharedBase. Same shared-PK
+-- model as users (employees.id == persons.id) and same RESTRICT rationale —
+-- each role's FK is a physical veto against purging a person another role
+-- still references.
+CREATE TABLE employees (
+    id          BINARY(16)   NOT NULL,
+    employee_number   VARCHAR(50)  NOT NULL,
+    deleted_at  DATETIME     NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_employees_person FOREIGN KEY (id) REFERENCES persons (id) ON DELETE RESTRICT
+);
+
+-- employee_bank_accounts: sibling of employees (1:1, shares the role PK).
+CREATE TABLE employee_bank_accounts (
+    id      BINARY(16)   NOT NULL,
+    bank   VARCHAR(50)  NULL,
+    branch VARCHAR(20)  NULL,
+    account   VARCHAR(30)  NULL,
+    pix     VARCHAR(255) NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_employee_bank_accounts_employee FOREIGN KEY (id) REFERENCES employees (id) ON DELETE CASCADE
+);
+
+-- employee_dependents: ROLE-owned child (FK → the employee, not the person).
+CREATE TABLE employee_dependents (
+    id             BINARY(16)   NOT NULL,
+    employee_id BINARY(16)   NOT NULL,
+    name           VARCHAR(255) NOT NULL,
+    birth_date     DATETIME     NOT NULL,
+    relationship     VARCHAR(20)  NOT NULL,
+    deleted_at     DATETIME     NULL,
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY employee_dependents_employee_id_idx (employee_id),
+    CONSTRAINT fk_employee_dependents_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE
+);
+
+-- dependent_health_plans: sibling of employee_dependents (1:1 on the CHILD
+-- PK) — the child-level (A2b) sibling.
+CREATE TABLE dependent_health_plans (
+    id             BINARY(16)   NOT NULL,
+    provider      VARCHAR(100) NULL,
+    card    VARCHAR(50)  NULL,
+    expires_at DATETIME     NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT fk_dependent_health_plans_dependent FOREIGN KEY (id) REFERENCES employee_dependents (id) ON DELETE CASCADE
+);
+
+-- employee_job_histories: second ROLE-owned child (plain, no sibling).
+CREATE TABLE employee_job_histories (
+    id             BINARY(16)   NOT NULL,
+    employee_id BINARY(16)   NOT NULL,
+    job_title          VARCHAR(100) NOT NULL,
+    department   VARCHAR(100) NOT NULL,
+    hired_at       DATETIME     NOT NULL,
+    terminated_at   DATETIME     NULL,
+    deleted_at     DATETIME     NULL,
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY employee_job_histories_employee_id_idx (employee_id),
+    CONSTRAINT fk_employee_job_histories_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE
 );

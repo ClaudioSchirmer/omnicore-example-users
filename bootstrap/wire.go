@@ -20,14 +20,15 @@ import (
 // the field rolls back to a binary that ships without the spec endpoints.
 func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	users := NewUsersFeature(d)
+	employees := NewEmployeesFeature(d)
 
 	// GraphQL is ONE surface (POST /graphql) backed by ONE registry, created
 	// here like the OpenAPI registry. Registration is cumulative: each feature
-	// contributes its fields into the same graph (a future aggregate adds
-	// `orders.MountGraphQL(gql, d)` here). Served separately from REST — never
-	// in the Swagger document; serving knobs live under graphql: in the YAML.
+	// contributes its fields into the same graph. Served separately from REST —
+	// never in the Swagger document; serving knobs live under graphql: in the YAML.
 	gql := fwgraphql.New(d.Pipeline)
 	users.MountGraphQL(gql, d)
+	employees.MountGraphQL(gql, d)
 
 	return bootstrap.Wiring{
 		Translations: []translation.Module{
@@ -36,6 +37,7 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 		},
 		Features: []bootstrap.Feature{
 			users,
+			employees,
 			NewShowcaseFeature(d),
 			NewAdminFeature(),
 			NewAuditFeature(),

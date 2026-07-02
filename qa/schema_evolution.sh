@@ -201,7 +201,7 @@ stop_server() {
 reset_state() {
   title "Reset: wipe users+addresses+outbox + omnicore_mongo_views ($BACKEND); db.users.deleteMany (Mongo: $QA_MONGO_DB)"
   qa_db_reset_domain
-  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name='users';"
+  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
   qa_mongo_reset
   echo "OK — clean baseline"
   sleep 1
@@ -809,7 +809,7 @@ sec "Phase 12 — OMNICORE_CODE_VERSION env stamps the registry row"
 
 title "Reset registry + Mongo so the next boot is a true DriftFreshInit"
 qa_db_reset_domain
-qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name='users';"
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
 qa_mongo_reset
 
 title "Start v1 with OMNICORE_CODE_VERSION=qa-test-deploy-abc set"

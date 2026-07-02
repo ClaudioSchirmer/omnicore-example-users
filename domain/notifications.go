@@ -55,3 +55,16 @@ type NameMaxLengthExceededNotification struct {
 	domain.DomainNotificationBase
 	MaxLength int `tvar:"maxLength"`
 }
+
+// ─── Employee aggregate ───────────────────────────────────────────────────
+
+// InvalidRelationshipNotification is emitted by Dependent.BuildRules when the
+// Relationship value falls outside the closed domain set (spouse/son/daughter/
+// father/mother/other). Default Semantic (Validation → 422); the wire value echoes
+// the rejected input.
+type InvalidRelationshipNotification struct{ domain.DomainNotificationBase }
+
+// TerminationBeforeHireNotification is emitted by JobHistory.BuildRules
+// when a job-history entry ends before it starts. Default Semantic
+// (Validation → 422).
+type TerminationBeforeHireNotification struct{ domain.DomainNotificationBase }

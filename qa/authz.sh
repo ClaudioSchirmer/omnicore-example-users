@@ -682,6 +682,61 @@ show_gql_case "GraphQL users{name} with alice → ALLOW (no restricted field sel
   "$TOK_ALICE" 'query { users(first: 1) { edges { node { name } } } }' \
   ALLOW
 
+
+sec "17. Employees surface — same Layer-1 matrix on the second aggregate"
+
+# The Employee routes declare RequirePermission(employees:<verb>); alice's
+# token carries employees:read/write/archive (NOT delete), noperm carries
+# nothing, bob carries *:*. One representative case per verb class.
+
+show_case "GET /employees with noperm -> 403 (needs employees:read)" \
+  GET /employees "$TOK_NOPERM" "" 403 MissingPermissionNotification
+
+show_case "GET /employees with alice -> 200 (alice has employees:read)" \
+  GET /employees "$TOK_ALICE" "" 200
+
+EMP_DOC="10000000399"
+show_case "POST /employees with noperm -> 403 (needs employees:write)" \
+  POST /employees "$TOK_NOPERM" "{\"name\":\"x\",\"email\":\"x@e.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-X\"}" \
+  403 MissingPermissionNotification
+
+title "17.1 Create an employee with alice (has employees:write)"
+emp_tmp=$(mktemp)
+EMP_STATUS=$(curl -sS -o "$emp_tmp" -w "%{http_code}" -X POST "$BASE/employees" \
+  -H "Authorization: Bearer $TOK_ALICE" -H "Content-Type: application/json" \
+  -d "{\"name\":\"Authz Employee\",\"email\":\"authz.emp@omnicore.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-AUTHZ\"}")
+EMP_ID=$(python3 -c "import json;print(json.load(open('$emp_tmp'))['data']['id'])" 2>/dev/null)
+rm -f "$emp_tmp"
+if [ "$EMP_STATUS" = "201" ] && [ -n "$EMP_ID" ]; then
+  printf '\033[1;32mPASS\033[0m alice created employee %s\n' "$EMP_ID"; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m alice POST /employees expected 201, got %s\n' "$EMP_STATUS"; FAIL=$((FAIL+1))
+fi
+
+show_case "PATCH /employees/:id/archive with alice -> 200 (employees:archive)" \
+  PATCH "/employees/$EMP_ID/archive" "$TOK_ALICE" "" 200
+
+show_case "PATCH /employees/:id/unarchive with alice -> 200 (employees:archive)" \
+  PATCH "/employees/$EMP_ID/unarchive" "$TOK_ALICE" "" 200
+
+show_case "DELETE /employees/:id with alice -> 403 (alice lacks employees:delete)" \
+  DELETE "/employees/$EMP_ID" "$TOK_ALICE" "" 403 MissingPermissionNotification
+
+show_case "DELETE /employees/:id with bob (*:*) -> 204 (super-admin bypass)" \
+  DELETE "/employees/$EMP_ID" "$TOK_BOB" "" 204
+
+show_gql_case "GraphQL employees query with noperm -> MissingPermissionNotification (needs employees:read)" \
+  "$TOK_NOPERM" 'query { employees(first: 1) { edges { node { id } } } }' \
+  MissingPermissionNotification
+
+show_gql_case "GraphQL employees query with alice -> ALLOW" \
+  "$TOK_ALICE" 'query { employees(first: 1) { edges { node { id } } } }' \
+  ALLOW
+
+show_gql_case "GraphQL deleteEmployee with alice -> MissingPermissionNotification (lacks employees:delete)" \
+  "$TOK_ALICE" 'mutation { deleteEmployee(id: "00000000-0000-0000-0000-000000000000") { success } }' \
+  MissingPermissionNotification
+
 sec "Summary"
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

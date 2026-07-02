@@ -49,5 +49,26 @@ func (eng) Translations() map[string]string {
 		"AddressStateField":          "State",
 		"AddressZipCodeField":        "ZIP Code",
 		"AddressCountryField":        "Country",
+		// Employee aggregate — context label, field labels, notifications.
+		// The domain vocabulary is Portuguese by design (approved spec); the
+		// catalogs translate it per locale like any other key.
+		"Employee":                          "Employee",
+		"EmployeeNumberField":               "Employee number",
+		"EmployeeBankField":                 "Bank",
+		"EmployeeBranchField":               "Branch",
+		"EmployeeAccountField":              "Account",
+		"EmployeePixField":                  "Pix key",
+		"DependentNameField":                "Dependent name",
+		"DependentBirthDateField":           "Date of birth",
+		"DependentRelationshipField":        "Relationship",
+		"DependentHealthPlanProviderField":  "Health plan provider",
+		"DependentHealthPlanCardField":      "Health plan card",
+		"DependentHealthPlanExpiryField":    "Health plan expiry",
+		"JobHistoryJobTitleField":           "Job title",
+		"JobHistoryDepartmentField":         "Department",
+		"JobHistoryHiredAtField":            "Hire date",
+		"JobHistoryTerminatedAtField":       "Termination date",
+		"InvalidRelationshipNotification":   "Invalid relationship (use spouse, son, daughter, father, mother or other).",
+		"TerminationBeforeHireNotification": "Termination date cannot be before the hire date.",
 	}
 }

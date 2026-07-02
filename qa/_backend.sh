@@ -50,10 +50,10 @@ case "$BACKEND" in
     qa_db_query() { docker exec "$QA_DB_CONTAINER" psql -U omnicore -d users_db -tA -c "$1"; }
     qa_db_exec()  { docker exec "$QA_DB_CONTAINER" psql -U omnicore -d users_db -c "$1" >/dev/null; }
     qa_db_reset_domain() {
-      # persons is the SharedBase root; CASCADE drops the dependent users /
-      # addresses / user_configurations rows in FK order.
+      # persons is the SharedBase root; CASCADE drops every dependent role/child/
+      # sibling row (users + employees graphs) in FK order.
       docker exec "$QA_DB_CONTAINER" psql -U omnicore -d users_db -c \
-        "TRUNCATE TABLE persons, users, addresses, user_configurations CASCADE; TRUNCATE TABLE outbox;" >/dev/null
+        "TRUNCATE TABLE persons, users, addresses, user_configurations, employees, employee_bank_accounts, employee_dependents, dependent_health_plans, employee_job_histories CASCADE; TRUNCATE TABLE outbox;" >/dev/null
     }
     # PG renders uuid columns as text already; the expression is used verbatim.
     qa_uuid_select() { printf '%s' "$1"; }
@@ -78,7 +78,7 @@ case "$BACKEND" in
       # MySQL cannot TRUNCATE a table referenced by a FK; disable the check and
       # truncate child-first (user_configurations + addresses + users → persons).
       docker exec "$QA_DB_CONTAINER" mysql -uomnicore -pomnicore -D users_db 2>/dev/null -e \
-        "SET FOREIGN_KEY_CHECKS=0; TRUNCATE TABLE user_configurations; TRUNCATE TABLE addresses; TRUNCATE TABLE users; TRUNCATE TABLE persons; TRUNCATE TABLE outbox; SET FOREIGN_KEY_CHECKS=1;"
+        "SET FOREIGN_KEY_CHECKS=0; TRUNCATE TABLE user_configurations; TRUNCATE TABLE addresses; TRUNCATE TABLE users; TRUNCATE TABLE dependent_health_plans; TRUNCATE TABLE employee_dependents; TRUNCATE TABLE employee_job_histories; TRUNCATE TABLE employee_bank_accounts; TRUNCATE TABLE employees; TRUNCATE TABLE persons; TRUNCATE TABLE outbox; SET FOREIGN_KEY_CHECKS=1;"
     }
     # id/user_id are BINARY(16); BIN_TO_UUID(col, 0) restores the canonical text
     # (0 = no time-low swap, matching the framework's standard-order u[:] bytes).
@@ -96,5 +96,5 @@ esac
 # Mongo collection wipe used by several suites (dialect-independent, but the DB
 # name differs per backend).
 qa_mongo_reset() {
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.deleteMany({});" >/dev/null 2>&1
+  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.deleteMany({}); db.employees.deleteMany({});" >/dev/null 2>&1
 }
