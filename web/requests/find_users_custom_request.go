@@ -42,7 +42,7 @@ func (r FindUsersCustomRequest) ToQuery(criteria fwqueries.ReadCriteria) *querie
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
 // FindUsersCustomResponse is the reduced wire projection of one User view
-// document in the manual showcase list. Mirrors FindUserByEmailCustomResponse
+// document in the manual showcase list. Mirrors FindUserByDocumentCustomResponse
 // (id + name + email) and is intentionally a distinct Go type — per-endpoint
 // co-location keeps each surface's wire contract independently evolvable.
 //

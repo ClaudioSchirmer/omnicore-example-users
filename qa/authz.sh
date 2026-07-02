@@ -38,6 +38,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 KC_URL="${KC_URL:-http://localhost:8088}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND); default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
 SERVER_BIN="/tmp/omnicore-example-users-qa-authz"
 
@@ -282,13 +284,15 @@ print(data.get("id", ""))
 # request shape mirrors qa/e2e.sh's "minimal valid user" to keep the cross-
 # suite invariant single-source.
 capture_post() {
-  local token="$1" email="$2"
+  local token="$1" email="$2" document="${3:-10000000301}"
   local body
   body=$(cat <<JSON
 {
   "name": "Authz Test User",
   "email": "${email}",
-  "phone": "14155551234"
+  "phone": "14155551234",
+  "document": "${document}",
+  "userName": "${document}"
 }
 JSON
   )
@@ -324,7 +328,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.2 Build server binary"
-(cd "$REPO_ROOT" && go build -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if lingering"
@@ -392,7 +396,7 @@ show_case "GET /users with alice bearer → 200 (alice has users:read)" \
   GET /users "$TOK_ALICE" "" 200
 
 title "5.1 Create a user the rest of the suite will archive/delete (owned by alice)"
-if ! capture_post "$TOK_ALICE" "alice@omnicore.test"; then
+if ! capture_post "$TOK_ALICE" "alice@omnicore.test" "10000000301"; then
   echo "ERROR: could not create the target user" >&2
   FAIL=$((FAIL+1))
 else
@@ -424,7 +428,7 @@ if [ -n "$CREATED_USER_ID" ]; then
   # tries to archive — Layer-1 passes (users:archive) but Layer-2 rejects
   # because alice is not the owner AND not an admin.
   title "6.1 Create a second user with a different email (not owned by alice)"
-  if capture_post "$TOK_ALICE" "stranger@authz.test"; then
+  if capture_post "$TOK_ALICE" "stranger@authz.test" "10000000302"; then
     STRANGER_ID="$CAPTURE_ID"
     echo "Created stranger id=$STRANGER_ID"
     PASS=$((PASS+1))
@@ -551,14 +555,14 @@ sec "12. Super-admin (*:*) bypass on every write verb"
 
 # Create a target owned by bob first so the rest of the section operates on it.
 title "12.0 bob creates a target user"
-if capture_post "$TOK_BOB" "bob-target@authz.test"; then
+if capture_post "$TOK_BOB" "bob-target@authz.test" "10000000303"; then
   BOB_TARGET_ID="$CAPTURE_ID"
   echo "Created bob-target id=$BOB_TARGET_ID"
   PASS=$((PASS+1))
 
   show_case "PUT /users/:id with bob (super-admin) → 200" \
     PUT "/users/$BOB_TARGET_ID" "$TOK_BOB" \
-    '{"name":"bob-renamed","email":"bob-target@authz.test","phone":"14155559999","addresses":[]}' \
+    '{"name":"bob-renamed","email":"bob-target@authz.test","phone":"14155559999","document":"10000000303","userName":"bobrenamed","emailNotification":true,"smsNotification":false,"addresses":[]}' \
     200
 
   show_case "PATCH /users/:id with bob → 200" \
@@ -610,7 +614,7 @@ sec "15. Field-level read access — Phone is admin-only (ReadCriteria.Restrict)
 # JSON + CSV/XLSX), and an active ?fields=phone returns 403. Create a user (with
 # a phone) and wait for the CDC pipeline to materialize it into the read view.
 FA_EMAIL="fieldaccess-${RANDOM}@authz.test"
-if capture_post "$TOK_BOB" "$FA_EMAIL"; then
+if capture_post "$TOK_BOB" "$FA_EMAIL" "10000000304"; then
   if wait_for_user_in_view "$TOK_BOB" "$FA_EMAIL"; then
     # bob carries *:* → HasPermission("users:admin") → Phone is NOT restricted.
     assert_phone_visibility "GET /users as bob (admin via *:*) → phone PRESENT" "$TOK_BOB" present
@@ -651,7 +655,7 @@ show_gql_case "GraphQL users query with noperm → MissingPermissionNotification
   MissingPermissionNotification
 
 show_gql_case "GraphQL createUser with noperm → MissingPermissionNotification (needs users:write)" \
-  "$TOK_NOPERM" 'mutation { createUser(input: { name: "x", email: "x@e.test", phone: "14155550000", addresses: [] }) { id } }' \
+  "$TOK_NOPERM" 'mutation { createUser(input: { name: "x", email: "x@e.test", phone: "14155550000", document: "10000000404", userName: "authzgql", addresses: [] }) { id } }' \
   MissingPermissionNotification
 
 # alice carries users:read → the read field resolves (gate passes).
@@ -677,6 +681,61 @@ show_gql_case "GraphQL users{phone} with alice (non-admin) → FieldAccessForbid
 show_gql_case "GraphQL users{name} with alice → ALLOW (no restricted field selected)" \
   "$TOK_ALICE" 'query { users(first: 1) { edges { node { name } } } }' \
   ALLOW
+
+
+sec "17. Employees surface — same Layer-1 matrix on the second aggregate"
+
+# The Employee routes declare RequirePermission(employees:<verb>); alice's
+# token carries employees:read/write/archive (NOT delete), noperm carries
+# nothing, bob carries *:*. One representative case per verb class.
+
+show_case "GET /employees with noperm -> 403 (needs employees:read)" \
+  GET /employees "$TOK_NOPERM" "" 403 MissingPermissionNotification
+
+show_case "GET /employees with alice -> 200 (alice has employees:read)" \
+  GET /employees "$TOK_ALICE" "" 200
+
+EMP_DOC="10000000399"
+show_case "POST /employees with noperm -> 403 (needs employees:write)" \
+  POST /employees "$TOK_NOPERM" "{\"name\":\"x\",\"email\":\"x@e.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-X\"}" \
+  403 MissingPermissionNotification
+
+title "17.1 Create an employee with alice (has employees:write)"
+emp_tmp=$(mktemp)
+EMP_STATUS=$(curl -sS -o "$emp_tmp" -w "%{http_code}" -X POST "$BASE/employees" \
+  -H "Authorization: Bearer $TOK_ALICE" -H "Content-Type: application/json" \
+  -d "{\"name\":\"Authz Employee\",\"email\":\"authz.emp@omnicore.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-AUTHZ\"}")
+EMP_ID=$(python3 -c "import json;print(json.load(open('$emp_tmp'))['data']['id'])" 2>/dev/null)
+rm -f "$emp_tmp"
+if [ "$EMP_STATUS" = "201" ] && [ -n "$EMP_ID" ]; then
+  printf '\033[1;32mPASS\033[0m alice created employee %s\n' "$EMP_ID"; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m alice POST /employees expected 201, got %s\n' "$EMP_STATUS"; FAIL=$((FAIL+1))
+fi
+
+show_case "PATCH /employees/:id/archive with alice -> 200 (employees:archive)" \
+  PATCH "/employees/$EMP_ID/archive" "$TOK_ALICE" "" 200
+
+show_case "PATCH /employees/:id/unarchive with alice -> 200 (employees:archive)" \
+  PATCH "/employees/$EMP_ID/unarchive" "$TOK_ALICE" "" 200
+
+show_case "DELETE /employees/:id with alice -> 403 (alice lacks employees:delete)" \
+  DELETE "/employees/$EMP_ID" "$TOK_ALICE" "" 403 MissingPermissionNotification
+
+show_case "DELETE /employees/:id with bob (*:*) -> 204 (super-admin bypass)" \
+  DELETE "/employees/$EMP_ID" "$TOK_BOB" "" 204
+
+show_gql_case "GraphQL employees query with noperm -> MissingPermissionNotification (needs employees:read)" \
+  "$TOK_NOPERM" 'query { employees(first: 1) { edges { node { id } } } }' \
+  MissingPermissionNotification
+
+show_gql_case "GraphQL employees query with alice -> ALLOW" \
+  "$TOK_ALICE" 'query { employees(first: 1) { edges { node { id } } } }' \
+  ALLOW
+
+show_gql_case "GraphQL deleteEmployee with alice -> MissingPermissionNotification (lacks employees:delete)" \
+  "$TOK_ALICE" 'mutation { deleteEmployee(id: "00000000-0000-0000-0000-000000000000") { success } }' \
+  MissingPermissionNotification
 
 sec "Summary"
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

@@ -27,6 +27,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # MySQL is the framework's second relational backend (engine seam). The example
+  # is configured for Postgres (database.dialect), so its app + integration tests
+  # run on Postgres; the integration harness is dialect-driven, so a build
+  # reconfigured for MySQL (database.dialect: mysql + the mysql engine tag/driver)
+  # would point its tests here instead. Host port 3307 avoids a clash with a local
+  # MySQL on 3306.
+  mysql:
+    image: mysql:8.4
+    container_name: omnicore-example-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: omnicore
+      MYSQL_PASSWORD: omnicore
+      MYSQL_DATABASE: users_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uomnicore -pomnicore --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
   mongo:
     image: mongo:7
     container_name: omnicore-example-mongo
@@ -110,7 +134,7 @@ services:
   # Kafka Connect runtime with Debezium plugins. The connector itself (outbox
   # source) is registered post-boot via REST — see debezium/users-outbox-connector.json.
   debezium:
-    image: debezium/connect:2.5
+    image: debezium/connect:3.0.0.Final
     container_name: omnicore-example-debezium
     depends_on:
       kafka:
@@ -197,5 +221,6 @@ services:
 
 volumes:
   postgres_data:
+  mysql_data:
   mongo_data:
   kafka_data:

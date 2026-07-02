@@ -1,10 +1,9 @@
 package handlers
 
 import (
+	"github.com/ClaudioSchirmer/omnicore/application/audit"
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
-	"github.com/ClaudioSchirmer/omnicore/infra/audit"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
 )
@@ -12,7 +11,7 @@ import (
 // FindAuditByAggregateQueryHandler is the manual application handler for
 // GET /audit/:aggregateId. The framework's Auto query handlers
 // (FindByIDQueryHandler / FindByParamsQueryHandler) are not reusable here
-// because audit reads happen against Postgres (the audit_events table),
+// because audit reads happen against the relational backend (the audit_events table),
 // not against a Mongo view — the Auto handlers dispatch through
 // queries.ViewReader which only knows the Mongo surface.
 //
@@ -51,14 +50,14 @@ import (
 // `database`, or simply never written to). The route emits a 200 with
 // `data: []` in that case — same shape a populated read produces.
 type FindAuditByAggregateQueryHandler struct {
-	Pool       *pgxpool.Pool
+	Reader     audit.Reader
 	Translator *translation.Translator
 }
 
 func (h *FindAuditByAggregateQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindAuditByAggregateQuery,
 ) ([]*audit.AuditEvent, error) {
-	events, err := audit.FindByAggregate(ctx, h.Pool, q.EntityType, q.AggregateID)
+	events, err := h.Reader.FindByAggregate(ctx, q.EntityType, q.AggregateID)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,7 @@ import (
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
 )
 
-func TestFindAddressByEmailAndIDQueryHandler_HappyPath(t *testing.T) {
+func TestFindAddressByDocumentAndIDQueryHandler_HappyPath(t *testing.T) {
 	reader := &fakeViewReader{
 		pageToReturn: fwqueries.Page{Items: []map[string]any{
 			{
@@ -23,10 +23,10 @@ func TestFindAddressByEmailAndIDQueryHandler_HappyPath(t *testing.T) {
 			},
 		}},
 	}
-	h := &FindAddressByEmailAndIDQueryHandler{Reader: reader, View: "users"}
+	h := &FindAddressByDocumentAndIDQueryHandler{Reader: reader, View: "users"}
 
 	got, err := h.Handle(testCtx(),
-		&appqueries.FindAddressByEmailAndIDQuery{Email: "jane@example.com", AddressID: "addr-2"})
+		&appqueries.FindAddressByDocumentAndIDQuery{Document: "jane@example.com", AddressID: "addr-2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -36,17 +36,17 @@ func TestFindAddressByEmailAndIDQueryHandler_HappyPath(t *testing.T) {
 	if reader.readPageCalled != 1 {
 		t.Errorf("expected ReadPage called once, got %d", reader.readPageCalled)
 	}
-	if reader.gotCriteria.Filter["Email"] != "jane@example.com" {
+	if reader.gotCriteria.Filter["Document"] != "jane@example.com" {
 		t.Errorf("expected email filter applied, got %+v", reader.gotCriteria.Filter)
 	}
 }
 
-func TestFindAddressByEmailAndIDQueryHandler_UserMissing(t *testing.T) {
+func TestFindAddressByDocumentAndIDQueryHandler_UserMissing(t *testing.T) {
 	reader := &fakeViewReader{pageToReturn: fwqueries.Page{Items: []map[string]any{}}}
-	h := &FindAddressByEmailAndIDQueryHandler{Reader: reader, View: "users"}
+	h := &FindAddressByDocumentAndIDQueryHandler{Reader: reader, View: "users"}
 
 	_, err := h.Handle(testCtx(),
-		&appqueries.FindAddressByEmailAndIDQuery{Email: "ghost@example.com", AddressID: "x"})
+		&appqueries.FindAddressByDocumentAndIDQuery{Document: "ghost@example.com", AddressID: "x"})
 	if err == nil {
 		t.Fatal("expected RecordNotFound on missing user")
 	}
@@ -59,7 +59,7 @@ func TestFindAddressByEmailAndIDQueryHandler_UserMissing(t *testing.T) {
 	}
 }
 
-func TestFindAddressByEmailAndIDQueryHandler_AddressMissingInDoc(t *testing.T) {
+func TestFindAddressByDocumentAndIDQueryHandler_AddressMissingInDoc(t *testing.T) {
 	reader := &fakeViewReader{
 		pageToReturn: fwqueries.Page{Items: []map[string]any{{
 			"ID":    "user-1",
@@ -69,10 +69,10 @@ func TestFindAddressByEmailAndIDQueryHandler_AddressMissingInDoc(t *testing.T) {
 			},
 		}}},
 	}
-	h := &FindAddressByEmailAndIDQueryHandler{Reader: reader, View: "users"}
+	h := &FindAddressByDocumentAndIDQueryHandler{Reader: reader, View: "users"}
 
 	_, err := h.Handle(testCtx(),
-		&appqueries.FindAddressByEmailAndIDQuery{Email: "jane@example.com", AddressID: "missing"})
+		&appqueries.FindAddressByDocumentAndIDQuery{Document: "jane@example.com", AddressID: "missing"})
 	if err == nil {
 		t.Fatal("expected RecordNotFound on missing address ID")
 	}

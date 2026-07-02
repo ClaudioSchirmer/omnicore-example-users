@@ -34,6 +34,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 KC_URL="${KC_URL:-http://localhost:8088}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND); default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
 SERVER_BIN="/tmp/omnicore-example-users-qa-audit"
 SERVER_LOG="/tmp/omnicore-example-users-qa-audit.log"
@@ -110,11 +112,9 @@ start_server() {
 # Resets Postgres + Mongo to a clean baseline. Same destructive truncate as
 # qa/e2e.sh — QA is an ephemeral environment, no persistent state across runs.
 reset_state() {
-  title "Reset: TRUNCATE users CASCADE + outbox (Postgres) + users (Mongo)"
-  docker exec omnicore-example-postgres psql -U omnicore -d users_db -c \
-    "TRUNCATE TABLE users CASCADE; TRUNCATE TABLE outbox;" >/dev/null
-  docker exec omnicore-example-mongo mongosh users_views --quiet --eval \
-    "db.users.deleteMany({});" >/dev/null
+  title "Reset: wipe users+addresses+outbox ($BACKEND) + users (Mongo: $QA_MONGO_DB)"
+  qa_db_reset_domain
+  qa_mongo_reset
   echo "OK — clean baseline"
   # Let the SyncEngine drain any in-flight Kafka events before we start.
   sleep 1
@@ -254,7 +254,7 @@ fi
 echo "OK — realm reachable"
 
 title "0.2 Build server binary"
-(cd "$REPO_ROOT" && go build -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if anything is lingering"
@@ -295,6 +295,7 @@ VALID=$("$SCRIPTS/mint-token.sh" alice)
 
 INSERT_BODY='{
   "name":"Jane Doe","email":"alice@omnicore.test","phone":"14155552671",
+  "document":"10000000401","userName":"jane","emailNotification":true,"smsNotification":false,
   "addresses":[{
     "label":"home","street":"1 Audit Way","number":"1",
     "neighborhood":"Downtown","city":"San Francisco","state":"CA",
@@ -325,19 +326,33 @@ for forbidden in ("sub","iss","aud","exp","iat","azp","sid","jti"):
     expect(forbidden not in claims, "actorClaims leaked claim " + repr(forbidden))
 '
 
-assert_audit "1.2 Insert audit — snapshot block + children op=added" '
+assert_audit "1.2 Insert audit — full snapshot (base+role+sibling) + children op=added with every address subfield" '
 snap = a.get("snapshot") or {}
-eq(snap.get("Name"),  "Jane Doe",        "snapshot.name")
-eq(snap.get("Email"), "alice@omnicore.test", "snapshot.email")
-eq(snap.get("Phone"), "14155552671",     "snapshot.phone")
+# The flat User entity is partitioned across persons (base), users (role) and
+# user_configurations (sibling); the audit snapshot must carry EVERY field
+# regardless of which table it lives in — not just the role column.
+eq(snap.get("Name"),     "Jane Doe",             "snapshot.Name (base)")
+eq(snap.get("Email"),    "alice@omnicore.test",  "snapshot.Email (base)")
+eq(snap.get("Phone"),    "14155552671",          "snapshot.Phone (base)")
+eq(snap.get("Document"), "10000000401",          "snapshot.Document (base natural key)")
+eq(snap.get("UserName"), "jane",                 "snapshot.UserName (role)")
+eq(snap.get("EmailNotification"), True,  "snapshot.EmailNotification (sibling)")
+eq(snap.get("SmsNotification"),   False, "snapshot.SmsNotification (sibling)")
 expect("changes" not in a, "kind=snapshot must NOT carry changes (got " + repr(a.get("changes")) + ")")
+# base-child: the addresses list — every subfield of every entry, not just street.
 children = a.get("children") or {}
 addrs = children.get("Address") or []
 eq(len(addrs), 1, "children.Address length")
 if addrs:
     e = addrs[0]
     eq(e.get("op"), "inserted", "children.Address[0].op (SQL-grounded: INSERT INTO addresses)")
-    eq((e.get("snapshot") or {}).get("Street"), "1 Audit Way", "children.Address[0].snapshot.street")
+    s = e.get("snapshot") or {}
+    want = {"Label": "home", "Street": "1 Audit Way", "Number": "1",
+            "Neighborhood": "Downtown", "City": "San Francisco", "State": "CA",
+            "ZipCode": "94103", "Country": "US"}
+    for k, v in want.items():
+        eq(s.get(k), v, "children.Address[0].snapshot." + k)
+    expect(s.get("Complement") is None, "unset Complement must be null/absent, got " + repr(s.get("Complement")))
     expect("changes" not in e, "inserted child must not carry changes")
 '
 
@@ -385,6 +400,7 @@ sec "3. Full Update — PUT /users/:id (replaces addresses)"
 # dedicated PUT /users/:id/addresses/:addressId endpoint at section 8.
 PUT_BODY='{
   "name":"Jane Doe (patched)","email":"alice@omnicore.test","phone":"14155553333",
+  "userName":"jane","emailNotification":true,"smsNotification":false,
   "addresses":[
     {"label":"home","street":"2 Updated Ave","number":"2","neighborhood":"SoMa","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"},
     {"label":"work","street":"3 Office Pl","number":"3","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94104","country":"US"}
@@ -542,6 +558,7 @@ reset_state
 
 INSERT_BODY_8='{
   "name":"Jane Doe","email":"alice@omnicore.test","phone":"14155552671",
+  "document":"10000000401","userName":"jane",
   "addresses":[
     {"label":"home","street":"1 Audit Way","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"},
     {"label":"work","street":"2 Office Pl","number":"2","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94104","country":"US"}
@@ -551,17 +568,45 @@ capture_audit POST /users "$INSERT_BODY_8" "$VALID" 201
 USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
 echo "USER_ID = $USER_ID"
 
+# Before touching a single address, assert the INSERT audit captured the whole
+# address LIST (two entries) with every subfield — proving base-children audit
+# is field-complete for a multi-item collection, not just a single row.
+assert_audit "8.0 Insert audit — children list carries BOTH addresses with every subfield" '
+children = a.get("children") or {}
+addrs = children.get("Address") or []
+eq(len(addrs), 2, "children.Address length (list of 2)")
+by_street = {}
+for e in addrs:
+    eq(e.get("op"), "inserted", "child op")
+    expect("changes" not in e, "inserted child must not carry changes")
+    s = e.get("snapshot") or {}
+    by_street[s.get("Street")] = s
+want = {
+    "1 Audit Way": {"Label": "home", "Street": "1 Audit Way", "Number": "1",
+                    "Neighborhood": "Downtown", "City": "San Francisco", "State": "CA",
+                    "ZipCode": "94103", "Country": "US"},
+    "2 Office Pl": {"Label": "work", "Street": "2 Office Pl", "Number": "2",
+                    "Neighborhood": "FiDi", "City": "San Francisco", "State": "CA",
+                    "ZipCode": "94104", "Country": "US"},
+}
+for street, w in want.items():
+    s = by_street.get(street) or {}
+    for k, v in w.items():
+        eq(s.get(k), v, "addr(" + street + ").snapshot." + k)
+    expect(s.get("Complement") is None, "addr(" + street + ").Complement must be null/absent, got " + repr(s.get("Complement")))
+'
+
 # Pull the address row ids from Postgres so we know which slot to PUT and
 # which one to leave untouched. Order-stable by created_at to keep the
 # assertion language consistent across runs.
-TARGET_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$USER_ID' AND deleted_at IS NULL AND street='1 Audit Way' LIMIT 1
+TARGET_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='1 Audit Way' LIMIT 1
 ")
 export TARGET_ADDR_ID=$(printf '%s' "$TARGET_ADDR_ID" | tr -d '[:space:]')
-UNTOUCHED_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$USER_ID' AND deleted_at IS NULL AND street='2 Office Pl' LIMIT 1
+UNTOUCHED_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='2 Office Pl' LIMIT 1
 ")
 export UNTOUCHED_ADDR_ID=$(printf '%s' "$UNTOUCHED_ADDR_ID" | tr -d '[:space:]')
 echo "TARGET_ADDR_ID    = $TARGET_ADDR_ID"
@@ -640,9 +685,9 @@ sec "9. Change one address — op=changed (custom PUT subresource — same shape
 
 # Pull the now-active (post-section-8) "100 Market St" address id back so
 # we can mutate it again via the email-keyed surface.
-TARGET2_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$USER_ID' AND deleted_at IS NULL AND street='100 Market St' LIMIT 1
+TARGET2_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_ID")) AND deleted_at IS NULL AND street='100 Market St' LIMIT 1
 ")
 export TARGET2_ADDR_ID=$(printf '%s' "$TARGET2_ADDR_ID" | tr -d '[:space:]')
 echo "TARGET2_ADDR_ID = $TARGET2_ADDR_ID (same row as TARGET_ADDR_ID after section 8)"
@@ -652,7 +697,7 @@ CHANGE_BODY_CUSTOM='{
   "neighborhood":"Downtown","city":"San Francisco","state":"CA",
   "zipCode":"94110","country":"US"
 }'
-capture_audit PUT "/showcase/users-custom/alice@omnicore.test/addresses/$TARGET2_ADDR_ID" \
+capture_audit PUT "/showcase/users-custom/10000000401/addresses/$TARGET2_ADDR_ID" \
   "$CHANGE_BODY_CUSTOM" "$VALID" 200
 
 assert_audit "9.1 Custom PUT change-address audit — same op=updated shape as canonical" '
@@ -690,7 +735,7 @@ sec "10. dateTime is RFC3339Nano on every audit line"
 
 reset_state
 capture_audit POST /users '{
-  "name":"Format Probe","email":"fmt@audit.test","phone":"14155550000",
+  "name":"Format Probe","email":"fmt@audit.test","phone":"14155550000","document":"10000000402","userName":"fmtprobe",
   "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94100","country":"US"}]
 }' "$VALID" 201
 FMT_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
@@ -712,13 +757,13 @@ sec "11. threadId is unique per request"
 # would break timeline reconstruction.
 
 capture_audit POST /users '{
-  "name":"TID Probe 1","email":"tid1@audit.test","phone":"14155551111",
+  "name":"TID Probe 1","email":"tid1@audit.test","phone":"14155551111","document":"10000000403","userName":"tid1",
   "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94101","country":"US"}]
 }' "$VALID" 201
 TID1=$(printf '%s' "$LAST_AUDIT_JSON" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("threadId",""))')
 
 capture_audit POST /users '{
-  "name":"TID Probe 2","email":"tid2@audit.test","phone":"14155552222",
+  "name":"TID Probe 2","email":"tid2@audit.test","phone":"14155552222","document":"10000000404","userName":"tid2",
   "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94102","country":"US"}]
 }' "$VALID" 201
 TID2=$(printf '%s' "$LAST_AUDIT_JSON" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("threadId",""))')
@@ -750,7 +795,7 @@ print(payload.get("sub", ""))
 ' "$BOB_TOKEN")
 
 capture_audit POST /users '{
-  "name":"Bobs Probe","email":"bob-audit@audit.test","phone":"14155553333",
+  "name":"Bobs Probe","email":"bob-audit@audit.test","phone":"14155553333","document":"10000000405","userName":"bobsprobe",
   "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94103","country":"US"}]
 }' "$BOB_TOKEN" 201
 
@@ -771,7 +816,7 @@ sec "13. PATCH delta on multiple fields → multiple changes entries"
 # entry per changed column, sorted by field name (per CLAUDE.md audit shape).
 
 capture_audit POST /users '{
-  "name":"Multi Probe","email":"multi@audit.test","phone":"14155554444",
+  "name":"Multi Probe","email":"multi@audit.test","phone":"14155554444","document":"10000000406","userName":"multiprobe",
   "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94104","country":"US"}]
 }' "$VALID" 201
 MULTI_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
@@ -805,7 +850,7 @@ reset_state
 
 # Custom POST
 capture_audit POST /showcase/users-custom/ '{
-  "name":"Custom Probe","email":"custom@audit.test","phone":"14155556666",
+  "name":"Custom Probe","email":"custom@audit.test","phone":"14155556666","document":"10000000407","userName":"customprobe",
   "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94106","country":"US"}]
 }' "$VALID" 201
 CUSTOM_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
@@ -820,7 +865,7 @@ eq(snap.get("Name"), "Custom Probe", "snapshot.name")
 '
 
 # Custom PATCH
-capture_audit PATCH /showcase/users-custom/custom@audit.test '{"name":"Custom Probe (manual patch)"}' "$VALID" 200
+capture_audit PATCH /showcase/users-custom/10000000407 '{"name":"Custom Probe (manual patch)"}' "$VALID" 200
 
 assert_audit "14.2 Custom PATCH → verb=update kind=delta actionName=GetPartialUpdatable" '
 eq(a.get("verb"),       "update",                "verb")
@@ -833,7 +878,7 @@ if changes:
 '
 
 # Custom Archive
-capture_audit PATCH /showcase/users-custom/custom@audit.test/archive "" "$VALID" 200
+capture_audit PATCH /showcase/users-custom/10000000407/archive "" "$VALID" 200
 
 assert_audit "14.3 Custom Archive → verb=archive kind=transition + child cascade" '
 eq(a.get("verb"),       "archive",       "verb")
@@ -846,7 +891,7 @@ if addrs:
 '
 
 # Custom Unarchive
-capture_audit PATCH /showcase/users-custom/custom@audit.test/unarchive "" "$VALID" 200
+capture_audit PATCH /showcase/users-custom/10000000407/unarchive "" "$VALID" 200
 
 assert_audit "14.4 Custom Unarchive → verb=unarchive kind=transition + child restore" '
 eq(a.get("verb"),       "unarchive",       "verb")
@@ -859,7 +904,7 @@ if addrs:
 '
 
 # Custom DELETE (hard delete)
-capture_audit DELETE /showcase/users-custom/custom@audit.test "" "$VALID" 204
+capture_audit DELETE /showcase/users-custom/10000000407 "" "$VALID" 204
 
 assert_audit "14.5 Custom DELETE → verb=delete kind=snapshot + child deleted cascade" '
 eq(a.get("verb"),       "delete",       "verb")
@@ -879,7 +924,7 @@ sec "15. Invalid token never reaches the auditor (companion to §7)"
 
 LINES_BEFORE=$(wc -l < "$SERVER_LOG" | tr -d ' ')
 capture_audit POST /users '{
-  "name":"NoAudit","email":"noaudit@x.test","phone":"14155558888","addresses":[]
+  "name":"NoAudit","email":"noaudit@x.test","phone":"14155558888","document":"10000000408","userName":"noaudit","addresses":[]
 }' "not.a.valid.jwt" 401
 title "15.1 Malformed bearer → 401 + no audit line emitted"
 NEW_AUDIT=$(sed -n "$((LINES_BEFORE+1)),\$p" "$SERVER_LOG" | grep '"msg":"audit"' || true)
@@ -901,7 +946,7 @@ sec "16. Validation rejection (422) also never reaches the auditor"
 LINES_BEFORE=$(wc -l < "$SERVER_LOG" | tr -d ' ')
 # Empty name + missing addresses both trigger 422.
 capture_audit POST /users '{
-  "name":"","email":"422@audit.test","phone":"14155559999","addresses":[]
+  "name":"","email":"422@audit.test","phone":"14155559999","document":"10000000409","userName":"probe422","addresses":[]
 }' "$VALID" 422
 title "16.1 Validation 422 → no audit line emitted (no SQL ran)"
 NEW_AUDIT=$(sed -n "$((LINES_BEFORE+1)),\$p" "$SERVER_LOG" | grep '"msg":"audit"' || true)
@@ -931,6 +976,8 @@ INSERT_BODY_LABEL=$(cat <<'JSON'
   "name": "Label User",
   "email": "label@audit.test",
   "phone": "14155557777",
+  "document": "10000000410",
+  "userName": "labeluser",
   "addresses": [{
     "label": "home", "street": "1 Loop", "number": "1",
     "neighborhood": "Mariani", "city": "Cupertino",
@@ -965,9 +1012,9 @@ for c in ch:
 # fieldLabelKey is "AddressZipCodeField" — proving the resolver descends
 # through the AVO type at audit write time. Same canonical endpoint §8
 # uses for single-address mutations.
-LABEL_ADDR_ID=$(docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA -c "
-  SELECT id FROM addresses
-  WHERE user_id='$LABEL_USER_ID' AND deleted_at IS NULL LIMIT 1
+LABEL_ADDR_ID=$(qa_db_query "
+  SELECT $(qa_uuid_select id) FROM addresses
+  WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$LABEL_USER_ID")) AND deleted_at IS NULL LIMIT 1
 " | tr -d '[:space:]')
 CHANGE_BODY_LABEL=$(cat <<'JSON'
 {

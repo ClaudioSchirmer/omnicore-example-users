@@ -14,8 +14,9 @@ import (
 // example-domain port.
 //
 // It composes the framework's pure repository ports (domain.Repository[*User]
-// = Reader[*User] + Writer, both ctx-free) with the email-keyed lookups the
-// by-id contract does not cover.
+// = Reader[*User] + Writer, both ctx-free) with the document-keyed lookups the
+// by-id contract does not cover. Document is the Person natural key — the
+// stable, human-meaningful handle this surface uses in place of the opaque id.
 //
 // Pure: it imports only the framework's domain package — no application, no
 // context, no actor. The request scope (ctx + lifecycle hooks) is bound BELOW
@@ -25,6 +26,6 @@ import (
 // value and call the pure read+write methods directly.
 type UserCustomRepository interface {
 	domain.Repository[*User]
-	FindByEmail(email string) (*User, error)
-	FindArchivedByEmail(email string) (*User, error)
+	FindByDocument(document string) (*User, error)
+	FindArchivedByDocument(document string) (*User, error)
 }

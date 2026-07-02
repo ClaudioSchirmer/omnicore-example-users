@@ -69,12 +69,16 @@ func TestCatalogs_CarryExpectedKeys(t *testing.T) {
 	want := []string{
 		"InvalidEmailNotification",
 		"InvalidPhoneNotification",
+		"InvalidDocumentNotification",
 		"InvalidStateNotification",
 		"InvalidZipCodeNotification",
 		"InvalidCountryNotification",
-		"EmailAlreadyExistsNotification",
-		"EmailCannotChangeNotification",
+		"DocumentCannotChangeNotification",
 		"DuplicateAddressNotification",
+		"UserDocumentField",
+		"UserUserNameField",
+		"UserEmailNotificationField",
+		"UserSmsNotificationField",
 	}
 	for lang, mod := range allCatalogs() {
 		entries := mod.Translations()

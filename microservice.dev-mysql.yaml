@@ -1,0 +1,190 @@
+service: omnicore-example-users
+
+# MySQL twin of microservice.dev.yaml. Selected with APP_PROFILE=dev plus
+# OMNICORE_CONFIG_PATH=./microservice.dev-mysql.yaml. The ONLY substantive
+# differences from the Postgres dev profile are the relational dialect + DSN, the
+# migrations directory (./migrations/mysql), and the read-side namespaces (a
+# separate Mongo database + Kafka sync group) so a MySQL run never collides with
+# a Postgres run's materialized views or consumer offsets. Everything below the
+# data plane (auth, audit, query ceilings, openapi, graphql, httpClient,
+# integration, shutdown) is identical — the service code is dialect-agnostic, so
+# the same binary (built with -tags 'postgres mysql') serves both profiles.
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+  requestTimeoutSeconds: 30
+
+relational:
+  dialect: mysql
+  # go-sql-driver DSN. The engine forces parseTime / clientFoundRows /
+  # multiStatements itself (EnsureDSNParams), so the base form is enough.
+  dsn: "${DATABASE_URL_MYSQL:omnicore:omnicore@tcp(localhost:3307)/users_db}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27018}"
+  # Separate database from the Postgres profile (users_views) so the two
+  # backends' materialized views stay isolated on the shared Mongo container.
+  database: "${MONGO_DB_MYSQL:users_views_mysql}"
+  rebuild:
+    autoRun: true
+    allowDowngrade: false
+
+kafka:
+  brokers:
+    - "${KAFKA_BROKERS:localhost:9094}"
+  # Distinct sync consumer group so the MySQL SyncEngine tracks its own offsets
+  # on users.events (latest), independent of the Postgres profile's group.
+  syncGroupId: "${SYNC_GROUP_ID_MYSQL:omnicore-example-users-sync-mysql}"
+
+migrations:
+  dir: ./migrations/mysql
+  autoRun: true
+
+query:
+  maxLimit: 100
+  maxExportRows: 5000
+
+openapi:
+  uiPath: /docs
+  rootRedirect: true
+
+auth:
+  mode: disabled
+  auditClaims: []
+
+audit:
+  destinations:
+    - slog
+    - database
+
+# Tracing is exercised in the Postgres dev profile (auto pgx instrumentation +
+# Jaeger). Left off here to keep the MySQL twin focused on the dialect swap; the
+# relational engine still works identically with tracing on, but the QA suites
+# do not assert spans, so this avoids a second moving part.
+observability:
+  tracing:
+    enabled: false
+
+graphql:
+  path: /graphql
+  uiPath: /graphql/ui
+  playground: true
+  introspection: true
+  rootRedirect: false
+
+httpClient:
+  defaults:
+    timeout: 10s
+    headers:
+      User-Agent: "omnicore-example-users/1.0"
+    cache:
+      enabled: true
+      defaultTTL: 5m
+      honorCacheControl: false
+
+  services:
+    keycloak-public:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      endpoints:
+        getRealmInfo:
+          method: GET
+          path: /realms/omnicore-test/.well-known/openid-configuration
+          cache: { ttl: 5m }
+
+    keycloak-admin:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      auth: { provider: kc-admin }
+      endpoints:
+        getUser:
+          method: GET
+          path: /admin/realms/omnicore-test/users/{id}
+          acceptableStatus: [404]
+          cache:
+            ttl: 1m
+            varyOn: [header:Accept-Language]
+
+    keycloak-tenant:
+      baseURL: "${KC_URL:http://localhost:8088}"
+      auth: { provider: kc-password-tenant }
+      endpoints:
+        whoami:
+          method: GET
+          path: /realms/omnicore-test/protocol/openid-connect/userinfo
+
+    echo:
+      baseURL: "${ECHO_URL:http://localhost:8080}"
+      endpoints:
+        download:
+          method: GET
+          path: /echo/stream/{size}
+          responseStream: true
+        uploadStream:
+          method: POST
+          path: /echo/upload
+        multipart:
+          method: POST
+          path: /echo/multipart
+        sse:
+          method: GET
+          path: /echo/sse
+          responseSSE: true
+
+    echo-signed:
+      baseURL: "${ECHO_URL:http://localhost:8080}"
+      signing:
+        type: hmac-sha256
+        keyId: "${ECHO_KEY_ID:demo-key-1}"
+        keyIdHeader: X-Key-Id
+        secret: "${ECHO_SIGNING_SECRET:demo-secret-please-change}"
+        signedHeaders:
+          - host
+          - x-date
+          - x-content-sha256
+        timestampHeader: X-Date
+        timestampFormat: rfc1123
+        signatureHeader: X-Signature
+      endpoints:
+        signed:
+          method: POST
+          path: /echo/signed
+
+  authProviders:
+    kc-admin:
+      type: oauth2-client-credentials
+      tokenEndpoint: "${KC_URL:http://localhost:8088}/realms/omnicore-test/protocol/openid-connect/token"
+      clientId: "${KC_ADMIN_CLIENT_ID:omnicore-users-client}"
+      clientSecret: "${KC_ADMIN_CLIENT_SECRET:test-secret-please-change}"
+      tokenCache:
+        source: response-field
+        jsonPath: $.expires_in
+        unit: seconds
+        skew: 30s
+      revocationOnUnauthorized: true
+
+    kc-password-tenant:
+      type: credentials-exchange
+      tokenEndpoint: "${KC_URL:http://localhost:8088}/realms/omnicore-test/protocol/openid-connect/token"
+      requestCodec: form-urlencoded
+      requestFields:
+        grant_type: password
+        client_id: "${KC_TENANT_CLIENT_ID:omnicore-users-client}"
+        client_secret: "${KC_TENANT_CLIENT_SECRET:test-secret-please-change}"
+        scope: openid
+      requestFieldsFromCtx:
+        username: tenant.username
+        password: tenant.password
+      responseTokenPath: $.access_token
+      tokenCache:
+        source: response-field
+        jsonPath: $.expires_in
+        unit: seconds
+        skew: 30s
+
+integration:
+  defaults:
+    consumerGroup: "${INTEGRATION_GROUP_ID_MYSQL:omnicore-example-users-integration-mysql}"
+    workers: 4
+    startFrom: latest
+
+shutdown:
+  drainTimeoutSeconds: 30

@@ -35,6 +35,8 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Backend selector (postgres|mysql via BACKEND); default = postgres.
+source "$REPO_ROOT/qa/_backend.sh"
 COMPOSE="docker compose -f $REPO_ROOT/devops/docker-compose.yml"
 BASE="${BASE:-http://localhost:8080}"
 SERVER_BIN="${SERVER_BIN:-/tmp/omnicore-example-users-qa-cache-bin}"
@@ -160,7 +162,7 @@ if ! $COMPOSE ps --status running --format '{{.Name}}' | grep -q omnicore-exampl
 fi
 
 title "0.1 Build server binary"
-(cd "$REPO_ROOT" && go build -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.2 Reset state (Redis FLUSHDB + log file)"

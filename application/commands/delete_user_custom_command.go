@@ -9,16 +9,16 @@ import (
 )
 
 // DeleteUserCustomCommand triggers a hard delete (FK ON DELETE CASCADE on
-// addresses) in the manual showcase chain. EmailKey comes from the /:email
+// addresses) in the manual showcase chain. DocumentKey comes from the /:email
 // path segment.
 type DeleteUserCustomCommand struct {
 	pipeline.CommandBase
-	EmailKey string
+	DocumentKey string
 }
 
 // ApplyTo is the hook for ctx → business translation on the delete verb.
 // Symmetric to the canonical DeleteUserCommand.ApplyTo — the manual handler
-// calls it AFTER FindByEmail and BEFORE GetDeletable runs BuildRules in
+// calls it AFTER FindByDocument and BEFORE GetDeletable runs BuildRules in
 // ModeDelete (where the service uses IfDelete for delete-specific rules).
 // No-op today; future authz would populate the transient identity field here.
 func (*DeleteUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {

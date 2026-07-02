@@ -1,9 +1,11 @@
 package web
 
 import (
+	"github.com/ClaudioSchirmer/omnicore/application/audit"
 	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/command/read"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 
@@ -11,7 +13,6 @@ import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // MountAudit registers the canonical audit-read endpoint:
@@ -19,14 +20,14 @@ import (
 //	GET /audit/:aggregateId
 //
 // REQUIRES audit destinations to include `database`. The endpoint
-// reads from the `audit_events` Postgres table; rows are written there
+// reads from the `audit_events` relational table; rows are written there
 // only when `audit.destinations` in microservice.<profile>.yaml carries
 // `database` (the default in this example service). A deploy that
 // chooses `destinations: [slog]` (echo-only) or `destinations: []`
 // (disabled) ships with this endpoint mounted but every aggregate read
 // will return 200 with `data: []` — there is no row to read.
 //
-// When PG storage is disabled but the audit JSON must still be
+// When relational storage is disabled but the audit JSON must still be
 // translated (consumed from slog/ELK, Kafka, a backup snapshot, etc.),
 // the framework's translation helpers are independent of the storage:
 //
@@ -36,16 +37,16 @@ import (
 //     — for BI / Python / Node consumers parsing the JSON envelope
 //     directly. Same shape, no struct dependency.
 //
-// In other words: this route is the canonical PG-backed reader; the
+// In other words: this route is the canonical relational-backed reader; the
 // translation primitives compose with whatever storage backs the
-// audit JSON. Disabling PG storage does not lose label translation —
+// audit JSON. Disabling relational storage does not lose label translation —
 // only loses this specific HTTP surface.
 //
 // Pattern: manual handler + Pipeline.Dispatch. Same orchestration the
 // /showcase/users-custom GET routes follow:
 //
 //  1. fwweb.AppContext(c) + SetParent(c) → cancellation context flows
-//     all the way down to pgx.
+//     all the way down to the driver.
 //  2. fwweb.BindPath(c, &req) → reads :aggregateId into the path-tagged
 //     Request DTO. Malformed segment surfaces the canonical 400 envelope
 //     with SchemaViolationNotification.
@@ -53,8 +54,8 @@ import (
 //     Hardcodes EntityType="User" (see find_audit_by_aggregate_request.go
 //     for the extension story).
 //  4. pipeline.Dispatch → the manual handler calls audit.FindByAggregate
-//     against the PG pool and applies audit.RenderLabels in the actor's
-//     locale before returning.
+//     against the relational engine and applies audit.RenderLabels in the
+//     actor's locale before returning.
 //  5. RespondWithSuccess wraps the slice in the canonical envelope
 //     ({success, status, data}).
 //
@@ -78,7 +79,7 @@ func MountAudit(app *fiber.App, d bootstrap.Deps) {
 	tags := []string{"Audit"}
 
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:aggregateId",
-		findAuditByAggregateHandler(d.Pipeline, d.Postgres.Pool(), d.Translator),
+		findAuditByAggregateHandler(d.Pipeline, read.NewAuditReader(d.DB), d.Translator),
 		fwopenapi.RouteSpecOf[requests.FindAuditByAggregateRequest, requests.FindAuditByAggregateResponse](fiber.StatusOK),
 		fwopenapi.Doc{
 			Summary:     "Get the audit timeline of an aggregate",
@@ -92,7 +93,7 @@ func MountAudit(app *fiber.App, d bootstrap.Deps) {
 // registers. Walks the canonical chain: AppContext → BindPath → ToQuery
 // → Dispatch → RespondWithSuccess on hit / RespondFromResult on failure.
 //
-// Receives the persistent dependencies (Pipeline + PG pool + Translator)
+// Receives the persistent dependencies (Pipeline + relational engine + Translator)
 // and constructs the application handler INSIDE the per-request closure
 // — same convention every /showcase/users-custom route follows
 // (customInsertUser, customUpdateUser, etc.). Application handlers are
@@ -108,7 +109,7 @@ func MountAudit(app *fiber.App, d bootstrap.Deps) {
 // semantic. Same shape every other manual showcase route produces.
 func findAuditByAggregateHandler(
 	pipe *pipeline.Pipeline,
-	pool *pgxpool.Pool,
+	reader audit.Reader,
 	translator *translation.Translator,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -122,7 +123,7 @@ func findAuditByAggregateHandler(
 
 		q := req.ToQuery()
 		h := &appquery.FindAuditByAggregateQueryHandler{
-			Pool:       pool,
+			Reader:     reader,
 			Translator: translator,
 		}
 		result := pipeline.Dispatch(pipe, appCtx, q, h)

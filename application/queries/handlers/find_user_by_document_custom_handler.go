@@ -8,25 +8,25 @@ import (
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
 )
 
-// FindUserByEmailCustomQueryHandler resolves /showcase/users-custom/:email by issuing
-// a single-item ReadPage with Filter[Email]=<value>. The canonical
-// FindByIDQueryHandler cannot be reused — it only knows the document's
-// primary-key path via ViewReader.ReadByID; the by-email lookup needs an
-// arbitrary filter, which is what ReadPage already supports.
+// FindUserByDocumentCustomQueryHandler resolves /showcase/users-custom/:document by
+// issuing a single-item ReadPage with Filter[Document]=<value>. The canonical
+// FindByIDQueryHandler cannot be reused — it only knows the row's primary-key
+// path via ViewReader.ReadByID; the by-document lookup needs an arbitrary
+// filter, which is what ReadPage already supports.
 //
 // Returns the raw Mongo document (map[string]any) and lets the web layer
-// project it into a wire-format response (FindUserByEmailCustomResponse,
+// project it into a wire-format response (FindUserByDocumentCustomResponse,
 // co-located with its Request in web/requests/).
 // Keeping the projection on the web side preserves the canonical
 // application → wire boundary — application speaks documents, web speaks
 // JSON.
-type FindUserByEmailCustomQueryHandler struct {
+type FindUserByDocumentCustomQueryHandler struct {
 	Reader queries.ViewReader
 	View   string
 }
 
-func (h *FindUserByEmailCustomQueryHandler) Handle(
-	ctx *configuration.AppContext, q *appqueries.FindUserByEmailQuery,
+func (h *FindUserByDocumentCustomQueryHandler) Handle(
+	ctx *configuration.AppContext, q *appqueries.FindUserByDocumentQuery,
 ) (map[string]any, error) {
 	criteria, err := q.ToCriteria(ctx)
 	if err != nil {
@@ -70,7 +70,7 @@ func (h *FindUserByEmailCustomQueryHandler) Handle(
 		return nil, err
 	}
 	if len(page.Items) == 0 {
-		return nil, domain.NotFoundError("User", "email", q.Email)
+		return nil, domain.NotFoundError("User", "document", q.Document)
 	}
 	return page.Items[0], nil
 }

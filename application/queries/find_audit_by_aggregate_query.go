@@ -6,7 +6,7 @@ import (
 
 // FindAuditByAggregateQuery is the application-layer transport for
 // GET /audit/:aggregateId. The handler dispatches to
-// audit.FindByAggregate(ctx, pg, EntityType, AggregateID) — the canonical
+// audit.FindByAggregate(ctx, eng, EntityType, AggregateID) — the canonical
 // timeline reader served by the audit_events_entity_timeline_idx
 // (entity_type, aggregate_id, occurred_at DESC).
 //

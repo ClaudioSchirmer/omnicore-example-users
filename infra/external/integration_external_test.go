@@ -65,10 +65,10 @@ func TestKeycloakService_GetRealmInfo(t *testing.T) {
 	up.handle("/realms/test/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer":            "http://" + r.Host + "/realms/test",
-			"token_endpoint":    "http://" + r.Host + "/token",
-			"jwks_uri":          "http://" + r.Host + "/jwks",
-			"scopes_supported":  []string{"openid", "email"},
+			"issuer":           "http://" + r.Host + "/realms/test",
+			"token_endpoint":   "http://" + r.Host + "/token",
+			"jwks_uri":         "http://" + r.Host + "/jwks",
+			"scopes_supported": []string{"openid", "email"},
 		})
 	})
 
@@ -166,10 +166,10 @@ func TestKeycloakService_FetchUser_HappyPath(t *testing.T) {
 				ClientID:      "client",
 				ClientSecret:  "secret",
 				TokenCache: &httpclient.TokenCacheConfig{
-					Source: "response-field",
+					Source:   "response-field",
 					JSONPath: "$.expires_in",
-					Unit:   "seconds",
-					Skew:   httpclient.Duration(30 * time.Second),
+					Unit:     "seconds",
+					Skew:     httpclient.Duration(30 * time.Second),
 				},
 			},
 		},
@@ -515,14 +515,14 @@ func TestEchoService_SignedRoundTrip(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"observed_at":     "ts",
-			"received_bytes":  len(body),
-			"received_body":   string(body),
-			"x_date":          r.Header.Get("X-Date"),
-			"x_content_sha":   r.Header.Get("X-Content-SHA256"),
-			"x_signature":     r.Header.Get("X-Signature"),
-			"x_key_id":        r.Header.Get("X-Key-Id"),
-			"authorization":   r.Header.Get("Authorization"),
+			"observed_at":    "ts",
+			"received_bytes": len(body),
+			"received_body":  string(body),
+			"x_date":         r.Header.Get("X-Date"),
+			"x_content_sha":  r.Header.Get("X-Content-SHA256"),
+			"x_signature":    r.Header.Get("X-Signature"),
+			"x_key_id":       r.Header.Get("X-Key-Id"),
+			"authorization":  r.Header.Get("Authorization"),
 		})
 	})
 

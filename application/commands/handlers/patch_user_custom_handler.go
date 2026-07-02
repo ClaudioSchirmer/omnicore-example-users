@@ -21,7 +21,7 @@ func (h *PatchUserCustomCommandHandler) Handle(
 	ctx *configuration.AppContext, cmd *commands.PatchUserCustomCommand,
 ) (commands.UserCustomResult, error) {
 	repo := h.Repo.Scope(ctx)
-	user, err := repo.FindByEmail(cmd.EmailKey)
+	user, err := repo.FindByDocument(cmd.DocumentKey)
 	if err != nil {
 		return commands.UserCustomResult{}, err
 	}

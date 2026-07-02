@@ -93,7 +93,7 @@ func (f *AdminFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 			total := 0
 			if d.IntegrationRegistry != nil {
 				for _, r := range d.IntegrationRegistry.Receivers() {
-					n, err := r.RetryPendingFailures(ctx, d.Postgres.Pool(), d.Pipeline, d.Logger)
+					n, err := r.RetryPendingFailures(ctx, d.DB, d.Pipeline, d.Logger)
 					if err != nil {
 						d.Logger.Warn("admin retry integration failed",
 							"sourceKey", r.SourceKey(),

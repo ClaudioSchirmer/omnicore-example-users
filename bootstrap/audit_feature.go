@@ -14,11 +14,11 @@ import (
 //	GET /audit/:aggregateId — timeline by aggregate (newest first)
 //
 // Mount-only feature — no domain repository, no view, no vendor
-// adapter to cache. The audit reader operates against
-// d.Postgres.Pool() + the framework's d.Translator, both already
-// provided on Deps; there is nothing for the feature struct to wrap
-// or hold. Same shape as AdminFeature — see the "Feature struct
-// convention" section of this service's CLAUDE.md for why
+// adapter to cache. The audit reader operates against the neutral
+// relational engine (d.DB) via read.NewAuditReader + the framework's
+// d.Translator, both provided on Deps; there is nothing for the feature
+// struct to wrap or hold. Same shape as AdminFeature — see the "Feature
+// struct convention" section of this service's CLAUDE.md for why
 // application-layer handlers are NEVER cached on the feature struct.
 type AuditFeature struct{}
 

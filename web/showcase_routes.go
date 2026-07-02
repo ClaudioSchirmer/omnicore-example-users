@@ -17,15 +17,15 @@ import (
 // MountShowcase registers every framework-showcase route under /showcase/*.
 // Split by upstream / feature catalog so each consumer is easy to find:
 //
-//   /showcase/keycloak/*    → exercise outbound auth providers (anonymous
-//                             cache, oauth2-client-credentials,
-//                             credentials-exchange) against the local
-//                             Keycloak fixture.
-//   /showcase/httpclient/*  → exercise the outbound features that need an
-//                             in-process upstream (streaming surfaces,
-//                             HMAC signing, CallConfig overrides,
-//                             InlineAuth) against the /echo/* routes
-//                             registered by MountEcho.
+//	/showcase/keycloak/*    → exercise outbound auth providers (anonymous
+//	                          cache, oauth2-client-credentials,
+//	                          credentials-exchange) against the local
+//	                          Keycloak fixture.
+//	/showcase/httpclient/*  → exercise the outbound features that need an
+//	                          in-process upstream (streaming surfaces,
+//	                          HMAC signing, CallConfig overrides,
+//	                          InlineAuth) against the /echo/* routes
+//	                          registered by MountEcho.
 //
 // The /echo/* routes themselves are mounted by MountEcho — kept at the
 // root (not nested under /showcase) because they are the upstream of the
@@ -68,7 +68,7 @@ func MountShowcase(app *fiber.App, kc *appexternal.KeycloakService, echo *appext
 			Summary:     "Keycloak admin user fetch via oauth2-client-credentials",
 			Description: "Fetches a Keycloak admin user through the `keycloak-admin` service. The `oauth2-client-credentials` provider acquires and caches the service-account bearer; 401 from the IdP triggers re-acquire via `revocationOnUnauthorized`. Returns 404 when the user is absent (path declared via `acceptableStatus: [404]`).",
 			Tags:        keycloakTags, Public: true, Hidden: true,
-			Parameters:  []fwopenapi.Parameter{fwopenapi.PathParam("id", "Keycloak user UUID")},
+			Parameters: []fwopenapi.Parameter{fwopenapi.PathParam("id", "Keycloak user UUID")},
 		})
 	fwopenapi.MountRaw(d.OpenAPIRegistry, kcGroup, fiber.MethodGet, "/tenant/whoami",
 		keycloakTenantWhoami(kc),
@@ -89,7 +89,7 @@ func MountShowcase(app *fiber.App, kc *appexternal.KeycloakService, echo *appext
 			Summary:     "Stream N bytes via httpclient StreamResponse",
 			Description: "Streams `:size` bytes from the in-process `/echo/stream/:size` upstream as a `StreamResponse`. The framework hands the open body to the caller without buffering — the handler copies it through an `io.Reader`. Status, headers, and ContentLength surface in slog; the stream body itself is not captured.",
 			Tags:        httpclientTags, Public: true, Hidden: true,
-			Parameters:  []fwopenapi.Parameter{fwopenapi.PathParam("size", "Byte count (max 16 MiB)")},
+			Parameters: []fwopenapi.Parameter{fwopenapi.PathParam("size", "Byte count (max 16 MiB)")},
 		})
 	fwopenapi.MountRaw(d.OpenAPIRegistry, hc, fiber.MethodPost, "/upload-stream",
 		showcaseUploadStream(echo),

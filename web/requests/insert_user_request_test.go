@@ -27,10 +27,16 @@ func TestInsertUserRequest_ToCommand_Minimal(t *testing.T) {
 }
 
 func TestInsertUserRequest_ToCommand_Full(t *testing.T) {
+	emailNotif := true
+	smsNotif := false
 	r := InsertUserRequest{
-		Name:  "Bob",
-		Email: "bob@x.com",
-		Phone: strptr("11999999999"),
+		Name:              "Bob",
+		Email:             "bob@x.com",
+		Phone:             strptr("11999999999"),
+		Document:          "10000000002",
+		UserName:          "bob",
+		EmailNotification: &emailNotif,
+		SmsNotification:   &smsNotif,
 		Addresses: []AddressRequest{
 			{Street: "S1", Number: "1", Neighborhood: "N", City: "C", State: "ST", ZipCode: "12345", Country: "US"},
 			{Street: "S2", Number: "2", Neighborhood: "N", City: "C", State: "ST", ZipCode: "67890", Country: "US"},
@@ -40,6 +46,12 @@ func TestInsertUserRequest_ToCommand_Full(t *testing.T) {
 
 	if cmd.Phone == nil || *cmd.Phone != "11999999999" {
 		t.Errorf("Phone not transferred: %v", cmd.Phone)
+	}
+	if cmd.Document != "10000000002" || cmd.UserName != "bob" {
+		t.Errorf("document/userName not transferred: %+v", cmd)
+	}
+	if cmd.EmailNotification == nil || !*cmd.EmailNotification || cmd.SmsNotification == nil || *cmd.SmsNotification {
+		t.Errorf("notification flags not transferred: email=%v sms=%v", cmd.EmailNotification, cmd.SmsNotification)
 	}
 	if len(cmd.Addresses) != 2 {
 		t.Fatalf("expected 2 addresses, got %d", len(cmd.Addresses))
@@ -76,7 +88,11 @@ func TestInsertUserRequest_ToCommand_EmptyAddressesSlice(t *testing.T) {
 func TestInsertUserResponse_FromResult(t *testing.T) {
 	id := domain.NewRandomID()
 	phone := "11999999999"
-	r := commands.InsertUserResult{ID: id, Name: "Alice", Email: "a@x.com", Phone: &phone}
+	emailNotif := true
+	r := commands.InsertUserResult{
+		ID: id, Name: "Alice", Email: "a@x.com", Phone: &phone,
+		Document: "10000000001", UserName: "alice", EmailNotification: &emailNotif,
+	}
 
 	resp := InsertUserResponse{}.FromResult(r)
 
@@ -88,6 +104,12 @@ func TestInsertUserResponse_FromResult(t *testing.T) {
 	}
 	if resp.Phone == nil || *resp.Phone != "11999999999" {
 		t.Errorf("Phone not transferred: %v", resp.Phone)
+	}
+	if resp.Document != "10000000001" || resp.UserName != "alice" {
+		t.Errorf("document/userName not transferred: %+v", resp)
+	}
+	if resp.EmailNotification == nil || !*resp.EmailNotification {
+		t.Errorf("EmailNotification not transferred: %v", resp.EmailNotification)
 	}
 }
 

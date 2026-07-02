@@ -3,7 +3,8 @@ service: omnicore-example-users
 http:
   addr: "${HTTP_ADDR::8080}"
 
-postgres:
+relational:
+  dialect: "${REL_DIALECT:postgres}"
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
 
 mongo:
@@ -18,7 +19,7 @@ kafka:
   syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
 
 migrations:
-  dir: ./migrations
+  dir: "${MIGRATIONS_DIR:./migrations/postgres}"
   autoRun: true
 
 # Variant profile exercising the framework's external validator (RFC 7662

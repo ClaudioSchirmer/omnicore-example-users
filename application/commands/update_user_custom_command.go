@@ -12,25 +12,29 @@ import (
 // handler chain mounted under /showcase/users-custom/*. Two intentional
 // differences from UpdateUserCommand:
 //
-//  1. Identification is by Email (the showcase mounts /:email in the path),
-//     not the database UUID. EmailKey is populated by the route handler
-//     before Dispatch — there is no pipeline.CommandBaseWithID machinery
-//     because the manual path does not consume the SetPathID hook.
+//  1. Identification is by Document (the showcase mounts /:document in the
+//     path), not the database UUID. DocumentKey is populated by the route
+//     handler before Dispatch — there is no pipeline.CommandBaseWithID
+//     machinery because the manual path does not consume the SetPathID hook.
 //
-//  2. The mutable surface does NOT carry Email. Email is the identifier in
-//     this route; renaming would change the very key the URL pinned, so the
-//     custom path treats it as immutable. To rename, the consumer deletes
-//     and recreates via POST. The canonical /users/:id (UUID-keyed) route
-//     continues to allow renaming as before.
+//  2. The mutable surface does NOT carry Document. Document is the immutable
+//     natural key of the shared Person identity (it derives the deterministic
+//     id), so it cannot be renamed on any surface; the canonical and custom
+//     paths agree. Email, by contrast, IS now a plain mutable shared field and
+//     is editable here.
 //
 // ApplyTo replaces every editable root field plus the entire address
 // collection — same PUT semantic as the canonical UpdateUserCommand.
 type UpdateUserCustomCommand struct {
 	pipeline.CommandBase
-	EmailKey  string
-	Name      string
-	Phone     *string
-	Addresses []dtos.AddressInputCustom
+	DocumentKey       string
+	Name              string
+	Email             string
+	Phone             *string
+	UserName          string
+	EmailNotification *bool
+	SmsNotification   *bool
+	Addresses         []dtos.AddressInputCustom
 }
 
 // ApplyTo carries *AppContext alongside the loaded entity — same shape as the
@@ -39,7 +43,11 @@ type UpdateUserCustomCommand struct {
 // translation populate it here.
 func (c *UpdateUserCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	u.Name = c.Name
+	u.Email = c.Email
 	u.Phone = c.Phone
+	u.UserName = c.UserName
+	u.EmailNotification = c.EmailNotification
+	u.SmsNotification = c.SmsNotification
 
 	addrs := make([]appdomain.Address, len(c.Addresses))
 	for i, a := range c.Addresses {

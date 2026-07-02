@@ -8,13 +8,13 @@ import (
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
 
-// FindAddressByEmailAndIDRequest is the wire allowlist for GET
-// /showcase/users-custom/:email/addresses/:addressId. Both identifiers
+// FindAddressByDocumentAndIDRequest is the wire allowlist for GET
+// /showcase/users-custom/:document/addresses/:addressId. Both identifiers
 // arrive via `path:` tags; only `?includeArchived=true|false` is recognized
 // as a query parameter — any other key produces the canonical 400 envelope
 // via the fwweb.ParseCriteria allowlist check the route runs after BindPath.
-type FindAddressByEmailAndIDRequest struct {
-	Email           string `path:"email"`
+type FindAddressByDocumentAndIDRequest struct {
+	Document        string `path:"document"`
 	AddressID       string `path:"addressId"`
 	IncludeArchived *bool  `query:"includeArchived"`
 }
@@ -24,9 +24,9 @@ type FindAddressByEmailAndIDRequest struct {
 // from ParseCriteria. AppContext-derived overlays (future JWT tenant id)
 // layer onto the criteria inside Query.ToCriteria(ctx) consumed by the
 // handler.
-func (r FindAddressByEmailAndIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindAddressByEmailAndIDQuery {
-	return &queries.FindAddressByEmailAndIDQuery{
-		Email:           r.Email,
+func (r FindAddressByDocumentAndIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindAddressByDocumentAndIDQuery {
+	return &queries.FindAddressByDocumentAndIDQuery{
+		Document:        r.Document,
 		AddressID:       r.AddressID,
 		IncludeArchived: criteria.IncludeArchived,
 	}
@@ -34,7 +34,7 @@ func (r FindAddressByEmailAndIDRequest) ToQuery(criteria fwqueries.ReadCriteria)
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
-// FindAddressByEmailAndIDResponse is the reduced wire projection of one
+// FindAddressByDocumentAndIDResponse is the reduced wire projection of one
 // address sub-document for the manual showcase. Mirrors the surface's
 // identity — id + street + city + country, dropping the larger fields
 // the canonical FindAddressByIDResponse exposes — to demonstrate that
@@ -46,10 +46,10 @@ func (r FindAddressByEmailAndIDRequest) ToQuery(criteria fwqueries.ReadCriteria)
 // endpoint does not declare `query:"fields"`, so the Response is free to
 // render every field with its zero value — a missing key in the doc lands
 // as `""` on the wire instead of being elided. Projection runs through
-// fwresponses.AutoFromDoc[FindAddressByEmailAndIDResponse] at the route;
+// fwresponses.AutoFromDoc[FindAddressByDocumentAndIDResponse] at the route;
 // AutoFromDoc handles both sparse (*T+omitempty) and non-sparse (string)
 // shapes uniformly.
-type FindAddressByEmailAndIDResponse struct {
+type FindAddressByDocumentAndIDResponse struct {
 	ID      string `json:"id"      example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Street  string `json:"street"  example:"1 Infinite Loop"`
 	City    string `json:"city"    example:"Cupertino"`

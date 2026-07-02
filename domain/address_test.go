@@ -13,13 +13,13 @@ import (
 // "addresses[0].<field>" because runAggregateValidations scopes the ctx by the
 // inferred table name for Address ("addresses") + index 0.
 //
-// User.RequiresService() = true, so we pass okService() — a UserService that
-// always returns EmailExists=false (defined in user_service_test.go) — so we
-// don't pollute these assertions with ServiceIsRequiredNotification.
+// User needs no domain service, so we pass nil. The root carries valid
+// Person/role fields (validUser) so the only notifications that can surface are
+// the address's own — keeping these assertions scoped to Address.BuildRules.
 func validateUserWithAddress(addr appdomain.Address) []*domain.NotificationContext {
-	u := &appdomain.User{Name: "Jane", Email: "jane@example.com"}
+	u := validUser()
 	u.AddAddress(addr, nil)
-	_, ctxs := domain.IsValid(u, domain.ModeInsert, okService())
+	_, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
 	return ctxs
 }
 
@@ -77,10 +77,10 @@ func TestAddress_BuildRules_RequiredFields(t *testing.T) {
 
 func TestAddress_BuildRules_StateInvalid(t *testing.T) {
 	cases := []string{
-		"X",       // too short
-		"@",       // forbidden char
-		"NY#",     // forbidden char
-		"Sao!",    // forbidden punctuation
+		"X",     // too short
+		"@",     // forbidden char
+		"NY#",   // forbidden char
+		"Sao!",  // forbidden punctuation
 		"超長字符串", // non-ASCII (regex rejects)
 	}
 	for _, bad := range cases {
@@ -97,10 +97,10 @@ func TestAddress_BuildRules_StateInvalid(t *testing.T) {
 
 func TestAddress_BuildRules_ZipCodeInvalid(t *testing.T) {
 	cases := []string{
-		"12",                // too short
-		"123456789012345",   // too long
-		"94103!",            // forbidden char
-		"abc_def",           // underscore not allowed
+		"12",              // too short
+		"123456789012345", // too long
+		"94103!",          // forbidden char
+		"abc_def",         // underscore not allowed
 	}
 	for _, bad := range cases {
 		t.Run(bad, func(t *testing.T) {

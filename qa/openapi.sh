@@ -22,7 +22,7 @@
 # Prerequisites:
 #   docker compose -f devops/docker-compose.yml up -d
 #   ./devops/debezium/register-connector.sh
-#   APP_PROFILE=dev go run ./bootstrap   (in another terminal)
+#   APP_PROFILE=dev go run -tags postgres ./bootstrap   (in another terminal)
 #
 # Each case prints DESC/STATUS/PASS|FAIL. Exits non-zero on any failure.
 
@@ -123,7 +123,7 @@ assert_spec "/whoami response 200 schema"   '.paths["/whoami"].get.responses["20
 
 # ─── Manual showcase ─────────────────────────────────────────────────────
 assert_spec "POST /showcase/users-custom"        '.paths["/showcase/users-custom/"].post.summary'       "Create a user (manual showcase)"
-assert_spec "PUT /showcase/users-custom/{email}" '.paths["/showcase/users-custom/{email}"].put.summary' "Replace a user by email (manual showcase)"
+assert_spec "PUT /showcase/users-custom/{document}" '.paths["/showcase/users-custom/{document}"].put.summary' "Replace a user by document (manual showcase)"
 
 # ─── Echo upstream is Hidden ─────────────────────────────────────────────
 assert_spec "/echo/upload absent from paths" '(.paths | has("/echo/upload"))' "false"
@@ -185,7 +185,7 @@ assert_spec "GET /showcase/users-custom/ pagination present" '.paths["/showcase/
 # By-id endpoints stay singular (no array, no pagination).
 assert_spec "GET /users/{id} data NOT array"        '.paths["/users/{id}"].get.responses["200"].content["application/json"].schema.properties.data.type' "null"
 assert_spec "GET /users/{id} pagination absent"     '(.paths["/users/{id}"].get.responses["200"].content["application/json"].schema.properties | has("pagination"))' "false"
-assert_spec "GET /showcase/users-custom/{email} pagination absent" '(.paths["/showcase/users-custom/{email}"].get.responses["200"].content["application/json"].schema.properties | has("pagination"))' "false"
+assert_spec "GET /showcase/users-custom/{document} pagination absent" '(.paths["/showcase/users-custom/{document}"].get.responses["200"].content["application/json"].schema.properties | has("pagination"))' "false"
 
 # ─── Component schemas — every named DTO is in the schema dictionary ──────
 assert_spec "InsertUserRequest is in components.schemas"  '(.components.schemas.InsertUserRequest.type)'  "object"
@@ -198,14 +198,14 @@ assert_spec "FindUsersByParamsResponse is in components.schemas" '(.components.s
 # ─── Manual showcase — full route catalog ─────────────────────────────────
 # Mirrors the canonical with the email-keyed identifier. user_custom_routes.go
 # mounts 10 routes; the original block covers POST + PUT — assert the rest.
-assert_spec "PATCH /showcase/users-custom/{email}"                  '.paths["/showcase/users-custom/{email}"].patch.summary'                                       "Patch a user by email (manual showcase)"
-assert_spec "PATCH /showcase/users-custom/{email}/archive"          '.paths["/showcase/users-custom/{email}/archive"].patch.summary'                               "Archive a user by email (manual showcase)"
-assert_spec "PATCH /showcase/users-custom/{email}/unarchive"        '.paths["/showcase/users-custom/{email}/unarchive"].patch.summary'                             "Unarchive a user by email (manual showcase)"
-assert_spec "DELETE /showcase/users-custom/{email}"                 '.paths["/showcase/users-custom/{email}"].delete.summary'                                      "Hard-delete a user by email (manual showcase)"
+assert_spec "PATCH /showcase/users-custom/{document}"                  '.paths["/showcase/users-custom/{document}"].patch.summary'                                       "Patch a user by document (manual showcase)"
+assert_spec "PATCH /showcase/users-custom/{document}/archive"          '.paths["/showcase/users-custom/{document}/archive"].patch.summary'                               "Archive a user by document (manual showcase)"
+assert_spec "PATCH /showcase/users-custom/{document}/unarchive"        '.paths["/showcase/users-custom/{document}/unarchive"].patch.summary'                             "Unarchive a user by document (manual showcase)"
+assert_spec "DELETE /showcase/users-custom/{document}"                 '.paths["/showcase/users-custom/{document}"].delete.summary'                                      "Hard-delete a user by document (manual showcase)"
 assert_spec "GET /showcase/users-custom/"                           '.paths["/showcase/users-custom/"].get.summary'                                                "List users (manual showcase)"
-assert_spec "GET /showcase/users-custom/{email}"                    '.paths["/showcase/users-custom/{email}"].get.summary'                                         "Get a user by email (manual showcase)"
-assert_spec "PUT /showcase/users-custom/{email}/addresses/..."      '.paths["/showcase/users-custom/{email}/addresses/{addressId}"].put.summary'                   "Replace one address inside a user (manual showcase)"
-assert_spec "GET /showcase/users-custom/{email}/addresses/..."      '.paths["/showcase/users-custom/{email}/addresses/{addressId}"].get.summary'                   "Get one address of a user by email (manual showcase)"
+assert_spec "GET /showcase/users-custom/{document}"                    '.paths["/showcase/users-custom/{document}"].get.summary'                                         "Get a user by document (manual showcase)"
+assert_spec "PUT /showcase/users-custom/{document}/addresses/..."      '.paths["/showcase/users-custom/{document}/addresses/{addressId}"].put.summary'                   "Replace one address inside a user (manual showcase)"
+assert_spec "GET /showcase/users-custom/{document}/addresses/..."      '.paths["/showcase/users-custom/{document}/addresses/{addressId}"].get.summary'                   "Get one address of a user by document (manual showcase)"
 
 # ─── Hidden upstream demos — must NOT appear in the spec ──────────────────
 # /echo/* (original asserts /upload + /sse). Cover the remaining three.
@@ -241,7 +241,7 @@ assert_spec "POST /users description non-empty" '(.paths["/users/"].post.descrip
 # Path parameters are auto-emitted from :id segments + path:"..." tags.
 assert_spec "PUT /users/{id} declares {id} parameter"   '[.paths["/users/{id}"].put.parameters[]? | select(.in == "path" and .name == "id")] | length' "1"
 assert_spec "GET /users/{id}/addresses/{addressId} declares both" '[.paths["/users/{id}/addresses/{addressId}"].get.parameters[]? | select(.in == "path")] | length' "2"
-assert_spec "PUT /showcase/users-custom/{email} declares {email}" '[.paths["/showcase/users-custom/{email}"].put.parameters[]? | select(.in == "path" and .name == "email")] | length' "1"
+assert_spec "PUT /showcase/users-custom/{document} declares {document}" '[.paths["/showcase/users-custom/{document}"].put.parameters[]? | select(.in == "path" and .name == "document")] | length' "1"
 
 # Query parameters on the list endpoint — every `query:"..."` tag on
 # FindUsersByParamsRequest surfaces, including the operator-specific suffixes

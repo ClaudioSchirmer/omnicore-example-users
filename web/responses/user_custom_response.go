@@ -26,11 +26,15 @@ import (
 // at the moment the handler succeeded: root fields populated, address children
 // expanded as AddressCustomResponse.
 type UserCustomResponse struct {
-	ID        domain.ID               `json:"id"              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name      string                  `json:"name"            example:"Alice Pereira"`
-	Email     string                  `json:"email"           example:"alice@example.com"`
-	Phone     *string                 `json:"phone,omitempty" example:"14155552671"`
-	Addresses []AddressCustomResponse `json:"addresses"`
+	ID                domain.ID               `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name              string                  `json:"name"                        example:"Alice Pereira"`
+	Email             string                  `json:"email"                       example:"alice@example.com"`
+	Phone             *string                 `json:"phone,omitempty"             example:"14155552671"`
+	Document          string                  `json:"document"                    example:"12345678901"`
+	UserName          string                  `json:"userName"                    example:"alice"`
+	EmailNotification *bool                   `json:"emailNotification,omitempty" example:"true"`
+	SmsNotification   *bool                   `json:"smsNotification,omitempty"   example:"false"`
+	Addresses         []AddressCustomResponse `json:"addresses"`
 }
 
 // AddressCustomResponse is the wire shape of one Address row inside UserCustomResponse.
@@ -74,10 +78,14 @@ func FromResult(r commands.UserCustomResult) UserCustomResponse {
 		}
 	}
 	return UserCustomResponse{
-		ID:        r.ID,
-		Name:      r.Name,
-		Email:     r.Email,
-		Phone:     r.Phone,
-		Addresses: addrs,
+		ID:                r.ID,
+		Name:              r.Name,
+		Email:             r.Email,
+		Phone:             r.Phone,
+		Document:          r.Document,
+		UserName:          r.UserName,
+		EmailNotification: r.EmailNotification,
+		SmsNotification:   r.SmsNotification,
+		Addresses:         addrs,
 	}
 }

@@ -11,7 +11,7 @@
 # Prerequisites:
 #   docker compose -f devops/docker-compose.yml up -d
 #   ./devops/debezium/register-connector.sh
-#   APP_PROFILE=dev go run ./bootstrap   (in another terminal)
+#   APP_PROFILE=dev go run -tags postgres ./bootstrap   (in another terminal)
 #
 # Each case prints REQUEST/STATUS/PASS|FAIL. Exits non-zero on any failure.
 

@@ -42,11 +42,15 @@ func (r FindUserByIDRequest) ToQuery() *queries.FindUserByIDQuery {
 // nested address shape stays per-endpoint to keep the by-id and list
 // surfaces independent if either evolves.
 type FindUserByIDResponse struct {
-	ID        string                      `json:"id"              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name      string                      `json:"name"            example:"Alice Pereira"`
-	Email     string                      `json:"email"           example:"alice@example.com"`
-	Phone     *string                     `json:"phone,omitempty" example:"14155552671"`
-	Addresses []FindUserByIDAddressOutput `json:"addresses"`
+	ID                string                      `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name              string                      `json:"name"                        example:"Alice Pereira"`
+	Email             string                      `json:"email"                       example:"alice@example.com"`
+	Phone             *string                     `json:"phone,omitempty"             example:"14155552671"`
+	Document          string                      `json:"document"                    example:"12345678901"`
+	UserName          string                      `json:"userName"                    example:"alice"`
+	EmailNotification *bool                       `json:"emailNotification,omitempty" example:"true"`
+	SmsNotification   *bool                       `json:"smsNotification,omitempty"   example:"false"`
+	Addresses         []FindUserByIDAddressOutput `json:"addresses"`
 }
 
 // FindUserByIDAddressOutput is the nested wire shape of one Address inside

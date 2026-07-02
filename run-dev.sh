@@ -8,7 +8,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "==> Bringing up local bench (Postgres + Mongo + Kafka + Debezium)"
+echo "==> Bringing up local bench (relational backend + Mongo + Kafka + Debezium)"
 docker compose -f devops/docker-compose.yml up -d
 
 echo "==> Waiting for Debezium Connect to be ready"
@@ -21,4 +21,4 @@ echo "==> Registering Debezium outbox connector (idempotent)"
 
 echo "==> Starting omnicore-example-users (APP_PROFILE=dev)"
 mkdir -p devops/elk/logs
-env APP_PROFILE=dev go run -work ./bootstrap 2>&1 | tee -a devops/elk/logs/omnicore-example-users.log
+env APP_PROFILE=dev go run -work -tags postgres ./bootstrap 2>&1 | tee -a devops/elk/logs/omnicore-example-users.log

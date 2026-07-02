@@ -34,7 +34,7 @@ func (h *FindUsersCustomQueryHandler) Handle(
 		criteria.Filter = map[string]any{}
 	}
 
-	// ─── Custom filter seam (mirror of FindUserByEmailCustomQueryHandler) ────────────
+	// ─── Custom filter seam (mirror of FindUserByDocumentCustomQueryHandler) ────────────
 	//
 	// Same row-level access-control seam as the by-email handler — for
 	// lists the filter narrows the visible set, for by-key lookups it

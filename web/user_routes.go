@@ -6,15 +6,15 @@ import (
 	fwresults "github.com/ClaudioSchirmer/omnicore/application/results"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/domain"
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	"github.com/ClaudioSchirmer/omnicore/web/export"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/commands"
-	appquery "github.com/ClaudioSchirmer/omnicore-example-users/application/queries/handlers"
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
+	appquery "github.com/ClaudioSchirmer/omnicore-example-users/application/queries/handlers"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 	"github.com/ClaudioSchirmer/omnicore-example-users/web/requests"
 
@@ -50,7 +50,7 @@ func MountUsers(
 	app *fiber.App,
 	repo persistence.ScopedRepository[*appdomain.User],
 	svc domain.Service,
-	view *fwinfra.ViewDefinition,
+	view *query.ViewDefinition,
 	d bootstrap.Deps,
 ) {
 	users := app.Group("/users")
@@ -59,14 +59,14 @@ func MountUsers(
 	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
 		requests.InsertUserRequest{},
 		requests.InsertUserResponse{}.FromResult,
-		&handlers.InsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
+		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
 			Repo: repo, Service: svc,
 		}, fiber.StatusCreated)
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPost, "/",
 		insertH, insertSpec,
 		fwopenapi.Doc{
-			Summary: "Create a user",
-			Description: "Inserts a user with optional addresses as aggregate children. Validates root fields and each address through `BuildRules`; the `users_email_active_idx` unique partial index translates duplicates to 409 `EmailAlreadyExistsNotification`. Emits a single outbox row covering the aggregate snapshot — Debezium routes it to `users.events` and the SyncEngine projects the document to Mongo asynchronously (~100-300ms).",
+			Summary:     "Create a user",
+			Description: "Creates a user backed by the shared Person identity (SharedBase). Because the person is deduplicated by `document` (the natural key), this POST is an UPSERT: the framework loads any existing person by document first, then the command applies the request on top — so a new person+user is created, or an existing person gains its user (its shared fields updated last-write-wins, its addresses deduped). Re-POSTing the same document for a person who already has an ACTIVE user returns 409 `EntityAlreadyAddedNotification`; an ARCHIVED user is invisible to the insert (soft-delete is delete) and the shared-PK remnant vetoes the write — the same 409, with `PATCH /users/:id/archive`'s inverse (`/unarchive`) as the explicit way back. The notification flags persist to the `user_configurations` sibling table. Emits the aggregate outbox row plus a person-base event the SyncEngine fans out; the Mongo document lands asynchronously (~100-300ms).",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:write"))
@@ -80,8 +80,8 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPut, "/:id",
 		updateH, updateSpec,
 		fwopenapi.Doc{
-			Summary: "Replace a user (full body)",
-			Description: "Full replacement. Body is strict — the `FullBody` marker rejects requests missing any exported field with 400 `RequiredFieldNotification`. The `addresses` slice replaces the entire child collection atomically: items present in the previous aggregate but absent here become `REMOVED`; new ones become `ADDED`. The `EmailCannotChangeNotification` domain rule blocks email rename — attempting to change it returns 422.",
+			Summary:     "Replace a user (full body)",
+			Description: "Full replacement. Body is strict — the `FullBody` marker rejects requests missing any exported field with 400 `RequiredFieldNotification`. The shared Person fields (name/email/phone) are updated last-write-wins on the base; `userName` updates the role; the notification flags upsert (or, sent null in a PUT, clear) the `user_configurations` sibling. The `addresses` slice replaces the person's address collection atomically: items present before but absent here become `REMOVED`; new ones `ADDED`. `document` is the immutable natural key and is not part of the body; the `DocumentCannotChangeNotification` rule guards any attempt to change it (422).",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:write"))
@@ -95,7 +95,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPatch, "/:id",
 		patchH, patchSpec,
 		fwopenapi.Doc{
-			Summary: "Patch a user (partial body)",
+			Summary:     "Patch a user (partial body)",
 			Description: "Partial root update — only fields present in the body are applied; missing fields preserve their current value (empty body is a 200 noop). Address operations are NOT supported on PATCH; use PUT for atomic collection replacement. Does not accept `includeArchived` — state transitions live on the dedicated `/archive` and `/unarchive` endpoints.",
 			Tags:        []string{"Users"},
 		},
@@ -109,8 +109,8 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodDelete, "/:id",
 		deleteH, deleteSpec,
 		fwopenapi.Doc{
-			Summary: "Hard-delete a user",
-			Description: "Hard delete — irreversible. Removes the user row and cascades to addresses via FK `ON DELETE CASCADE`. Emits a `DELETED` outbox event; the SyncEngine drops the Mongo document unconditionally (regardless of the view's `DeleteOnArchive` flag — that opt-in only governs ARCHIVED). For reversible removal, use `/archive` instead.",
+			Summary:     "Hard-delete a user",
+			Description: "Hard delete — irreversible. Removes the user (role) row; the framework then reference-counts the shared Person. The framework default is `KeepOrphan` (omission never destroys the identity); this service opts into physical erasure explicitly via `OrphanPolicy(DeleteWhenUnreferenced)`, so with no remaining role referencing it the person and its addresses are hard-deleted too — explicitly in Go, same TX. The purge runs under a savepoint and is database-vetoable: a foreign-key violation from ANY table still referencing the person (the role→persons FKs are declared `RESTRICT` to give the veto teeth) cancels the purge — the person stays, the user delete still commits. An actual purge is never invisible: it emits its own in-TX audit event (`entityType` = `persons`) and its own `DELETED` outbox row for the base, alongside the user's `DELETED` event; the SyncEngine drops the Mongo document unconditionally (regardless of the view's `DeleteOnArchive` flag — that opt-in only governs ARCHIVED). For reversible removal, use `/archive` instead.",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:delete"))
@@ -123,7 +123,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
-			Summary: "Archive a user (cascade addresses)",
+			Summary:     "Archive a user (cascade addresses)",
 			Description: "Soft delete via `deleted_at = NOW()`. Aggregate-aware: the same TX archives every active address. Symmetric inverse of `/unarchive`. Layer-2 ownership applies — the JWT principal's email claim must match the persisted user's email unless they carry `users:admin` (super-admin bypass via `*:*`).",
 			Tags:        []string{"Users"},
 		},
@@ -137,7 +137,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPatch, "/:id/unarchive",
 		unarchiveH, unarchiveSpec,
 		fwopenapi.Doc{
-			Summary: "Unarchive a user (restore archived addresses)",
+			Summary:     "Unarchive a user (restore archived addresses)",
 			Description: "Reverses `/archive`. Clears `deleted_at` on the root and on every child archived alongside it — cascade also restores children archived by earlier Update operations, not just those touched by the matching Archive. Emits `UNARCHIVED`; the SyncEngine re-composes and upserts the Mongo document.",
 			Tags:        []string{"Users"},
 		},
@@ -152,7 +152,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodGet, "/",
 		listH, listSpec,
 		fwopenapi.Doc{
-			Summary: "List users (paged + filter)",
+			Summary:     "List users (paged + filter)",
 			Description: "Paged read against the `users` Mongo view. Filter operators are declared by struct tag (e.g. `filter:\"eq,in,startswith\"`); unknown query keys or operators outside the allowlist return 400 `SchemaViolationNotification`. Multiple operators on the same field AND-combine. Pass `?includeArchived=true` to include archived users; default hides them.",
 			Tags:        []string{"Users"},
 		},
@@ -213,7 +213,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodGet, "/:id",
 		byIDH, byIDSpec,
 		fwopenapi.Doc{
-			Summary: "Get a user by id",
+			Summary:     "Get a user by id",
 			Description: "Fetches the denormalized user document (root + addresses[]) from the `users` Mongo view. Only `?includeArchived=true` is recognized — any other query key returns 400. Returns 404 when the document is absent or filtered out by `?includeArchived`.",
 			Tags:        []string{"Users"},
 		},
@@ -244,7 +244,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPut, "/:id/addresses/:addressId",
 		changeAddrH, changeAddrSpec,
 		fwopenapi.Doc{
-			Summary: "Replace one address inside a user (preserve address id)",
+			Summary:     "Replace one address inside a user (preserve address id)",
 			Description: "Full replacement of one address child within the User aggregate, keeping the same `addresses.id`. Strict body — `FullBody` marker rejects any missing field with 400. The auditor pairs pre/post by `Address.GetID()` and emits `children.Address[*].op=\"changed\"` with the field-level delta — the canonical PUT /users/:id replace path produces `added`+`removed` instead because it wipes the collection. 404 on missing user id; 404 on user found but address id absent.",
 			Tags:        []string{"Users"},
 		},
@@ -259,7 +259,7 @@ func MountUsers(
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodGet, "/:id/addresses/:addressId",
 		findAddrH, findAddrSpec,
 		fwopenapi.Doc{
-			Summary: "Get one address of a user by id",
+			Summary:     "Get one address of a user by id",
 			Description: "Loads the user document from the `users` Mongo view, walks the embedded `addresses[]`, and returns the entry whose `id` matches `:addressId`. `?includeArchived=true` follows the same semantic as GET /users/:id?includeArchived=true. 404 on missing user or address.",
 			Tags:        []string{"Users"},
 		},

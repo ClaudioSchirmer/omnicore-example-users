@@ -8,9 +8,10 @@ import (
 )
 
 // PatchUserCustomCommand is the PATCH-shaped command for the manual showcase
-// chain under /showcase/users-custom/*. Identifier is Email (populated by the
-// route handler before Dispatch); the mutable surface omits Email because in
-// this route email is the key, not a data field.
+// chain under /showcase/users-custom/*. Identifier is Document (populated by the
+// route handler before Dispatch); the mutable surface omits Document because it
+// is the immutable natural key, not a data field. Email IS editable here (a
+// plain mutable shared field).
 //
 // Same tri-state semantic as PatchUserCommand:
 //
@@ -19,14 +20,18 @@ import (
 //	           domain decides whether to reject)
 //
 // State transitions (archived/unarchived) and address operations are NOT
-// patchable here — they live in the dedicated PATCH /:email/archive,
-// /:email/unarchive and the full-replace PUT /:email endpoints, matching the
-// canonical /users/* split.
+// patchable here — they live in the dedicated PATCH /:document/archive,
+// /:document/unarchive and the full-replace PUT /:document endpoints, matching
+// the canonical /users/* split.
 type PatchUserCustomCommand struct {
 	pipeline.CommandBase
-	EmailKey string
-	Name     *string
-	Phone    *string
+	DocumentKey       string
+	Name              *string
+	Email             *string
+	Phone             *string
+	UserName          *string
+	EmailNotification *bool
+	SmsNotification   *bool
 }
 
 // ApplyPartiallyTo carries *AppContext alongside the loaded entity — same
@@ -36,8 +41,20 @@ func (c *PatchUserCustomCommand) ApplyPartiallyTo(_ *configuration.AppContext, u
 	if c.Name != nil {
 		u.Name = *c.Name
 	}
+	if c.Email != nil {
+		u.Email = *c.Email
+	}
 	if c.Phone != nil {
 		u.Phone = c.Phone
+	}
+	if c.UserName != nil {
+		u.UserName = *c.UserName
+	}
+	if c.EmailNotification != nil {
+		u.EmailNotification = c.EmailNotification
+	}
+	if c.SmsNotification != nil {
+		u.SmsNotification = c.SmsNotification
 	}
 	return nil
 }

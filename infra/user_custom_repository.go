@@ -2,25 +2,25 @@ package infra
 
 import (
 	"context"
-	"errors"
 
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
-	"github.com/ClaudioSchirmer/omnicore/infra/criteria"
 	"github.com/ClaudioSchirmer/omnicore/domain"
-	fwinfra "github.com/ClaudioSchirmer/omnicore/infra"
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/command/read"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/command/write"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/criteria"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/domain"
 )
 
 // UserCustomRepository is the manual counterpart to UserRepository, used by
 // the /showcase/users-custom/* surface. The canonical UserRepository embeds
-// fwinfra.BaseAggregateRepository — New() + FindByID + FindArchivedByID +
+// read.BaseAggregateRepository — New() + FindByID + FindArchivedByID +
 // Scope come "for free" via promotion. This struct deliberately does NOT
 // embed it: the reads + the scoped-write binding are written out so a reader
-// can see what the canonical wrapper hides, and so we can add the email-keyed
-// lookups (FindByEmail / FindArchivedByEmail) that no framework primitive
+// can see what the canonical wrapper hides, and so we can add the document-keyed
+// lookups (FindByDocument / FindArchivedByDocument) that no framework primitive
 // exposes.
 //
 // The repository PORT (read+write) is a domain concept — appdomain.UserCustomRepository
@@ -28,51 +28,60 @@ import (
 // satisfies it: reads are direct (no ctx); writes are bound to the request
 // *AppContext via Scope, which returns a value satisfying appdomain.UserCustomRepository
 // with its Writer half already scoped. The five writes inside the bound writer
-// are 1-line delegations to fwinfra.Postgres — the same primitives
-// BaseRepository.Scope calls under the hood.
+// are 1-line delegations to the neutral core.RelationalEngine — the same
+// primitives BaseRepository.Scope calls under the hood, on any backend.
 //
-// FindByEmail and FindArchivedByEmail are the actual reason this Repository
-// exists. The /:email path identifier on the showcase routes is an alternate
-// key the by-id contract does not cover; the custom Repository resolves it
-// through the framework's entity search engine — criteria.Eq("Email", email)
-// handed to the AggregateLoader's FindOne, which compiles the WHERE, hydrates
-// root + children, and returns RecordNotFound on a miss. No bespoke SQL.
+// FindByDocument and FindArchivedByDocument are the actual reason this
+// Repository exists. The /:document path identifier on the showcase routes is
+// an alternate key the by-id contract does not cover; the custom Repository
+// resolves it through the framework's entity search engine —
+// criteria.Eq("Document", document) handed to the AggregateLoader's FindOne,
+// which compiles the WHERE (a LEFT JOIN role→shared-base, since Document is a
+// base field), hydrates the role + its base fields + base children, and returns
+// RecordNotFound on a miss. No bespoke SQL.
+//
+// It also satisfies persistence.SharedBaseInsertLoader[*User] via
+// LoadForSharedBaseInsert, so the manual insert handler can hydrate the existing
+// Person identity (name + addresses as Constructor items) before a POST — the
+// same load the canonical SharedBaseInsertCommandHandler does automatically.
 type UserCustomRepository struct {
-	pg          *fwinfra.Postgres
-	loader      *fwinfra.AggregateLoader[*appdomain.User]
-	schema      *fwinfra.TableSchema
+	eng         core.RelationalEngine
+	loader      *read.AggregateLoader[*appdomain.User]
+	schema      *core.TableSchema
 	contextName string
-	constraints map[string]fwinfra.ConstraintBinding
+	constraints map[string]write.ConstraintBinding
 }
 
-// NewUserCustomRepository wires the Repository over the shared *Postgres and
-// builds an AggregateLoader that scans *User + its Address children driven by
-// the explicit UserSchema() (root + Address child). The same email-uniqueness constraint mapping is
-// copied from UserRepository so that a PG 23505 violation reaching this
-// surface emits EmailAlreadyExistsNotification (semantic Conflict → 409)
-// instead of leaking the raw pgErr.
-func NewUserCustomRepository(pg *fwinfra.Postgres) *UserCustomRepository {
+// NewUserCustomRepository wires the Repository over the shared RelationalEngine
+// and builds an AggregateLoader that scans *User + its shared Person base + the
+// base's Address children, driven by the explicit UserSchema(). The same
+// duplicate-role constraint mapping is copied from UserRepository so a PRIMARY
+// KEY violation (shared-PK: users.id == persons.id) reaching this surface emits
+// EntityAlreadyAddedNotification (semantic Conflict → 409) instead of leaking
+// the raw driver error.
+func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
 	newUser := func() *appdomain.User { return &appdomain.User{} }
 	schema := UserSchema()
-	loader := fwinfra.NewAggregateLoader[*appdomain.User](pg, newUser).WithSchema(schema)
+	loader := read.NewAggregateLoader[*appdomain.User](eng, newUser).WithSchema(schema)
 	return &UserCustomRepository{
-		pg:          pg,
+		eng:         eng,
 		loader:      loader,
 		schema:      schema,
 		contextName: "User",
-		constraints: map[string]fwinfra.ConstraintBinding{
-			"users_email_active_idx": {Notification: appdomain.EmailAlreadyExistsNotification{}, Field: "email"},
+		constraints: map[string]write.ConstraintBinding{
+			"users_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
+			"PRIMARY":    {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		},
 	}
 }
 
 // ─── Scope: the write binding ───────────────────────────────────────────────
 //
-// Scope binds the request ctx (cancellation → pgx, actor → audit) and the
+// Scope binds the request ctx (cancellation → the driver, actor → audit) and the
 // optional in-TX lifecycle hooks, and returns the pure read+write domain port
 // appdomain.UserCustomRepository. The returned scopedUserRepo composes this struct
 // (for the ctx-free reads) with a userCustomBoundWriter (for the ctx-bound
-// writes). Mirrors fwinfra.BaseRepository.Scope, written out by hand.
+// writes). Mirrors write.BaseRepository.Scope, written out by hand.
 
 func (r *UserCustomRepository) Scope(ctx *configuration.AppContext, opts ...persistence.WriteOption[*appdomain.User]) appdomain.UserCustomRepository {
 	return scopedUserRepo{
@@ -93,7 +102,7 @@ type scopedUserRepo struct {
 // same delegation BaseRepository performs internally; writing them out keeps
 // the manual contract visible. The explicit UserSchema() (held on the repo) is
 // threaded to the persister — same map the canonical repo uses. The captured
-// opts thread through fwinfra.AdaptWriteOptions so the typed afterBegin /
+// opts thread through core.AdaptWriteOptions so the typed afterBegin /
 // beforeCommit closures reach the persister identically to the canonical path.
 type userCustomBoundWriter struct {
 	r    *UserCustomRepository
@@ -102,7 +111,7 @@ type userCustomBoundWriter struct {
 }
 
 func (w userCustomBoundWriter) Insert(i domain.Insertable) (domain.ID, error) {
-	res, err := w.r.pg.Insert(w.ctx, i, w.r.schema, fwinfra.AdaptWriteOptions(w.opts))
+	res, err := w.r.eng.Insert(w.ctx, i, w.r.schema, core.AdaptWriteOptions(w.opts))
 	if err != nil {
 		return domain.ID{}, w.r.mapErr(err)
 	}
@@ -110,20 +119,20 @@ func (w userCustomBoundWriter) Insert(i domain.Insertable) (domain.ID, error) {
 }
 
 func (w userCustomBoundWriter) Update(u domain.Updatable) error {
-	_, err := w.r.pg.Update(w.ctx, u, w.r.schema, fwinfra.AdaptWriteOptions(w.opts))
+	_, err := w.r.eng.Update(w.ctx, u, w.r.schema, core.AdaptWriteOptions(w.opts))
 	return w.r.mapErr(err)
 }
 
 func (w userCustomBoundWriter) Delete(d domain.Deletable) error {
-	return w.r.mapErr(w.r.pg.Delete(w.ctx, d, w.r.schema, fwinfra.AdaptWriteOptions(w.opts)))
+	return w.r.mapErr(w.r.eng.Delete(w.ctx, d, w.r.schema, core.AdaptWriteOptions(w.opts)))
 }
 
 func (w userCustomBoundWriter) Archive(a domain.Archivable) error {
-	return w.r.mapErr(w.r.pg.Archive(w.ctx, a, w.r.schema, fwinfra.AdaptWriteOptions(w.opts)))
+	return w.r.mapErr(w.r.eng.Archive(w.ctx, a, w.r.schema, core.AdaptWriteOptions(w.opts)))
 }
 
 func (w userCustomBoundWriter) Unarchive(u domain.Unarchivable) error {
-	return w.r.mapErr(w.r.pg.Unarchive(w.ctx, u, w.r.schema, fwinfra.AdaptWriteOptions(w.opts)))
+	return w.r.mapErr(w.r.eng.Unarchive(w.ctx, u, w.r.schema, core.AdaptWriteOptions(w.opts)))
 }
 
 // ─── Reads (ctx-free, direct on the handle) ─────────────────────────────────
@@ -141,48 +150,63 @@ func (r *UserCustomRepository) FindArchivedByID(id domain.ID) (*appdomain.User, 
 	return r.loader.FindOne(context.Background(), criteria.ByID(id).OnlyArchived())
 }
 
-// FindByEmail loads the active aggregate whose email matches, via the entity
-// search engine: criteria.Eq("Email", email) compiles to the WHERE clause and
-// FindOne hydrates root + children, returning RecordNotFound on a miss (same
-// 404 envelope as the canonical by-id miss).
-func (r *UserCustomRepository) FindByEmail(email string) (*appdomain.User, error) {
-	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)))
+// FindByDocument loads the active aggregate whose Person document matches, via
+// the entity search engine: criteria.Eq("Document", document) compiles to the
+// WHERE clause (a LEFT JOIN role→shared-base, since Document is a base field)
+// and FindOne hydrates role + base + base children, returning RecordNotFound on
+// a miss (same 404 envelope as the canonical by-id miss).
+func (r *UserCustomRepository) FindByDocument(document string) (*appdomain.User, error) {
+	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Document", document)))
 }
 
-// FindArchivedByEmail is the symmetric inverse used by the Unarchive flow —
+// FindArchivedByDocument is the symmetric inverse used by the Unarchive flow —
 // same criterion under the OnlyArchived scope (deleted_at IS NOT NULL), with
 // children loaded unfiltered so the cascade sees them.
-func (r *UserCustomRepository) FindArchivedByEmail(email string) (*appdomain.User, error) {
-	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Email", email)).OnlyArchived())
+func (r *UserCustomRepository) FindArchivedByDocument(document string) (*appdomain.User, error) {
+	return r.loader.FindOne(context.Background(), criteria.Where(criteria.Eq("Document", document)).OnlyArchived())
+}
+
+// LoadForSharedBaseInsert satisfies persistence.SharedBaseInsertLoader[*User]:
+// it loads the existing shared Person identity (base fields + the base's
+// addresses as Constructor items) by the natural key carried on fresh. The
+// manual insert handler calls this BEFORE a POST so the command can dedup the
+// request's addresses against the ones the person already has, and so the
+// persister's forgot-guard (which rejects a blind insert against a pre-existing
+// identity) is satisfied. existed=false → cold insert.
+func (r *UserCustomRepository) LoadForSharedBaseInsert(ctx *configuration.AppContext, fresh *appdomain.User) (*appdomain.User, bool, error) {
+	return r.loader.LoadSharedBaseIdentity(ctx, fresh)
 }
 
 // ─── Constraint-violation translation ───────────────────────────────────────
 //
 // mapErr replicates what BaseRepository.mapErr does (it is package-private in
-// the framework, so we cannot import it). Without this, a PG 23505 unique
-// violation would reach the wire as a 500. With it, the constraint name is
-// looked up in r.constraints and the matching Notification is emitted as a
-// typed InfrastructureError — same shape the canonical UserRepository produces.
+// the framework, so we cannot import it). Without this, a unique-constraint
+// violation would reach the wire as a 500. With it, the violated constraint
+// name — classified backend-neutrally by the engine's Dialect — is looked up in
+// r.constraints and the matching Notification is emitted as a typed
+// InfrastructureError, same shape the canonical UserRepository produces, on any
+// backend.
 func (r *UserCustomRepository) mapErr(err error) error {
 	if err == nil {
 		return nil
 	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
-		return err
-	}
-	binding, ok := r.constraints[pgErr.ConstraintName]
+	constraint, ok := r.eng.Dialect().IsUniqueViolation(err)
 	if !ok {
 		return err
 	}
-	return fwinfra.FieldErrorWithCause(r.contextName, binding.Field, pgErr, binding.Notification)
+	binding, ok := r.constraints[constraint]
+	if !ok {
+		return err
+	}
+	return core.FieldErrorWithCause(r.contextName, binding.Field, err, binding.Notification)
 }
 
 // Compile-time contract checks: the scoped value is the pure domain read+write
 // port; the bound writer is a domain.Writer; the unscoped struct is an
 // ArchivedFinder for the unarchive flow.
 var (
-	_ appdomain.UserCustomRepository               = scopedUserRepo{}
-	_ domain.Writer                          = userCustomBoundWriter{}
-	_ domain.ArchivedFinder[*appdomain.User] = (*UserCustomRepository)(nil)
+	_ appdomain.UserCustomRepository                      = scopedUserRepo{}
+	_ domain.Writer                                       = userCustomBoundWriter{}
+	_ domain.ArchivedFinder[*appdomain.User]              = (*UserCustomRepository)(nil)
+	_ persistence.SharedBaseInsertLoader[*appdomain.User] = (*UserCustomRepository)(nil)
 )

@@ -1,7 +1,7 @@
 package requests
 
 import (
-	"github.com/ClaudioSchirmer/omnicore/infra/audit"
+	"github.com/ClaudioSchirmer/omnicore/application/audit"
 	"github.com/google/uuid"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/application/queries"
@@ -19,7 +19,7 @@ const auditEntityType = "User"
 // c.Params("aggregateId") before the route dispatches. The field is
 // typed uuid.UUID so a malformed segment (e.g. "not-a-uuid") is rejected
 // upfront with the canonical 400 SchemaViolationNotification envelope —
-// without it, the malformed string would reach pgx and surface as a
+// without it, the malformed string would reach the driver and surface as a
 // 500 InternalServerErrorNotification from the Result.Exception path.
 //
 // Any unknown query string keys are rejected at the openapi.Mount layer

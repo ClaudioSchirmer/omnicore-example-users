@@ -19,6 +19,15 @@ import (
 // and persistence.WriteOption — both application types the handler (also
 // application) consumes freely. The concrete implementation lives in
 // infra/user_custom_repository.go and is wired by ShowcaseFeature.
+//
+// It also embeds persistence.SharedBaseInsertLoader[*User]: the User is
+// SharedBase-backed, so the manual insert handler must load the existing Person
+// identity (name + addresses as Constructor items) by the natural key before a
+// POST — the same load the canonical SharedBaseInsertCommandHandler performs.
+// Unlike Scope (which returns the ctx-free domain port), this capability takes
+// the request ctx directly, so it lives on this application-layer provider, not
+// on the domain port.
 type ScopedUserRepository interface {
 	Scope(ctx *configuration.AppContext, opts ...persistence.WriteOption[*appdomain.User]) appdomain.UserCustomRepository
+	persistence.SharedBaseInsertLoader[*appdomain.User]
 }

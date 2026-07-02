@@ -8,30 +8,23 @@ import "github.com/ClaudioSchirmer/omnicore/domain"
 
 type InvalidEmailNotification struct{ domain.DomainNotificationBase }
 type InvalidPhoneNotification struct{ domain.DomainNotificationBase }
+type InvalidDocumentNotification struct{ domain.DomainNotificationBase }
 
 type InvalidStateNotification struct{ domain.DomainNotificationBase }
 type InvalidZipCodeNotification struct{ domain.DomainNotificationBase }
 type InvalidCountryNotification struct{ domain.DomainNotificationBase }
 
-// Raised by the repository when a UNIQUE constraint violation comes back
-// from Postgres on the email column. Semantic() override is required so the
-// framework maps this to 409 Conflict instead of the default 422.
-type EmailAlreadyExistsNotification struct{ domain.DomainNotificationBase }
-
-func (EmailAlreadyExistsNotification) Semantic() domain.NotificationSemantic {
-	return domain.SemanticConflict
-}
-
-// EmailCannotChangeNotification is the canonical transition-aware invariant
-// of this example: once a User is created, the email is immutable. Fired by
-// User.BuildRules inside r.IfUpdate when domain.Old(u).Email differs from
-// u.Email. Default Semantic (Validation → 422) — the wire field carries the
-// rejected value to make it visible to the consumer.
+// DocumentCannotChangeNotification is the canonical transition-aware invariant
+// of this example: Document is the shared Person identity's natural key, so it
+// is immutable once the user is created. Fired by User.BuildRules inside
+// r.IfUpdate when domain.Old(u).Document differs from u.Document. Default
+// Semantic (Validation → 422) — the wire field carries the rejected value to
+// make it visible to the consumer.
 //
-// Showcases domain.Old[T]: the framework's Get* path stores the loaded
-// entity as a typed read-only ghost before applying any mutation, so the
-// comparison "old vs new" inside BuildRules works the same on PUT and PATCH.
-type EmailCannotChangeNotification struct{ domain.DomainNotificationBase }
+// Showcases domain.Old[T]: the framework's Get* path stores the loaded entity
+// as a typed read-only ghost before applying any mutation, so the comparison
+// "old vs new" inside BuildRules works the same on PUT and PATCH.
+type DocumentCannotChangeNotification struct{ domain.DomainNotificationBase }
 
 // DuplicateAddressNotification is emitted by User.AddAddress when the incoming
 // address has the same business identity as one already in the aggregate. Phase
@@ -62,3 +55,16 @@ type NameMaxLengthExceededNotification struct {
 	domain.DomainNotificationBase
 	MaxLength int `tvar:"maxLength"`
 }
+
+// ─── Employee aggregate ───────────────────────────────────────────────────
+
+// InvalidRelationshipNotification is emitted by Dependent.BuildRules when the
+// Relationship value falls outside the closed domain set (spouse/son/daughter/
+// father/mother/other). Default Semantic (Validation → 422); the wire value echoes
+// the rejected input.
+type InvalidRelationshipNotification struct{ domain.DomainNotificationBase }
+
+// TerminationBeforeHireNotification is emitted by JobHistory.BuildRules
+// when a job-history entry ends before it starts. Default Semantic
+// (Validation → 422).
+type TerminationBeforeHireNotification struct{ domain.DomainNotificationBase }
