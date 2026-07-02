@@ -38,6 +38,27 @@ until curl -sf "$CONNECT_URL/" >/dev/null; do
 done
 echo "Kafka Connect is up."
 
+# On a VIRGIN volume the outbox table only exists after the app's first boot
+# (migrations run at boot). Registering before that leaves the connector task
+# FAILED ("No table filters found for filtered publication" on PG), with an
+# empty read side and zero errors on the app — so wait for the table first.
+echo "Waiting for the outbox table in the $DIALECT backend (boot the app once if this hangs) ..."
+outbox_exists() {
+  case "$DIALECT" in
+    postgres) docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA                 -c "SELECT 1 FROM information_schema.tables WHERE table_name='outbox' LIMIT 1" 2>/dev/null | grep -q 1 ;;
+    mysql)    docker exec omnicore-example-mysql mysql -uomnicore -pomnicore -D users_db -N -B                 -e "SELECT 1 FROM information_schema.tables WHERE table_schema='users_db' AND table_name='outbox' LIMIT 1" 2>/dev/null | grep -q 1 ;;
+  esac
+}
+DEADLINE=$(( $(date +%s) + 120 ))
+until outbox_exists; do
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    echo "ERROR: outbox table not found in $DIALECT after 120s — start the app once (APP_PROFILE=dev go run -tags $DIALECT ./bootstrap) so migrations create it, then re-run this script." >&2
+    exit 1
+  fi
+  sleep 2
+done
+echo "Outbox table present."
+
 if curl -sf "$CONNECT_URL/connectors/$CONNECTOR_NAME" >/dev/null 2>&1; then
   echo "Connector '$CONNECTOR_NAME' exists — updating config..."
   jq '.config' "$CONFIG_FILE" \

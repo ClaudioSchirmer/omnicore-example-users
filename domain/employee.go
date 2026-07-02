@@ -11,10 +11,6 @@ import (
 // base-owned Address, and a sibling at the child level (Dependent's health
 // plan). The entity stays FLAT — infra/schema.go partitions the fields across
 // persons / employees / employee_bank_accounts and the child tables.
-//
-// The domain vocabulary is deliberately Portuguese (per the approved design):
-// Employee/Dependent/JobHistory are the ubiquitous language of this
-// aggregate; comments and infrastructure stay English.
 type Employee struct {
 	domain.AggregateRoot
 
@@ -91,7 +87,9 @@ func (f *Employee) AggregateChildren() []domain.AggregateValueObject {
 // with DuplicateAddressNotification — on the User surface the warm path is
 // unreachable (a second POST for the same document 409s on the role first),
 // so its check only ever guards same-request duplicates; here the warm path
-// is the norm.
+// is the norm. For the reject approach, see User.AddAddress in user.go — the
+// two methods are the reference pair for the merge-vs-reject choice the
+// manual describes for shared-base children.
 func (f *Employee) AddAddress(addr Address, svc domain.Service) {
 	domain.EnsureInitialized(f)
 	for _, existing := range domain.GetCurrentItemsOf[Address](&f.AggregateRoot) {

@@ -57,7 +57,7 @@ func MountUsersGraphQL(
 	// the Request DTO; NonNull fields follow the strict/lenient rule). The User is
 	// SharedBase-backed, so the POST is an UPSERT — the same SharedBaseInsertCommandHandler
 	// the REST surface uses (a duplicate active user for a document is a 409; an
-	// archived one is revived).
+	// archived one is invisible to the insert and its remnant vetoes on the PK — same 409).
 	reg.Register(fwgraphql.MutationWithBody[requests.InsertUserRequest](
 		"createUser", requests.InsertUserResponse{}.FromResult,
 		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{

@@ -45,7 +45,7 @@ func MountEmployees(
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Create an employee (employee)",
-			Description: "Creates an employee backed by the SAME shared Person identity the User role uses. Because the person is deduplicated by `document`, this POST is an UPSERT: when the person already exists (e.g. created as a User), it gains its employee role — shared fields update last-write-wins, existing addresses are deduped against the request's. Re-POSTing the same document for a person who already has an ACTIVE employee returns 409; an archived one is revived. The bank block persists to the `employee_bank_accounts` sibling (row materialized only when at least one field is sent); each dependent's plan block behaves identically one level down (`dependent_health_plans`).",
+			Description: "Creates an employee backed by the SAME shared Person identity the User role uses. Because the person is deduplicated by `document`, this POST is an UPSERT: when the person already exists (e.g. created as a User), it gains its employee role — shared fields update last-write-wins, existing addresses are deduped against the request's. Re-POSTing the same document for a person who already has an ACTIVE employee returns 409; an ARCHIVED employee is invisible to the insert (soft-delete is delete) and the shared-PK remnant vetoes the write — the same 409, with `PATCH /employees/:id/unarchive` as the explicit way back. The bank block persists to the `employee_bank_accounts` sibling (row materialized only when at least one field is sent); each dependent's plan block behaves identically one level down (`dependent_health_plans`).",
 			Tags:        []string{"Employees"},
 		},
 		fwopenapi.RequirePermission("employees:write"))

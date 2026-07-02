@@ -65,7 +65,7 @@ func TestInsertUserCustomCommandHandler_HappyPath(t *testing.T) {
 func TestInsertUserCustomCommandHandler_WarmUpsert(t *testing.T) {
 	// The loaded shared identity carries the base fields + the person's existing
 	// addresses as Constructor items, but NO role id — LoadSharedBaseIdentity
-	// loads the base by natural key, and the role id is generated (or revived)
+	// loads the base by natural key, and the role id is generated
 	// only at the write layer. An id here would (correctly) trip
 	// UnableToInsertWithIDNotification.
 	existing := &appdomain.User{

@@ -18,9 +18,10 @@
 #   7. The same handlers through GraphQL (query + all six mutations).
 #   9-12. The CROSS-ROLE matrix: last-write-wins on shared fields with fan-out
 #      in both directions, base children edited through either role, the
-#      soft-delete matrix in both orders (incl. POST-revival of an archived
-#      role), the hard-delete matrix in both orders, and the archived-row
-#      refcount (an archived role still blocks the purge).
+#      soft-delete matrix in both orders (an ARCHIVED role is invisible to a
+#      re-POST — soft-delete is delete; /unarchive is the only way back), the
+#      hard-delete matrix in both orders, and the archived-row refcount (an
+#      archived role still blocks the purge).
 #
 # Dialect-driven via qa/_backend.sh (BACKEND=postgres|mysql). Needs the service
 # already running on :8080 with APP_PROFILE=dev and the Debezium connector
@@ -567,7 +568,7 @@ ACT=$(qa_db_query "SELECT count(*) FROM addresses a JOIN persons p ON a.person_i
   || bad "active addresses = $ACT (want 1 — dedup failed)"
 
 ####################################
-sec "11. Cross soft-delete matrix — reverse order, base convergence, POST-revival"
+sec "11. Cross soft-delete matrix — reverse order, base convergence, no POST revival"
 ####################################
 D11="30000000023"
 req POST /users "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"userName\":\"soft11\"}"
@@ -598,13 +599,18 @@ ROW=$(qa_db_query "SELECT (SELECT count(*) FROM persons p WHERE p.id=$(qa_uuid_l
 ROW=$(printf %s "$ROW" | tr "\t|" "//")
 if [ "$ROW" = "1/1/1" ]; then ok "base revived; employee + dependent remain archived (role lifecycles independent)"; else bad "state: $ROW (want 1/1/1)"; fi
 
-title "11.4 Re-POST the archived EMPLOYEE → the role row is REVIVED (upsert matrix)"
+title "11.4 Re-POST over the ARCHIVED employee → invisible to the probe; shared-PK remnant vetoes → 409"
 req POST /employees "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"employeeNumber\":\"EMP-C11\"}"
-expect_status "re-POST over an archived employee" 201
-EACT=$(qa_db_query "SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NULL;")
-[ "$EACT" = "1" ] && ok "archived employee revived by the POST" || bad "employee active rows = $EACT"
-DEP_STATE=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$ID11") AND deleted_at IS NULL;")
-echo "OBSERVED: active dependents after POST-revival (request sent none) = $DEP_STATE (recorded, not asserted — revival-of-children semantics)"
+expect_status "re-POST over an archived employee (soft-delete is delete — no revival)" 409
+EARCH=$(qa_db_query "SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NOT NULL;")
+[ "$EARCH" = "1" ] && ok "employee stays archived — the rejected POST applied nothing" || bad "employee archived rows = $EARCH"
+
+title "11.5 The explicit way back: /unarchive restores the role AND its children"
+req PATCH "/employees/$ID11/unarchive"
+expect_status "unarchive the employee" 200
+ROW=$(qa_db_query "SELECT (SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NULL), (SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$ID11") AND deleted_at IS NULL);")
+ROW=$(printf %s "$ROW" | tr "\t|" "//")
+if [ "$ROW" = "1/1" ]; then ok "role + dependent restored by the explicit unarchive (the ONLY revival path)"; else bad "state after unarchive: $ROW (want 1/1)"; fi
 
 ####################################
 sec "12. Cross hard-delete matrix — reverse order + archived-row refcount"

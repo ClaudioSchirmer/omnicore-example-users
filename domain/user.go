@@ -172,6 +172,13 @@ func (u *User) AggregateChildren() []domain.AggregateValueObject {
 // EnsureInitialized is the first call — without it, AddNotification before
 // the boundary (GetInsertable) would be silently a no-op because the
 // NotificationContext does not yet exist on the freshly constructed entity.
+//
+// Dedup approach: REJECT with a notification. On this surface the duplicate
+// can only come from the SAME request body (a warm re-POST of the document
+// 409s on the role before any address is examined), so a duplicate here is a
+// malformed request and a 422 is the honest answer. For the OTHER approach —
+// silent MERGE, which keeps a warm cross-role POST idempotent when the person
+// already owns the re-sent address — see Employee.AddAddress in employee.go.
 func (u *User) AddAddress(addr Address, svc domain.Service) {
 	domain.EnsureInitialized(u)
 	for _, existing := range domain.GetCurrentItemsOf[Address](&u.AggregateRoot) {

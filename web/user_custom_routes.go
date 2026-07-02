@@ -117,7 +117,7 @@ func MountUsersCustom(
 		fwopenapi.RouteSpecOf[requests.InsertUserCustomRequest, responses.UserCustomResponse](fiber.StatusCreated),
 		fwopenapi.Doc{
 			Summary:     "Create a user (manual showcase)",
-			Description: "Manual hand-rolled equivalent of POST /users — same domain layer and persistence, hand-written application handler that performs the SharedBase upsert (load the existing Person identity by `document`, apply the request, insert/revive the user). Body shape is identical to the canonical endpoint; the success response carries the shared `UserCustomResponse` shape reused by Update and Patch on this surface.",
+			Description: "Manual hand-rolled equivalent of POST /users — same domain layer and persistence, hand-written application handler that performs the SharedBase upsert (load the existing Person identity by `document`, apply the request, insert the user). Body shape is identical to the canonical endpoint; the success response carries the shared `UserCustomResponse` shape reused by Update and Patch on this surface.",
 			Tags:        tags,
 			RequestExamples: map[string]fwopenapi.Example{
 				"minimal": {
@@ -163,7 +163,8 @@ func MountUsersCustom(
 							"and raises `EntityAlreadyAddedNotification` (semantic `Conflict`), mapping " +
 							"to HTTP 409. (A concurrency race that slips past the probe loses on " +
 							"the PRIMARY KEY (shared-PK) and surfaces the identical envelope.) If the existing " +
-							"user was archived, it is revived instead of conflicting.",
+							"user is archived, the remnant vetoes the insert on the shared PK — "+
+							"409; /unarchive is the explicit way back.",
 						Value: map[string]any{
 							"success":     false,
 							"status":      409,

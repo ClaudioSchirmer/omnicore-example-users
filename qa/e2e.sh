@@ -317,21 +317,26 @@ show "3.1 EntityAlreadyAddedNotification (retry Bob's document 10000000002, acti
   "addresses":[{"label":"home","street":"Other","number":"2","neighborhood":"X","city":"London","state":"England","zipCode":"SW1A 1AA","country":"GB"}]
 }' 409
 
-# 3.2 demonstrates the archived-revive path: after archiving the user that holds
-# a document, a POST with the SAME document REVIVES the user (clears deleted_at,
-# last-write-wins on the shared fields) rather than conflicting — the second-row
-# is impossible because the user PK IS the person id (shared-PK), globally unique.
-title "3.2 Archived-revive — archive USER_C (doc 10000000003), re-POST same document"
+# 3.2 demonstrates that an ARCHIVED role is NOT revived by POST: soft-delete is
+# delete, so the archived user is invisible to the insert probe; the write
+# proceeds and the shared-PK remnant (user PK IS the person id) collides on the
+# primary key, which the repository's ConstraintBinding maps to the same 409 as
+# the active conflict. The explicit way back is /unarchive (3.2b) — never a
+# POST side effect.
+title "3.2 Archived role is NOT revived — archive USER_C (doc 10000000003), re-POST same document"
 echo "Pre-step: PATCH USER_C/archive"
 ARCH_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/users/$USER_C/archive" -H "Content-Type: application/json")
 echo "Archive USER_C status: $ARCH_STATUS"
-show "3.2 POST with the document of archived USER_C — revives, expected 201" POST /users '{
+show "3.2 POST with the document of archived USER_C — invisible to the probe; PK remnant vetoes → 409" POST /users '{
   "name":"Anna II","email":"anna.ii@example.com","phone":"493012345678",
   "document":"10000000003","userName":"anna",
   "addresses":[{"label":"home","street":"Kurfürstendamm","number":"1","neighborhood":"Charlottenburg","city":"Berlin","state":"Berlin","zipCode":"10719","country":"DE"}]
-}' 201
-# The revived user keeps USER_C's id (same person, same role row). Create a
-# separate Anna III (new document) for the later DELETE case.
+}' 409
+
+show "3.2b PATCH /users/USER_C/unarchive — the explicit way back for an archived role" PATCH "/users/$USER_C/unarchive" "" 200
+# USER_C is back ACTIVE with its ORIGINAL fields (Anna Müller, Berlin) — the
+# rejected POST applied nothing. Create a separate Anna III (new document) for
+# the later DELETE case.
 USER_C2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
   -d '{"name":"Anna III","email":"anna3@example.com","phone":"493012340000","document":"10000000033","userName":"anna3",
        "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"Y","city":"Berlin","state":"Berlin","zipCode":"10115","country":"DE"}]}' \
@@ -388,7 +393,7 @@ sec "4.5 GET /users — partial-match operators (startswith/contains + i-twins)"
 #   Email → filter:"eq,in,ieq"
 #   City  → filter:"eq,istartswith"
 # Suite state at this point: Jane Doe (Cupertino), Bob Smith (London),
-# Anna II (Berlin), Anna III (Berlin). USER_C archived (Anna I — hidden
+# Anna Müller (Berlin), Anna III (Berlin). USER_C archived later (hidden
 # by default deleted_at filter).
 #
 # show_count: asserts (a) status matches expected and (b) the data
@@ -437,20 +442,20 @@ show_count "4.5.2 ?name.startswith=jane (lowercase) returns 0 — startswith is 
 show_count "4.5.3 ?name.icontains=DOE matches Jane Doe (case-insensitive substring)" \
   "/users?name.icontains=DOE" 200 1
 
-# 4.5.4 — icontains anywhere in the string: "nn" matches "Anna II" and "Anna III"
-show_count "4.5.4 ?name.icontains=nn matches Anna II + Anna III (substring anywhere)" \
+# 4.5.4 — icontains anywhere in the string: "nn" matches "Anna Müller" and "Anna III"
+show_count "4.5.4 ?name.icontains=nn matches Anna Müller + Anna III (substring anywhere)" \
   "/users?name.icontains=nn" 200 2
 
 # 4.5.5 — ieq case-insensitive equality on email
 show_count "4.5.5 ?email.ieq=BOB@EXAMPLE.COM matches bob@example.com (case-insensitive equality)" \
   "/users?email.ieq=BOB%40EXAMPLE.COM" 200 1
 
-# 4.5.6 — istartswith case-folded prefix on name (matches "Anna II" + "Anna III")
+# 4.5.6 — istartswith case-folded prefix on name (matches "Anna Müller" + "Anna III")
 # Note: city is declared with istartswith on the DTO but the Mongo view stores
 # city nested inside addresses[], not top-level — filtering at top level on
 # `city` matches nothing. The DTO declaration stays as wire allowlist; this
 # case exercises the operator against a top-level field that does match.
-show_count "4.5.6 ?name.istartswith=anna matches Anna II + Anna III (case-insensitive prefix)" \
+show_count "4.5.6 ?name.istartswith=anna matches Anna Müller + Anna III (case-insensitive prefix)" \
   "/users?name.istartswith=anna" 200 2
 
 # 4.5.7 — non-matching prefix returns empty list (200, not 404)
@@ -506,10 +511,10 @@ sec "4.6 GET /users — nested embed-group filters (?addresses.<leaf>=...)"
 # addresses.* wire prefix and translates to Mongo doc path addresses.<field>
 # automatically (auto-snake on the leaf wire name matches the composer's
 # snake_case column output). State: Jane Doe (Cupertino, US), Bob Smith
-# (London, GB), Anna II (Berlin, DE), Anna III (Berlin, DE).
+# (London, GB), Anna Müller (Berlin, DE), Anna III (Berlin, DE).
 
 # 4.6.1 — wire ?addresses.city=Berlin → Mongo Filter[addresses.city]=Berlin
-show_count "4.6.1 ?addresses.city=Berlin matches Anna II + Anna III (nested top-level eq)" \
+show_count "4.6.1 ?addresses.city=Berlin matches Anna Müller + Anna III (nested top-level eq)" \
   "/users?addresses.city=Berlin" 200 2
 
 # 4.6.2 — case-insensitive prefix on a nested leaf
@@ -733,7 +738,7 @@ show "10.1 GET /users?name=Jane Doe (filter:eq declared on name)" GET "/users?na
 show "10.2 GET /users?email.in=jane@example.com,bob@example.com (filter:eq,in on email)" GET "/users?email.in=jane@example.com,bob@example.com" "" 200
 show "10.3 GET /users?role=admin (field NOT in the allowlist → 400)" GET "/users?role=admin" "" 400
 show "10.4 GET /users?email.gte=Z (operator NOT in declared list for email → 400)" GET "/users?email.gte=Z" "" 400
-# 10.5–10.5b: by-id reads on USER_C (revived+active after 3.2) exercise the canonical
+# 10.5–10.5b: by-id reads on USER_C (unarchived in 3.2b → active) exercise the canonical
 # framework invariant: Mongo mirrors PostgreSQL symmetrically — the
 # SyncEngine reacts to ARCHIVE with compose+upsert (default keep), so the
 # doc survives with deleted_at populated. The two by-id variants then
@@ -746,11 +751,11 @@ show "10.4 GET /users?email.gte=Z (operator NOT in declared list for email → 4
 # back-pressure of the reader-side filter that still hides archived from
 # the default surface. The ?includeArchived flag is a reserved param either way
 # (no SchemaViolationNotification on either variant).
-# USER_C was archived and then REVIVED in 3.2 (same document → same person → same
+# USER_C was archived and then UNARCHIVED in 3.2b (same person, same role row —
 # role row reactivated), so it is ACTIVE again — both reads return 200. The
 # archived-by-id keep-by-default behavior is exercised on USER_A at 10.7/10.7b.
-show "10.5 GET /users/USER_C?includeArchived=true (revived in 3.2 → active → 200)" GET "/users/$USER_C?includeArchived=true" "" 200
-show "10.5b GET /users/USER_C default reader (revived → active → 200)" GET "/users/$USER_C" "" 200
+show "10.5 GET /users/USER_C?includeArchived=true (unarchived in 3.2b → active → 200)" GET "/users/$USER_C?includeArchived=true" "" 200
+show "10.5b GET /users/USER_C default reader (unarchived → active → 200)" GET "/users/$USER_C" "" 200
 
 # 10.6–10.9: end-to-end Archive → ?includeArchived=true → Unarchive → ?includeArchived=false
 # cycle on USER_A (currently active after 7.3). Demonstrates that the read
@@ -1091,7 +1096,7 @@ show "15.5 ?limit=abc rejected (schema violation)" \
 # first item under known sort.
 title "15.6 ?sort=name returns items sorted ascending"
 FIRST_NAME=$(curl -sS "$BASE/users?sort=name" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["name"] if d else "")')
-if [ "$FIRST_NAME" = "Anna II" ] || [ "$FIRST_NAME" = "Anna III" ]; then
+if [ "$FIRST_NAME" = "Anna Müller" ] || [ "$FIRST_NAME" = "Anna III" ]; then
   printf '\033[1;32mPASS\033[0m (first=%s; Anna sorts before Bob/Jane)\n' "$FIRST_NAME"
   PASS=$((PASS+1))
 else
