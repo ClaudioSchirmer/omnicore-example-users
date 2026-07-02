@@ -460,11 +460,12 @@ expect_status "missing employeeNumber" 422
 
 ####################################
 # Cross-role matrix — sections 9-12 exercise every combination two roles of
-# ONE person can produce. View-level assertions on children/name go straight
-# to Mongo and count ACTIVE entries only, so these cases test the cross-role
-# PROPAGATION dimension without re-tripping the known findings A4 (archived
-# children leak) and A5 (base deleted_at clobbers the role's) — those keep
-# their own red oracles in sections 5.3 and 7.1.
+# ONE person can produce. View-level assertions on children/name count ACTIVE
+# entries, isolating the cross-role PROPAGATION dimension. The two read-side
+# findings these once tripped are now fixed and locked green: A5 (the base's
+# deleted_at must not clobber the role's own) in sections 5.3-5.4, and A4
+# (archived aggregate children must not leak into the composed doc) end-to-end
+# in section 13.
 ####################################
 
 # memp <js> — evaluate js against this backend's Mongo view DB.
@@ -667,6 +668,86 @@ req DELETE "/employees/$ID13"
 expect_status "delete employee (now the LAST row)" 204
 PCOUNT=$(qa_db_query "SELECT count(*) FROM persons WHERE id=$(qa_uuid_lit "$ID13");")
 [ "$PCOUNT" = "0" ] && ok "person purged once the last role row was gone" || bad "person rows = $PCOUNT"
+
+####################################
+sec "13. Read-side archived-children strip + export strip + A2b survival (A4 lock-in)"
+####################################
+# A4 was: archived aggregate children leaked into the composed doc and surfaced
+# on EVERY default read (REST, GraphQL, CSV/XLSX). It is fixed; this section is
+# the end-to-end lock-in on an ACTIVE root. Churn both collections so half the
+# children archive (write-side keeps the rows — "Update with StatusRemoved →
+# Archive"), then prove the default read shows ONLY active children while
+# ?includeArchived surfaces all — across REST, the child-level (A2b) plan facet,
+# and the tabular export. Fresh document, every SQL predicate id-scoped, so the
+# churn never disturbs the earlier sections' counts.
+DA4="40000000030"
+
+title "13.1 Fixture: employee with 2 dependents (Maria carries an A2b plan) + 1 address"
+req POST /employees "{\"name\":\"Strip Root\",\"email\":\"strip@example.com\",\"document\":\"$DA4\",\"employeeNumber\":\"EMP-A4\",
+  \"addresses\":[{\"street\":\"S1\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\"}],
+  \"dependents\":[
+    {\"name\":\"Maria\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-1\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Pedro\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\"}]}"
+expect_status "create strip fixture" 201
+EIDA4=$(jsonq "d['data']['id']")
+wait_view_total "document=$DA4" 1 || bad "strip fixture never reached the view"
+
+title "13.2 PUT replaces both collections → originals archive, new ones insert"
+req PUT "/employees/$EIDA4" "{\"name\":\"Strip Root\",\"email\":\"strip@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-A4\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,
+  \"addresses\":[{\"street\":\"S2\",\"number\":\"2\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95015\",\"country\":\"US\"},{\"street\":\"S3\",\"number\":\"3\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95016\",\"country\":\"US\"}],
+  \"dependents\":[
+    {\"name\":\"Ana\",\"birthDate\":\"2016-01-01T00:00:00Z\",\"relationship\":\"daughter\"},
+    {\"name\":\"Bruno\",\"birthDate\":\"2017-01-01T00:00:00Z\",\"relationship\":\"son\"}],
+  \"jobHistories\":[]}"
+expect_status "PUT replace collections" 200
+
+title "13.3 Write side: originals archived (rows kept), new active; removed Maria KEEPS her A2b plan row"
+DACT=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$EIDA4") AND deleted_at IS NULL;")
+DARCH=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$EIDA4") AND deleted_at IS NOT NULL;")
+AACT=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA4") AND deleted_at IS NULL;")
+AARCH=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA4") AND deleted_at IS NOT NULL;")
+[ "$DACT" = "2" ] && ok "2 active dependents" || bad "active dependents = $DACT (want 2)"
+[ "$DARCH" = "2" ] && ok "2 archived dependents (rows kept by soft-delete)" || bad "archived dependents = $DARCH (want 2)"
+[ "$AACT" = "2" ] && ok "2 active addresses" || bad "active addresses = $AACT (want 2)"
+[ "$AARCH" = "1" ] && ok "1 archived address (row kept)" || bad "archived addresses = $AARCH (want 1)"
+MPLAN=$(qa_db_query "SELECT count(*) FROM dependent_health_plans hp JOIN employee_dependents d ON hp.id = d.id WHERE d.employee_id=$(qa_uuid_lit "$EIDA4") AND d.name = 'Maria' AND d.deleted_at IS NOT NULL;")
+[ "$MPLAN" = "1" ] && ok "removed Maria's A2b plan row survives on her archived child row (soft-delete keeps the 1:1 sibling)" \
+                   || bad "archived-Maria plan rows = $MPLAN (want 1)"
+
+title "13.4 Default read shows ONLY active children — archived dependents + address stripped, no A2b leak"
+deadline=$(( $(date +%s) + 20 )); conv=fail; names=""
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  req GET "/employees?document=$DA4"
+  names=$(jsonq "sorted(x['name'] for x in d['data'][0]['dependents'])")
+  [ "$names" = "['Ana', 'Bruno']" ] && { conv=ok; break; }
+  sleep 0.3
+done
+[ "$conv" = ok ] && ok "default read dependents = [Ana, Bruno] (2 archived stripped)" || bad "default dependents did not converge: $names"
+NADDR=$(jsonq "len(d['data'][0]['addresses'])")
+[ "$NADDR" = "2" ] && ok "default read addresses = 2 (1 archived stripped)" || bad "default addresses = $NADDR (want 2)"
+LEAK=$(jsonq "sum(1 for x in d['data'][0]['dependents'] if x.get('healthPlanProvider'))")
+[ "$LEAK" = "0" ] && ok "no A2b plan leaks from archived dependents on the default read" || bad "plan-bearing active deps = $LEAK (want 0)"
+
+title "13.5 ?includeArchived=true surfaces every child — archived dependents + address, with Maria's A2b plan"
+req GET "/employees?document=$DA4&includeArchived=true"
+INAMES=$(jsonq "sorted(x['name'] for x in d['data'][0]['dependents'])")
+[ "$INAMES" = "['Ana', 'Bruno', 'Maria', 'Pedro']" ] && ok "includeArchived dependents = all 4" || bad "includeArchived dependents = $INAMES"
+INADDR=$(jsonq "len(d['data'][0]['addresses'])")
+[ "$INADDR" = "3" ] && ok "includeArchived addresses = 3 (archived surfaced)" || bad "includeArchived addresses = $INADDR (want 3)"
+IMPLAN=$(jsonq "[x.get('healthPlanProvider') for x in d['data'][0]['dependents'] if x['name']=='Maria'][0]")
+[ "$IMPLAN" = "Unimed" ] && ok "archived Maria still carries her A2b plan under includeArchived" || bad "archived-Maria plan under includeArchived = $IMPLAN"
+
+title "13.6 Tabular export honors the strip — CSV default excludes archived children"
+CSV=$(curl -sS -H "Accept-Language: en-US" "$BASE/employees.csv?document=$DA4")
+echo "$CSV" | grep -q ",Ana," && ok "CSV carries active dependent Ana" || bad "CSV missing active Ana"
+echo "$CSV" | grep -q ",Bruno," && ok "CSV carries active dependent Bruno" || bad "CSV missing active Bruno"
+echo "$CSV" | grep -q ",Maria," && bad "CSV leaked archived dependent Maria" || ok "CSV excludes archived Maria"
+echo "$CSV" | grep -q ",Pedro," && bad "CSV leaked archived dependent Pedro" || ok "CSV excludes archived Pedro"
+
+title "13.7 CSV ?includeArchived=true includes the archived children"
+CSV=$(curl -sS -H "Accept-Language: en-US" "$BASE/employees.csv?document=$DA4&includeArchived=true")
+echo "$CSV" | grep -q ",Maria," && ok "CSV includeArchived surfaces archived Maria" || bad "CSV includeArchived missing Maria"
+echo "$CSV" | grep -q ",Pedro," && ok "CSV includeArchived surfaces archived Pedro" || bad "CSV includeArchived missing Pedro"
 
 ####################################
 sec "Summary"
