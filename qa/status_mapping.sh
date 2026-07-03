@@ -99,9 +99,17 @@ title "3.1 POST /qa/gadgets with a ~5MB body → 413 PayloadTooLargeNotification
 BIG=$(mktemp)
 { printf '{"code":"BIG","name":"'; head -c 5000000 /dev/zero | tr '\0' 'A'; printf '","category":"c","status":"active"}'; } > "$BIG"
 tmp=$(mktemp)
-st=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST "$BASE/qa/gadgets" \
-  -H "Content-Type: application/json" -H "Expect: 100-continue" --expect100-timeout 5 \
-  --data-binary @"$BIG")
+# Retried: under load the server occasionally sends 100 Continue and then
+# resets the connection mid-upload (curl exit 55, http_code 100) — a transport
+# race, not the mapping under test. A real 413 regression fails all attempts.
+st=""
+for _try in 1 2 3; do
+  st=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST "$BASE/qa/gadgets" \
+    -H "Content-Type: application/json" -H "Expect: 100-continue" --expect100-timeout 5 \
+    --data-binary @"$BIG") || true
+  [ "$st" = "413" ] && break
+  sleep 1
+done
 got=$(grep -o '"notificationKey":"[^"]*"' "$tmp" | head -1)
 echo "POST ~5MB → $st  $got"
 if [ "$st" = "413" ] && grep -q '"notificationKey":"PayloadTooLargeNotification"' "$tmp"; then

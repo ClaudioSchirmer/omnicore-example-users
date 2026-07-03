@@ -23,6 +23,10 @@
 # ABORT row, and the final verdict also goes red when fewer runs completed than
 # were scheduled — a run can never look green by silently skipping suites.
 # Exit code: 0 only when every scheduled run completed green.
+#
+# Logs: per-run temp dir, removed at the end when the verdict is ALL GREEN
+# (kept on RED for diagnosis). A caller-provided QA_RUN_LOG_DIR is never
+# auto-removed.
 set -u
 
 cd "$(dirname "$0")/.."
@@ -50,7 +54,11 @@ ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
 SRV_BIN="${TMPDIR:-/tmp}/omnicore-example-users-qa-run-srv"
-LOG_DIR="${QA_RUN_LOG_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/qa-run.XXXXXX")}"
+if [ -n "${QA_RUN_LOG_DIR:-}" ]; then
+  LOG_DIR="$QA_RUN_LOG_DIR"; LOG_DIR_EPHEMERAL=0
+else
+  LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/qa-run.XXXXXX")"; LOG_DIR_EPHEMERAL=1
+fi
 ROWS="$LOG_DIR/rows.tsv"        # machine-readable accounting: suite backend pass fail verdict secs
 REPORT_MD="$STACK_ROOT/qa-report.md"
 : > "$ROWS"
@@ -205,7 +213,7 @@ fi
 report_init
 
 bold "building the dual-engine binary once ..."
-go build -tags 'postgres mysql' -o "$SRV_BIN" ./bootstrap || { echo "build failed" >&2; exit 1; }
+go build -tags 'postgres mysql qa' -o "$SRV_BIN" ./bootstrap || { echo "build failed" >&2; exit 1; }
 
 overall_start=$(date +%s)
 for B in $BACKEND_LIST; do
@@ -278,14 +286,19 @@ awk -F'\t' '{printf "  %-18s %-9s %6s pass %5s fail   %-5s %4ss\n", $1, $2, $3, 
 bold "═══════════════════════════════════════════════════"
 elapsed=$(( $(date +%s) - overall_start ))
 if [ "$RED_RUNS" = "0" ] && [ "$MISSING_RUNS" = "0" ] && [ "$COMPLETED_RUNS" != "0" ]; then
-  report_final "✅ ALL GREEN — $COMPLETED_RUNS/$EXPECTED_RUNS runs" "$elapsed"
+  logs_note="$LOG_DIR"
+  if [ "$LOG_DIR_EPHEMERAL" = "1" ]; then
+    rm -rf "$LOG_DIR"
+    logs_note="removed (all green)"
+  fi
+  report_final "✅ ALL GREEN — $COMPLETED_RUNS/$EXPECTED_RUNS runs. Logs $logs_note." "$elapsed"
   printf '%s — %s/%s runs, %ss, report: %s, logs: %s\n' \
-    "$(green "ALL GREEN")" "$COMPLETED_RUNS" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$LOG_DIR"
+    "$(green "ALL GREEN")" "$COMPLETED_RUNS" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$logs_note"
   exit 0
 else
   detail="$RED_RUNS red"
   [ "$MISSING_RUNS" != "0" ] && detail="$detail, $MISSING_RUNS never ran"
-  report_final "❌ RED — $detail of $EXPECTED_RUNS scheduled runs" "$elapsed"
+  report_final "❌ RED — $detail of $EXPECTED_RUNS scheduled runs. Logs kept: \`$LOG_DIR\`" "$elapsed"
   printf '%s — %s of %s scheduled runs, %ss, report: %s, logs: %s\n' \
     "$(red "RED")" "$detail" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$LOG_DIR"
   exit 1

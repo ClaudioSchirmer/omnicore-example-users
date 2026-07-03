@@ -60,11 +60,21 @@ title "0.1 Reset + seed 8 gadgets (enough to overflow the MaxLimit(5) cap)"
 qa_db_exec "DELETE FROM gadgets;"
 docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
 sleep 1
+# Each POST is verified (201) and retried — a transient write failure would
+# otherwise surface later as a misleading CDC timeout. The materialization
+# deadline is 90s: inside the full run.sh matrix the connector may still be
+# draining the CDC backlog left by the preceding suites.
 for i in 1 2 3 4 5 6 7 8; do
-  curl -sS -o /dev/null -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
-    --data "{\"code\":\"RX-$i\",\"name\":\"Read Extra $i\",\"category\":\"rx\",\"status\":\"active\"}"
+  st=""
+  for _try in 1 2 3; do
+    st=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
+      --data "{\"code\":\"RX-$i\",\"name\":\"Read Extra $i\",\"category\":\"rx\",\"status\":\"active\"}")
+    [ "$st" = "201" ] && break
+    sleep 1
+  done
+  [ "$st" = "201" ] || echo "WARN: seed POST RX-$i returned $st after 3 attempts"
 done
-deadline=$(( $(date +%s) + 30 )); seeded=fail
+deadline=$(( $(date +%s) + 90 )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   [ "$(list_count "/qa/gadgets?code.startswith=RX")" = "8" ] && { seeded=ok; break; }
   sleep 1
