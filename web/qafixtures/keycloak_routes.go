@@ -1,12 +1,13 @@
-package web
+//go:build qa
+
+package qafixtures
 
 import (
 	"errors"
 
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 
-	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
-
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -16,7 +17,7 @@ import (
 // observation's `cacheStatus` field.
 //
 // Registered by MountShowcase under /showcase/keycloak/realm.
-func keycloakRealm(kc *appexternal.KeycloakService) fiber.Handler {
+func keycloakRealm(kc *infraqa.KeycloakService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -37,13 +38,13 @@ func keycloakRealm(kc *appexternal.KeycloakService) fiber.Handler {
 // payload.
 //
 // Registered by MountShowcase under /showcase/keycloak/admin/:id.
-func keycloakAdminUser(kc *appexternal.KeycloakService) fiber.Handler {
+func keycloakAdminUser(kc *infraqa.KeycloakService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
 		user, err := kc.FetchUser(ctx, c.Params("id"))
 		switch {
-		case errors.Is(err, appexternal.ErrUserNotFound):
+		case errors.Is(err, infraqa.ErrUserNotFound):
 			return respondWithError(c, fiber.StatusNotFound, "user not found", err)
 		case err != nil:
 			return respondWithError(c, fiber.StatusBadGateway, "keycloak admin fetch failed", err)
@@ -61,7 +62,7 @@ func keycloakAdminUser(kc *appexternal.KeycloakService) fiber.Handler {
 // password) pair.
 //
 // Registered by MountShowcase under /showcase/keycloak/tenant/whoami.
-func keycloakTenantWhoami(kc *appexternal.KeycloakService) fiber.Handler {
+func keycloakTenantWhoami(kc *infraqa.KeycloakService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		username := c.Query("username")
 		password := c.Query("password")

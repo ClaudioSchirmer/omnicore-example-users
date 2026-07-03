@@ -1,3 +1,5 @@
+//go:build qa
+
 // Package external holds the outbound HTTP service structs that wrap
 // per-vendor httpclient calls. Application handlers depend on the types
 // in this package and never import omnicore/infra/httpclient directly —
@@ -7,7 +9,7 @@
 // concentrate the transport tags, the call surface, and the mapping from
 // vendor DTOs to neutral projections. The framework's CLAUDE.md describes
 // the pattern under "Composition pattern (consumer side)".
-package external
+package qafixtures
 
 import (
 	"context"

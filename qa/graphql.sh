@@ -305,6 +305,80 @@ gql 'query { users(first: 0) { edges { node { id } } } }' >/dev/null
 assert_jq "first: 0 (non-positive page size) → semantic Schema" \
     '.errors[0].extensions.semantic' "Schema"
 
+# ── 19. Filter-operator parity + content-bearing backward pagination ─────────
+# Sections above prove eq only (§7) and well-formedness of last:1 (§18). The
+# where filter folds the SAME operator vocabulary as REST — this section pins
+# the other operators (in / ieq / icontains) as POSITIVE content filters, and
+# navigates the connection backward with orderBy so the returned NODE is
+# asserted, not just the envelope shape. Self-seeds three uniquely-keyed users
+# and cleans them up, so it is independent of the single-record flow above.
+TS19=$(date +%s)
+GOP_A="gqlop.a.${TS19}@omnicore.test"
+GOP_B="gqlop.b.${TS19}@omnicore.test"
+GOP_C="gqlop.c.${TS19}@omnicore.test"
+
+seed_gop() {
+    local email="$1" doc="$2" uname="$3" name="$4"
+    gql "mutation { createUser(input: {
+            name: \"${name}\", email: \"${email}\", phone: \"14155552671\",
+            document: \"${doc}\", userName: \"${uname}\",
+            addresses: [{ label: \"home\", street: \"1 Loop\", number: \"1\",
+                          neighborhood: \"X\", city: \"Cupertino\", state: \"CA\",
+                          zipCode: \"95014\", country: \"US\" }]
+         }) { id } }" >/dev/null
+    jq -r '.data.createUser.id' /tmp/qa-graphql.body 2>/dev/null
+}
+GOP_ID_A=$(seed_gop "$GOP_A" 39000009001 gopa "Gqlop Alpha")
+GOP_ID_B=$(seed_gop "$GOP_B" 39000009002 gopb "Gqlop Bravo")
+GOP_ID_C=$(seed_gop "$GOP_C" 39000009003 gopc "Gqlop Charlie")
+echo "seeded GOP ids: ${GOP_ID_A} ${GOP_ID_B} ${GOP_ID_C}"
+
+# Poll until all three materialize in the read model (CDC eventually consistent).
+echo "Waiting for the three GOP fixtures to materialize…"
+gop_ready=fail
+for _ in $(seq 1 40); do
+    gql "query { users(where: { name: { icontains: \"Gqlop\" } }) { totalCount } }" >/dev/null
+    tc=$(jq -r '.data.users.totalCount' /tmp/qa-graphql.body 2>/dev/null)
+    [ "$tc" = "3" ] && { gop_ready=ok; break; }
+    sleep 0.5
+done
+if [ "$gop_ready" = ok ]; then echo "${GREEN}PASS${RESET} (three GOP nodes visible)"; PASS=$((PASS+1));
+else echo "${RED}FAIL${RESET} (GOP fixtures never reached 3: totalCount=${tc})"; FAIL=$((FAIL+1)); fi
+
+# icontains — case-folded substring, positive match across all three.
+gql "query { users(where: { name: { icontains: \"GQLOP\" } }) { totalCount } }" >/dev/null
+assert_jq "where name.icontains=GQLOP matches all three (case-folded)" \
+    '.data.users.totalCount' "3"
+
+# in — list membership over two of the three emails.
+gql "query { users(where: { email: { in: [\"${GOP_A}\", \"${GOP_B}\"] } }) { totalCount } }" >/dev/null
+assert_jq "where email.in=[a,b] matches exactly two" '.data.users.totalCount' "2"
+
+# ieq — case-insensitive equality on a single email (upper-cased on the wire).
+GOP_A_UPPER=$(printf '%s' "$GOP_A" | tr '[:lower:]' '[:upper:]')
+gql "query { users(where: { email: { ieq: \"${GOP_A_UPPER}\" } }) { edges { node { email } } totalCount } }" >/dev/null
+assert_jq "where email.ieq=<UPPER> matches exactly one" '.data.users.totalCount' "1"
+assert_jq "where email.ieq returns the Alpha node (case-folded equality)" \
+    '.data.users.edges[0].node.email' "$GOP_A"
+
+# Backward pagination WITH content: orderBy name ascending. first:1 → the min
+# (Alpha), last:1 → the max (Charlie). Proves last/before pages from the END of
+# the ordered set and returns the correct node, not merely a well-formed shape.
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], first: 1) {
+        edges { node { name } } pageInfo { hasNextPage } } }" >/dev/null
+assert_jq "forward first:1 (orderBy name) → Alpha (the minimum)" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], last: 1) {
+        edges { node { name } } pageInfo { hasPreviousPage } } }" >/dev/null
+assert_jq "backward last:1 (orderBy name) → Charlie (the maximum)" \
+    '.data.users.edges[0].node.name' "Gqlop Charlie"
+
+# Cleanup the GOP fixtures.
+for gid in "$GOP_ID_A" "$GOP_ID_B" "$GOP_ID_C"; do
+    [ -n "$gid" ] && [ "$gid" != "null" ] && gql "mutation { deleteUser(id: \"${gid}\") { success } }" >/dev/null
+done
+echo "cleaned up GOP fixtures"
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 echo
 echo "${WHITE}=== GraphQL QA: ${PASS} passed, ${FAIL} failed ===${RESET}"

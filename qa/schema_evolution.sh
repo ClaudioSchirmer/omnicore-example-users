@@ -800,7 +800,109 @@ fi
 # The aborted server may still be in the PID; force-kill.
 kill_port 8080
 
-sec "Phase 12 — OMNICORE_CODE_VERSION env stamps the registry row"
+sec "Phase 12a — DriftAlienData: populated Mongo + NO registry row → abort (autoRun cannot escape)"
+###############################################################################
+# The one drift case autoRun CANNOT auto-resolve in either direction: the
+# Mongo collection carries documents but there is no registry row to certify
+# them. The framework refuses to rebuild (would clobber possibly-legit data)
+# AND refuses to adopt (can't prove the docs match the current shape). Aborts
+# under autoRun ∈ {check, true}. Reproduced by seeding a clean v1 view, then
+# deleting ONLY the registry row while leaving the Mongo docs in place.
+
+title "Reset to a clean baseline and boot v1 (autoRun=true) to seed a certified view"
+qa_db_reset_domain
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
+qa_mongo_reset
+start_server_with "$SERVER_BIN" "" || exit 1
+s_alien=$(post_user "Alien Seed" "alien.seed@example.com" "39000004001")
+assert_eq "Phase 12a seed POST status" "201" "$s_alien"
+title "Poll Mongo until the seed doc materializes"
+alien_ready=fail
+for _ in $(seq 1 "${CDC_WAIT_SEC:-30}"); do
+  [ "$(mongo_users_count)" -ge 1 ] 2>/dev/null && { alien_ready=ok; break; }
+  sleep 1
+done
+assert_eq "Phase 12a seed materialized in Mongo" "ok" "$alien_ready"
+stop_server
+
+title "Delete ONLY the registry row (Mongo docs survive) → the alien-data condition"
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name='users';"
+registry_gone=$(qa_db_query "SELECT count(*) FROM omnicore_mongo_views WHERE view_name='users';" | tr -d ' ')
+assert_eq "Phase 12a registry row removed" "0" "$registry_gone"
+mongo_survives=$(mongo_users_count)
+assert_ge "Phase 12a Mongo docs still present" 1 "$mongo_survives"
+
+title "Boot v1 under autoRun=check → DriftAlienData abort + §14.4 diagnostic"
+start_expecting_abort "$SERVER_BIN" "$YAML_CHECK_MODE"
+assert_eq "Phase 12a start_expecting_abort returned cleanly" "0" "$?"
+if [ "$LAST_EXIT_CODE" -ne 0 ]; then
+  PASS=$((PASS+1)); printf '  \033[1;32m✔\033[0m Phase 12a exit code %s (non-zero abort)\n' "$LAST_EXIT_CODE"
+else
+  FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m Phase 12a exited 0 (expected abort)\n'
+fi
+assert_log_contains "Phase 12a alien-data keyword (cannot certify)" "cannot certify"
+assert_log_contains "Phase 12a alien-data keyword (no registry row)" "no registry row"
+assert_log_contains "Phase 12a alien-data remedy (manual-reconcile-tofu)" "manual-reconcile-tofu"
+
+title "Verify the registry stayed empty (abort is read-only)"
+still_gone=$(qa_db_query "SELECT count(*) FROM omnicore_mongo_views WHERE view_name='users';" | tr -d ' ')
+assert_eq "Phase 12a registry still absent after abort" "0" "$still_gone"
+
+sec "Phase 12b — DriftForgotToBump: shape changed without a Version() bump → abort"
+###############################################################################
+# The developer-intent guard: the registry version EQUALS the spec version but
+# the combined hash differs — the view shape changed in code without bumping
+# Version(N). autoRun cannot resolve it (the integer is the only intent
+# signal), so it aborts regardless of mode. Reproduced by seeding a clean v1
+# registry, then booting a binary that adds Index("phone") while KEEPING
+# Version(1).
+
+title "Reset + boot the plain v1 binary to write a v1 registry row"
+qa_db_reset_domain
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
+qa_mongo_reset
+start_server_with "$SERVER_BIN" "" || exit 1
+fb_version=$(pg_registry_field version)
+assert_eq "Phase 12b baseline registry.version" "1" "$fb_version"
+fb_pre_combined=$(pg_registry_field combined_hash)
+stop_server
+
+title "Build a Version(1)+DeleteOnArchive() binary — same version, REBUILD-relevant shape change"
+# A rebuild-relevant change (deleteOnArchive is in RebuildHash) at the SAME
+# Version is what lands DriftForgotToBump. An index add would only touch the
+# ArtifactHash → DriftArtifactOnly, a different (auto-resolvable) case. Inject
+# .DeleteOnArchive() right after the users view's Version(1). so only the
+# document-shape hash moves while the version integer stays put.
+backup_views_source
+perl -0pe 's|(View\("users"\)\.\s*\n\s*Version\(1\)\.)|$1\n\t\tDeleteOnArchive().|' \
+  "$VIEWS_BAK" > "$VIEWS_SRC"
+if ! grep -q 'DeleteOnArchive()' "$VIEWS_SRC" || ! grep -q 'Version(1)' "$VIEWS_SRC"; then
+  echo "ERROR: forgot-to-bump patch did not keep Version(1) + add DeleteOnArchive()" >&2
+  restore_views_source; exit 1
+fi
+SERVER_BIN_FORGOT="/tmp/omnicore-example-users-qa-schema-forgot"
+build_binary "$SERVER_BIN_FORGOT" || { restore_views_source; echo "ERROR: forgot-to-bump build failed" >&2; exit 1; }
+restore_views_source
+echo "OK — Version(1)+phone binary: $SERVER_BIN_FORGOT (source restored)"
+
+title "Boot it under autoRun=check → DriftForgotToBump abort + §14.5 diagnostic"
+start_expecting_abort "$SERVER_BIN_FORGOT" "$YAML_CHECK_MODE"
+assert_eq "Phase 12b start_expecting_abort returned cleanly" "0" "$?"
+if [ "$LAST_EXIT_CODE" -ne 0 ]; then
+  PASS=$((PASS+1)); printf '  \033[1;32m✔\033[0m Phase 12b exit code %s (non-zero abort)\n' "$LAST_EXIT_CODE"
+else
+  FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m Phase 12b exited 0 (expected abort)\n'
+fi
+assert_log_contains "Phase 12b forgot-to-bump keyword (without bumping Version)" "without bumping Version"
+assert_log_contains "Phase 12b forgot-to-bump remedy (bump the Version)" "bump the Version"
+
+title "Registry unchanged after the abort (version + hash intact)"
+fb_post_version=$(pg_registry_field version)
+fb_post_combined=$(pg_registry_field combined_hash)
+assert_eq "Phase 12b registry.version unchanged" "1" "$fb_post_version"
+assert_eq "Phase 12b registry.combined_hash unchanged" "$fb_pre_combined" "$fb_post_combined"
+
+sec "Phase 13 — OMNICORE_CODE_VERSION env stamps the registry row"
 ###############################################################################
 # The framework stamps the env var (when set) on the registry's code_version
 # column at write time. Run a fresh init with the env var set and assert it

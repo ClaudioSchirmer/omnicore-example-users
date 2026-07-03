@@ -1,3 +1,5 @@
+//go:build qa
+
 package main
 
 import (

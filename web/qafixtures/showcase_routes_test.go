@@ -1,6 +1,6 @@
-//go:build integration
+//go:build integration && qa
 
-package web
+package qafixtures
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	"github.com/gofiber/fiber/v3"
 
-	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
 )
 
 // fakeUpstream wires a single httptest.Server that routes by exact path.
@@ -131,7 +131,7 @@ func TestKeycloakRealmRoute(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/r", keycloakRealm(kc))
@@ -153,7 +153,7 @@ func TestKeycloakRealmRoute_UpstreamErrorReturnsBadGateway(t *testing.T) {
 		http.Error(w, "down", http.StatusInternalServerError)
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/r", keycloakRealm(kc))
@@ -178,7 +178,7 @@ func TestKeycloakAdminUser_HappyPath(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/admin/:id", keycloakAdminUser(kc))
@@ -200,7 +200,7 @@ func TestKeycloakAdminUser_NotFoundMapsTo404(t *testing.T) {
 		http.NotFound(w, r)
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/admin/:id", keycloakAdminUser(kc))
@@ -216,7 +216,7 @@ func TestKeycloakAdminUser_UpstreamErrorReturns502(t *testing.T) {
 		http.Error(w, "token-fail", http.StatusInternalServerError)
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/admin/:id", keycloakAdminUser(kc))
@@ -231,7 +231,7 @@ func TestKeycloakAdminUser_UpstreamErrorReturns502(t *testing.T) {
 func TestKeycloakTenantWhoami_MissingCredentialsReturns400(t *testing.T) {
 	up := newFakeUpstream(t)
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/w", keycloakTenantWhoami(kc))
@@ -261,7 +261,7 @@ func TestKeycloakTenantWhoami_HappyPath(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
+	kc := infraqa.NewKeycloakService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/w", keycloakTenantWhoami(kc))
@@ -285,7 +285,7 @@ func TestShowcaseDownloadStream(t *testing.T) {
 		_, _ = w.Write([]byte("XXXXXXXXXXXXXXXX"))
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 
 	app := freshAppWithCtx()
 	app.Get("/d/:size", showcaseDownloadStream(echo))
@@ -310,7 +310,7 @@ func TestShowcaseUploadStream(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 
 	app := freshAppWithCtx()
 	app.Post("/u", showcaseUploadStream(echo))
@@ -337,7 +337,7 @@ func TestShowcaseMultipart(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 	app := freshAppWithCtx()
 	app.Post("/m", showcaseMultipart(echo))
 
@@ -360,7 +360,7 @@ func TestShowcaseSSE(t *testing.T) {
 		}
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 	app := freshAppWithCtx()
 	app.Get("/sse", showcaseSSE(echo))
 
@@ -382,7 +382,7 @@ func TestShowcaseSigned(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 	app := freshAppWithCtx()
 	app.Post("/s", showcaseSigned(echo))
 	req := httptest.NewRequest(fiber.MethodPost, "/s", strings.NewReader("{}"))
@@ -404,7 +404,7 @@ func TestShowcaseWithConfigOverride_DefaultBodyAndEcho(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 	app := freshAppWithCtx()
 	app.Post("/o", showcaseWithConfigOverride(echo))
 
@@ -433,7 +433,7 @@ func TestShowcaseInlineBearer_HappyPath(t *testing.T) {
 		})
 	})
 	hc := buildHTTPClient(t, up.server.URL)
-	echo := appexternal.NewEchoService(hc)
+	echo := infraqa.NewEchoService(hc)
 	app := freshAppWithCtx()
 	app.Post("/ib", showcaseInlineBearer(echo))
 
@@ -453,8 +453,8 @@ func TestShowcaseInlineBearer_HappyPath(t *testing.T) {
 func TestMountShowcase_RegistersRoutes(t *testing.T) {
 	up := newFakeUpstream(t)
 	hc := buildHTTPClient(t, up.server.URL)
-	kc := appexternal.NewKeycloakService(hc)
-	echo := appexternal.NewEchoService(hc)
+	kc := infraqa.NewKeycloakService(hc)
+	echo := infraqa.NewEchoService(hc)
 
 	app := freshAppWithCtx()
 	MountShowcase(app, kc, echo, bootstrap.Deps{})

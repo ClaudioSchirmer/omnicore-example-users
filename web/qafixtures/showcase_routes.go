@@ -1,4 +1,6 @@
-package web
+//go:build qa
+
+package qafixtures
 
 import (
 	"bytes"
@@ -9,8 +11,7 @@ import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 
-	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
-
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -36,7 +37,7 @@ import (
 // delegates to a vendor service struct in infra/external/. That keeps the
 // canonical consumer pattern visible: handlers depend on a typed
 // adapter; only the adapter touches the framework's outbound surface.
-func MountShowcase(app *fiber.App, kc *appexternal.KeycloakService, echo *appexternal.EchoService, d bootstrap.Deps) {
+func MountShowcase(app *fiber.App, kc *infraqa.KeycloakService, echo *infraqa.EchoService, d bootstrap.Deps) {
 	showcase := app.Group("/showcase")
 
 	// Showcase routes are framework demos — vendor-specific request /
@@ -144,7 +145,7 @@ func MountShowcase(app *fiber.App, kc *appexternal.KeycloakService, echo *appext
 // hands the open response body to the caller without buffering, and the
 // logging middleware does not capture the stream body (only status,
 // headers, ContentLength surface in slog).
-func showcaseDownloadStream(echo *appexternal.EchoService) fiber.Handler {
+func showcaseDownloadStream(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -164,7 +165,7 @@ func showcaseDownloadStream(echo *appexternal.EchoService) fiber.Handler {
 // the upstream's observed byte count. Retry is disabled at runtime (the
 // io.Reader is one-shot) and the logging middleware does not capture
 // the request body.
-func showcaseUploadStream(echo *appexternal.EchoService) fiber.Handler {
+func showcaseUploadStream(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -186,7 +187,7 @@ func showcaseUploadStream(echo *appexternal.EchoService) fiber.Handler {
 // http:"body,multipart" tag. The body streams through an io.Pipe so
 // file content is never fully buffered. Returns the upstream's parsed
 // structure.
-func showcaseMultipart(echo *appexternal.EchoService) fiber.Handler {
+func showcaseMultipart(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -215,7 +216,7 @@ func showcaseMultipart(echo *appexternal.EchoService) fiber.Handler {
 // spawns a goroutine that parses the WHATWG EventSource stream and
 // emits SSEvent values; the caller MUST Close the response.
 // Demonstrates id / event / data / retry parsing.
-func showcaseSSE(echo *appexternal.EchoService) fiber.Handler {
+func showcaseSSE(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -235,7 +236,7 @@ func showcaseSSE(echo *appexternal.EchoService) fiber.Handler {
 // X-Content-SHA256, X-Signature, and X-Key-Id before dialing; the
 // upstream echoes them back. The QA suite asserts each header is
 // populated, proving HMAC signing executed end to end.
-func showcaseSigned(echo *appexternal.EchoService) fiber.Handler {
+func showcaseSigned(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -257,7 +258,7 @@ func showcaseSigned(echo *appexternal.EchoService) fiber.Handler {
 // and path through CallConfig — the call still lands on /echo/upload, but
 // the framework's binding accepts the override and forwards a JSON body
 // instead of streaming. Returns the upstream's byte count.
-func showcaseWithConfigOverride(echo *appexternal.EchoService) fiber.Handler {
+func showcaseWithConfigOverride(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)
@@ -279,7 +280,7 @@ func showcaseWithConfigOverride(echo *appexternal.EchoService) fiber.Handler {
 // The upstream echoes the Authorization header back so the QA suite can
 // verify the framework propagated it. Demonstrates per-customer
 // credentials supplied at call time instead of via a YAML auth provider.
-func showcaseInlineBearer(echo *appexternal.EchoService) fiber.Handler {
+func showcaseInlineBearer(echo *infraqa.EchoService) fiber.Handler {
 	return func(c fiber.Ctx) error {
 		ctx := fwweb.AppContext(c)
 		ctx.SetParent(c)

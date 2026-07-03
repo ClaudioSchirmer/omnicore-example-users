@@ -1037,6 +1037,96 @@ if addrs:
     eq(hits[0].get("fieldLabelKey"), "AddressZipCodeField", "zip_code fieldLabelKey")
 '
 
+##############################################################################
+sec "18. Field labels — READ path renders fieldLabelKey → translated fieldLabel"
+##############################################################################
+# §17 pins the WRITE path (the stored raw catalog key on the slog echo). The
+# complement is the READ endpoint GET /audit/:aggregateId, which runs
+# audit.RenderLabels in the actor's locale (Accept-Language) BEFORE
+# serialization: every FieldChange must carry the translated `fieldLabel` and
+# the raw `fieldLabelKey` must be GONE (RenderLabelsInJSON deletes it so the
+# read shape matches the notification-envelope wire shape). Same aggregate the
+# §17 PATCH (Name) + PUT (Address.zipCode) mutated — its timeline still exists
+# because the cleanup DELETE runs only after this section.
+
+# audit_read_assert <name> <accept_language> <python-check-on `rows`>
+audit_read_assert() {
+  local name="$1" lang="$2" check="$3"
+  title "$name"
+  local tmp; tmp=$(mktemp)
+  local status
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" "$BASE/audit/$LABEL_USER_ID" \
+    -H "Authorization: Bearer $VALID" -H "Accept-Language: $lang")
+  if [ "$status" != "200" ]; then
+    printf '\033[1;31mFAIL\033[0m GET /audit/%s → %s (want 200); body=%s\n' \
+      "$LABEL_USER_ID" "$status" "$(head -c 300 "$tmp")"
+    FAIL=$((FAIL+1)); rm -f "$tmp"; return
+  fi
+  local result
+  result=$(AUDIT_BODY_FILE="$tmp" python3 - "$check" <<'PY'
+import json, os, sys
+check = sys.argv[1]
+doc = json.load(open(os.environ["AUDIT_BODY_FILE"]))
+rows = doc.get("data") if isinstance(doc, dict) else doc
+rows = rows or []
+errs = []
+def eq(actual, expected, label):
+    if actual != expected:
+        errs.append(label + ": got " + repr(actual) + ", want " + repr(expected))
+def expect(cond, msg):
+    if not cond: errs.append(msg)
+# collect every root-level change and every child change across the timeline
+def root_changes():
+    out = []
+    for r in rows:
+        out.extend(r.get("changes") or [])
+    return out
+def child_changes(type_name):
+    out = []
+    for r in rows:
+        for entry in (r.get("children") or {}).get(type_name, []) or []:
+            out.extend(entry.get("changes") or [])
+    return out
+exec(check)
+print("PASS" if not errs else "FAIL\n" + "\n".join(" - " + e for e in errs))
+PY
+)
+  if printf '%s' "$result" | head -n1 | grep -q '^PASS$'; then
+    printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m\n'; printf '%s\n' "$result" | tail -n +2
+    echo "BODY:"; head -c 2000 "$tmp"; echo
+    FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
+# EN: the Name change renders "Name" (UserNameField) and drops the raw key;
+# the Address.zipCode change renders "ZIP Code" (AddressZipCodeField).
+audit_read_assert "18.1 EN read renders fieldLabel + strips fieldLabelKey" "en-US" '
+name_hits = [c for c in root_changes() if c.get("field") == "Name"]
+expect(len(name_hits) >= 1, "expected at least one Name change in the timeline")
+if name_hits:
+    eq(name_hits[0].get("fieldLabel"), "Name", "Name fieldLabel (EN)")
+    expect("fieldLabelKey" not in name_hits[0], "raw fieldLabelKey must be stripped on read")
+zip_hits = [c for c in child_changes("Address") if c.get("field") == "ZipCode"]
+expect(len(zip_hits) >= 1, "expected at least one Address.ZipCode change")
+if zip_hits:
+    eq(zip_hits[0].get("fieldLabel"), "ZIP Code", "ZipCode fieldLabel (EN)")
+    expect("fieldLabelKey" not in zip_hits[0], "child raw fieldLabelKey must be stripped on read")
+'
+
+# PT-BR: the SAME keys render the Portuguese catalog strings — proving the
+# render is locale-driven off Accept-Language, not a frozen write-time string.
+audit_read_assert "18.2 PT-BR read renders the Portuguese labels (locale-driven)" "pt-BR" '
+name_hits = [c for c in root_changes() if c.get("field") == "Name"]
+if name_hits:
+    eq(name_hits[0].get("fieldLabel"), "Nome", "Name fieldLabel (PT-BR)")
+zip_hits = [c for c in child_changes("Address") if c.get("field") == "ZipCode"]
+if zip_hits:
+    eq(zip_hits[0].get("fieldLabel"), "CEP", "ZipCode fieldLabel (PT-BR)")
+'
+
 # Cleanup — leave the table in the state §16 expects.
 capture_audit DELETE "/users/$LABEL_USER_ID" "" "$VALID" 204
 

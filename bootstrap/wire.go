@@ -35,13 +35,16 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 			apptrans.PTBR(), apptrans.ENG(), apptrans.ESP(), apptrans.FRA(),
 			apptrans.DEU(), apptrans.ITA(), apptrans.NLD(),
 		},
-		Features: []bootstrap.Feature{
+		// qaFeatures(d) appends the QA-only fixtures (Gadget) when built with
+		// the `qa` build tag; it is nil in the canonical (non-qa) build. This
+		// append is the ONLY canonical touch for the QA fixtures — everything
+		// else lives under //go:build qa in qafixtures/ subfolders.
+		Features: append([]bootstrap.Feature{
 			users,
 			employees,
-			NewShowcaseFeature(d),
-			NewAdminFeature(),
+			NewUserCustomFeature(d),
 			NewAuditFeature(),
-		},
+		}, qaFeatures(d)...),
 		OpenAPI: &openapi.Config{
 			Title:            "OmniCore Example Users",
 			Version:          "0.1.0",

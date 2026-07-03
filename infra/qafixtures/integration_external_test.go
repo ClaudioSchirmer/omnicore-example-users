@@ -1,11 +1,11 @@
-//go:build integration
+//go:build integration && qa
 
 // Integration tests for the external service adapters. Drive them against a
 // fake httptest.Server upstream so we exercise the real httpclient pipeline
 // (tag binding, codec, middleware) without depending on a live Keycloak.
 //
 // Run with: go test -tags=integration ./infra/external/...
-package external
+package qafixtures
 
 import (
 	"bytes"

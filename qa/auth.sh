@@ -358,6 +358,19 @@ for PROFILE in "${PROFILES[@]}"; do
   show_case_with_key "Wrong scheme (Basic xxx) → 401 MissingAuthorizationNotification" \
     GET /whoami "Authorization: Basic dXNlcjpwYXNz" 401 MissingAuthorizationNotification
 
+  # Scheme match is case-INSENSITIVE (auth_middleware.go uses strings.EqualFold
+  # on the "Bearer " prefix). A lowercase "bearer " must still authenticate the
+  # very same valid token. Uses a raw curl because show_case builds the header
+  # with a capital "Bearer" itself.
+  title "Lowercase 'authorization: bearer' scheme still authenticates (EqualFold)"
+  LC_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/whoami" \
+    -H "authorization: bearer $VALID" -H "Accept-Language: en-US")
+  if [ "$LC_STATUS" = "200" ]; then
+    printf '\033[1;32mPASS\033[0m (lowercase scheme accepted)\n'; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (lowercase bearer scheme rejected: %s)\n' "$LC_STATUS"; FAIL=$((FAIL+1))
+  fi
+
   # publicRoutes bypass — verify the documentation surface stays anonymous.
   show_case "/openapi.json — public (added to publicRoutes automatically)" \
     GET /openapi.json "" 200
@@ -377,6 +390,36 @@ for PROFILE in "${PROFILES[@]}"; do
     GET /health "$MALFORMED" 200
 
   case "$PROFILE" in
+    prd)
+      # Forged-token cases — only meaningful on a LOCAL-signature validator
+      # (prd = JWKS). The forge signs with the realm's own RSA key and copies
+      # a live token's kid, so signature validation passes against the JWKS;
+      # what differs is a single axis (exp in the past, or alg=HS256). This is
+      # the only way to reach the expired / algorithm-allowlist branches — the
+      # IdP never mints an already-expired token, and RS256→HS256 confusion
+      # can't be produced by the token endpoint. Gated to prd so the external
+      # (introspection) profiles — which don't know a forged token — are not
+      # asked to reason about a signature they never see.
+      FORGE="$SCRIPTS/forge-token.sh"
+
+      # Chain sanity: a forged token with a FUTURE exp must authenticate, or
+      # every negative case below is a false pass (forge chain broken).
+      FORGED_VALID=$("$FORGE" valid)
+      show_case "Forged RS256 token (real kid, future exp) authenticates — forge chain is sound" \
+        GET /whoami "$FORGED_VALID" 200 "$ALICE_SUB"
+
+      # The headline gap: an expired token is a DISTINCT notification from an
+      # invalid one, so a client can branch (refresh vs re-login).
+      FORGED_EXPIRED=$("$FORGE" expired)
+      show_case_with_key "Expired token → 401 ExpiredTokenNotification (distinct from InvalidToken)" \
+        GET /whoami "Authorization: Bearer $FORGED_EXPIRED" 401 ExpiredTokenNotification
+
+      # Algorithm-confusion guard: header alg=HS256 is not in auth.algorithms
+      # ([RS256]); the parser rejects on the allowlist before signature checks.
+      FORGED_WRONGALG=$("$FORGE" wrongalg)
+      show_case_with_key "HS256-signed token → 401 InvalidTokenNotification (alg not in [RS256] allowlist)" \
+        GET /whoami "Authorization: Bearer $FORGED_WRONGALG" 401 InvalidTokenNotification
+      ;;
     prd-external)
       # Mint a new token so the revoked one isn't shared with other scenarios.
       REVOKEE=$("$SCRIPTS/mint-token.sh" alice)
