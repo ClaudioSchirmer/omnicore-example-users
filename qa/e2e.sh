@@ -1630,6 +1630,479 @@ curl -sS -o /dev/null -X DELETE "$BASE/users/$EXP2"
 echo "deleted EXP1=$EXP1 EXP2=$EXP2 (EXP2 unarchived first so DELETE resolves)"
 
 ####################################
+sec "20. Router protocol errors — 404 unknown route / 405 wrong method"
+####################################
+# The framework's Fiber error handler (web/error_handler.go) converts
+# router-level misses into typed notifications through the SAME pipeline
+# envelope every handler-level notification uses: an unmatched path emits
+# RouteNotFoundNotification (404); a matched path hit with a verb it does not
+# declare emits MethodNotAllowedNotification (405). Handler sections above
+# only ever exercised 404 on a *matched* route with an unknown id — these two
+# cases pin the router-level mapping itself.
+
+# assert_body <name> <expected_status> <grep_pattern> <method> <path> [body] [extra curl args...]
+# Raw-curl variant of `show` that additionally asserts a substring of the
+# response body (used for notificationKey / rendered-message checks).
+assert_body() {
+  local name="$1" expected="$2" pattern="$3" method="$4" path="$5" body="${6:-}"
+  shift; shift; shift; shift; shift; [ $# -gt 0 ] && shift
+  title "$name"
+  echo "REQUEST : $method $path"
+  local tmp; tmp=$(mktemp)
+  local status
+  if [ -n "$body" ]; then
+    status=$(curl -sS -o "$tmp" -w "%{http_code}" -X "$method" "$BASE$path" \
+      -H "Content-Type: application/json" "$@" --data "$body")
+  else
+    status=$(curl -sS -o "$tmp" -w "%{http_code}" -X "$method" "$BASE$path" \
+      -H "Content-Type: application/json" "$@")
+  fi
+  echo "STATUS  : $status"
+  echo "RESPONSE:"
+  python3 -m json.tool < "$tmp" 2>/dev/null || cat "$tmp"
+  echo
+  if [ "$status" = "$expected" ] && grep -q "$pattern" "$tmp"; then
+    printf '\033[1;32mPASS\033[0m (status=%s, body carries %s)\n' "$status" "$pattern"
+    PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected status=%s + body pattern %s, got status=%s)\n' \
+      "$expected" "$pattern" "$status"
+    FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
+assert_body "20.1 POST /does-not-exist → 404 RouteNotFoundNotification" \
+  404 '"notificationKey":"RouteNotFoundNotification"' \
+  POST "/does-not-exist" '' -H "Accept-Language: en-US"
+
+assert_body "20.2 DELETE /whoami → 405 MethodNotAllowedNotification (path exists, verb does not)" \
+  405 '"notificationKey":"MethodNotAllowedNotification"' \
+  DELETE "/whoami" '' -H "Accept-Language: en-US"
+
+####################################
+sec "21. X-Request-ID — correlation id echoed / generated / sanitized"
+####################################
+# AppContextMiddleware owns the per-request UUID (AppContext.ID()): a valid
+# X-Request-ID on the request is honored and echoed on the response; an
+# absent header yields a freshly generated UUID; a NON-uuid value is replaced
+# by a fresh one (never echoed back verbatim — the id must stay a UUID for
+# audit threadId + tracing correlation).
+
+title "21.1 Valid X-Request-ID is echoed back on the response"
+REQ_ID_21="7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"
+GOT_21=$(curl -sS -o /dev/null -D - "$BASE/health" -H "X-Request-ID: $REQ_ID_21" \
+  | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id"{print $2}')
+echo "sent=$REQ_ID_21  got=$GOT_21"
+if [ "$GOT_21" = "$REQ_ID_21" ]; then
+  printf '\033[1;32mPASS\033[0m (request id echoed verbatim)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected echo of %s, got %s)\n' "$REQ_ID_21" "$GOT_21"; FAIL=$((FAIL+1))
+fi
+
+title "21.2 Absent X-Request-ID → response carries a freshly generated UUID"
+GOT_22=$(curl -sS -o /dev/null -D - "$BASE/health" \
+  | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id"{print $2}')
+echo "got=$GOT_22"
+if python3 -c 'import sys,uuid; uuid.UUID(sys.argv[1])' "$GOT_22" 2>/dev/null; then
+  printf '\033[1;32mPASS\033[0m (generated id is a valid UUID)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (response X-Request-ID missing or not a UUID: %s)\n' "$GOT_22"; FAIL=$((FAIL+1))
+fi
+
+title "21.3 Non-UUID X-Request-ID is replaced by a fresh valid UUID (not echoed)"
+GOT_23=$(curl -sS -o /dev/null -D - "$BASE/health" -H "X-Request-ID: not-a-uuid" \
+  | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id"{print $2}')
+echo "sent=not-a-uuid  got=$GOT_23"
+if [ "$GOT_23" != "not-a-uuid" ] && python3 -c 'import sys,uuid; uuid.UUID(sys.argv[1])' "$GOT_23" 2>/dev/null; then
+  printf '\033[1;32mPASS\033[0m (invalid input replaced by a valid UUID)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected fresh UUID, got %s)\n' "$GOT_23"; FAIL=$((FAIL+1))
+fi
+
+####################################
+sec "22. Language selection — default + the five remaining catalogs"
+####################################
+# 1.13/1.14 prove EN + PT-BR. The service ships SEVEN catalogs
+# (application/translations/): this section renders the SAME notification
+# (InvalidEmailNotification) through the other five, plus the absent-header
+# default (AppContext.Language() falls back to English when no
+# Accept-Language is sent). Assertion = notificationKey + the exact catalog
+# string, so a broken prefix-match or a catalog regression is visible.
+BODY_LANG_22='{
+  "name":"Lang Probe","email":"not-an-email","phone":"14155552671","document":"39000002200","userName":"langprobe",
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+}'
+
+title "22.1 No Accept-Language header → English default ('Invalid email.')"
+RESP_LANG=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data "$BODY_LANG_22")
+echo "$RESP_LANG" | python3 -m json.tool 2>/dev/null || echo "$RESP_LANG"
+if echo "$RESP_LANG" | grep -q '"notificationKey":"InvalidEmailNotification"' \
+   && echo "$RESP_LANG" | grep -q 'Invalid email.'; then
+  printf '\033[1;32mPASS\033[0m (defaulted to the English catalog)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected English message without Accept-Language)\n'; FAIL=$((FAIL+1))
+fi
+
+# lang_case <case_no> <accept_language> <expected_message>
+lang_case() {
+  local no="$1" lang="$2" expected="$3"
+  title "22.$no Accept-Language: $lang → '$expected'"
+  local resp
+  resp=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" \
+    -H "Accept-Language: $lang" --data "$BODY_LANG_22")
+  echo "$resp" | python3 -m json.tool 2>/dev/null || echo "$resp"
+  if echo "$resp" | grep -q '"notificationKey":"InvalidEmailNotification"' \
+     && echo "$resp" | grep -qF "$expected"; then
+    printf '\033[1;32mPASS\033[0m (%s catalog rendered)\n' "$lang"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected "%s" under %s)\n' "$expected" "$lang"; FAIL=$((FAIL+1))
+  fi
+}
+lang_case 2 "es-ES" "Email inválido."
+lang_case 3 "fr-FR" "E-mail invalide."
+lang_case 4 "de-DE" "Ungültige E-Mail-Adresse."
+lang_case 5 "it-IT" "Email non valida."
+lang_case 6 "nl-NL" "Ongeldig e-mailadres."
+
+####################################
+sec "23. InvalidDocumentNotification — natural-key shape validation"
+####################################
+# domain/user.go: documentRegex = ^[A-Za-z0-9.\-]{3,32}$ — the natural key is
+# validated like any other field. A 2-char document violates the length floor
+# and must surface the custom notification (the last custom notification in
+# domain/notifications.go that e2e never asserted).
+
+assert_body "23.1 POST /users with 2-char document → 422 InvalidDocumentNotification" \
+  422 '"notificationKey":"InvalidDocumentNotification"' \
+  POST "/users" '{
+    "name":"Doc Probe","email":"doc.probe.qa23@example.com","phone":"14155552671",
+    "document":"ab","userName":"docprobe",
+    "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  }' -H "Accept-Language: en-US"
+
+assert_body "23.2 POST /users with symbol-bearing document → 422 InvalidDocumentNotification" \
+  422 '"notificationKey":"InvalidDocumentNotification"' \
+  POST "/users" '{
+    "name":"Doc Probe","email":"doc.probe.qa23@example.com","phone":"14155552671",
+    "document":"12345!78901","userName":"docprobe",
+    "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  }' -H "Accept-Language: en-US"
+
+####################################
+sec "24. List reads — ?search (JSON), composite sort, cursor tampering"
+####################################
+# ?search rides the view's TextIndex(name,email) — 19.14-19.16 proved it on
+# the CSV export wrapper; this section pins the JSON list endpoint itself.
+# Composite sort (?sort=a,-b) and the cursor schema-version gate
+# (DecodeCursor rejects v != CursorSchemaVersion) had no coverage anywhere.
+
+# show_count_eq — exact-count variant of show_count: negative cases must
+# assert 0 matches, not >= 0 (which is trivially true).
+show_count_eq() {
+  local name="$1" path="$2" expected="$3" want_count="$4"
+  title "$name"
+  echo "REQUEST : GET $path"
+  local tmp; tmp=$(mktemp)
+  local status
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" -G "$BASE$path" -H "Accept-Language: en-US")
+  echo "STATUS  : $status"
+  python3 -m json.tool < "$tmp" 2>/dev/null || cat "$tmp"
+  local count
+  count=$(python3 -c 'import sys,json
+try:
+  d=json.load(open(sys.argv[1]))
+  data=d.get("data",[])
+  print(len(data) if isinstance(data,list) else 0)
+except Exception:
+  print(-1)' "$tmp")
+  if [ "$status" = "$expected" ] && [ "$count" = "$want_count" ]; then
+    printf '\033[1;32mPASS\033[0m (status=%s, items=%s)\n' "$status" "$count"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected status=%s items=%s, got status=%s items=%s)\n' \
+      "$expected" "$want_count" "$status" "$count"; FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
+title "24.0 Seed fixtures: one search probe + two sort twins"
+RESP_S1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
+  "name":"Zearchprobe Unique","email":"zearch.qa24@example.com","phone":"14155552671",
+  "document":"39000002401","userName":"zearch1",
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+SRCH1=$(echo "$RESP_S1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
+RESP_T1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
+  "name":"Sortprobe Twin","email":"sortprobe.a.qa24@example.com","phone":"14155552671",
+  "document":"39000002402","userName":"sortpa",
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+TWIN1=$(echo "$RESP_T1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
+RESP_T2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
+  "name":"Sortprobe Twin","email":"sortprobe.b.qa24@example.com","phone":"14155552671",
+  "document":"39000002403","userName":"sortpb",
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+TWIN2=$(echo "$RESP_T2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
+if [ -n "$SRCH1" ] && [ -n "$TWIN1" ] && [ -n "$TWIN2" ] \
+   && wait_for_view "$SRCH1" 200 20 && wait_for_view "$TWIN1" 200 20 && wait_for_view "$TWIN2" 200 20; then
+  printf '\033[1;32mPASS\033[0m (three fixtures materialized: %s %s %s)\n' "$SRCH1" "$TWIN1" "$TWIN2"; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (fixture seeding failed: SRCH1=%s TWIN1=%s TWIN2=%s)\n' "$SRCH1" "$TWIN1" "$TWIN2"; FAIL=$((FAIL+1))
+fi
+
+show_count_eq "24.1 JSON list ?search=Zearchprobe surfaces the probe (TextIndex on name/email)" \
+  "/users?search=Zearchprobe" 200 1
+show_count_eq "24.2 JSON list ?search=zzznomatchqqq matches nothing" \
+  "/users?search=zzznomatchqqq" 200 0
+
+title "24.3 Composite sort ?sort=name,-email — secondary key descending"
+FIRST_DESC_EMAIL=$(curl -sS "$BASE/users?name.startswith=Sortprobe&sort=name,-email" \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["email"] if d else "")')
+FIRST_ASC_EMAIL=$(curl -sS "$BASE/users?name.startswith=Sortprobe&sort=name,email" \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["email"] if d else "")')
+echo "sort=name,-email first=$FIRST_DESC_EMAIL   sort=name,email first=$FIRST_ASC_EMAIL"
+if [ "$FIRST_DESC_EMAIL" = "sortprobe.b.qa24@example.com" ] && [ "$FIRST_ASC_EMAIL" = "sortprobe.a.qa24@example.com" ]; then
+  printf '\033[1;32mPASS\033[0m (secondary sort key drives the order both ways)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (composite sort not honored: desc=%s asc=%s)\n' "$FIRST_DESC_EMAIL" "$FIRST_ASC_EMAIL"; FAIL=$((FAIL+1))
+fi
+
+title "24.4 Cursor with tampered schema version (v=99) → 400"
+CURSOR_24=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+if [ -z "$CURSOR_24" ]; then
+  printf '\033[1;31mFAIL\033[0m (no next_cursor available to tamper)\n'; FAIL=$((FAIL+1))
+else
+  TAMPERED_24=$(python3 -c '
+import base64, json, sys
+raw = base64.urlsafe_b64decode(sys.argv[1])
+d = json.loads(raw)
+d["v"] = 99
+print(base64.urlsafe_b64encode(json.dumps(d).encode()).decode())' "$CURSOR_24")
+  ST_24=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users?limit=1&after=$TAMPERED_24")
+  echo "tampered cursor status=$ST_24"
+  if [ "$ST_24" = "400" ]; then
+    printf '\033[1;32mPASS\033[0m (unsupported cursor version rejected cleanly)\n'; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected 400 on v=99 cursor, got %s)\n' "$ST_24"; FAIL=$((FAIL+1))
+  fi
+fi
+
+show_count_eq "24.5 ?after=<not even base64> → 400 (malformed cursor rejected)" \
+  "/users?limit=1&after=%%%not-base64%%%" 400 0
+
+title "24.6 Cleanup section-24 fixtures"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$SRCH1"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$TWIN1"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$TWIN2"
+echo "deleted SRCH1=$SRCH1 TWIN1=$TWIN1 TWIN2=$TWIN2"
+
+####################################
+sec "25. Regex metacharacters in filter values are literal (QuoteMeta)"
+####################################
+# 4.5.10 proved a literal space; this section pins the dangerous
+# metacharacters: dot (wildcard), star (quantifier) and brackets (class).
+# Fixture name carries all three. If the wire boundary ever stops escaping,
+# 25.2 turns into a false positive (dot matches 'x') and fails loudly.
+
+title "25.0 Seed metacharacter fixture"
+RESP_M=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
+  "name":"Meta A.B x*y [q] End","email":"meta.qa25@example.com","phone":"14155552671",
+  "document":"39000002501","userName":"metaprobe",
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+META1=$(echo "$RESP_M" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
+if [ -n "$META1" ] && wait_for_view "$META1" 200 20; then
+  printf '\033[1;32mPASS\033[0m (fixture %s materialized)\n' "$META1"; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (metacharacter fixture failed to seed)\n'; FAIL=$((FAIL+1))
+fi
+
+show_count_eq "25.1 ?name.icontains=A.B matches the literal dot" \
+  "/users?name.icontains=A.B" 200 1
+show_count_eq "25.2 ?name.icontains=AxB does NOT match — dot is not a wildcard" \
+  "/users?name.icontains=AxB" 200 0
+show_count_eq "25.3 ?name.icontains=x*y matches the literal star" \
+  "/users?name.icontains=x*y" 200 1
+show_count_eq "25.4 ?name.icontains=%5Bq%5D matches the literal brackets" \
+  "/users?name.icontains=%5Bq%5D" 200 1
+show_count_eq "25.5 ?name.icontains=%20%5Bq%5D%20 — space-delimited bracket segment matches literally" \
+  "/users?name.icontains=%20%5Bq%5D%20" 200 1
+show_count_eq "25.6 ?name.startswith=Meta%20A.B literal prefix with dot" \
+  "/users?name.startswith=Meta%20A.B" 200 1
+
+title "25.7 Cleanup metacharacter fixture"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$META1"
+echo "deleted META1=$META1"
+
+####################################
+sec "26. Cross-role fan-out via the address SUBRESOURCE (User PUT → Employee view)"
+####################################
+# employee.sh §10 proves cross-role address propagation via FULL-BODY PUTs;
+# audit.sh §8 proves the single-address subresource endpoint in isolation.
+# This section closes the combination neither covers: with BOTH roles active
+# over the same Person, a PUT on /users/:id/addresses/:addressId (the
+# subresource, not the full body) must fan out to the users AND employees
+# Mongo views — the address is a base child shared by every role.
+D26="39000002601"
+
+title "26.0 Seed: user + employee over the same document ($D26)"
+RESP_U26=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
+  "name":"Cross Subres","email":"cross.subres.qa26@example.com","phone":"14155552671",
+  "document":"'"$D26"'","userName":"crosssub",
+  "addresses":[{"label":"home","street":"Original Street","number":"1","neighborhood":"Downtown","city":"Origin City","state":"CA","zipCode":"94103","country":"US"}]}')
+UID26=$(echo "$RESP_U26" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
+ST_E26=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$BASE/employees" -H "Content-Type: application/json" --data '{
+  "name":"Cross Subres","email":"cross.subres.qa26@example.com",
+  "document":"'"$D26"'","employeeNumber":"EMP-QA26"}')
+if [ -n "$UID26" ] && [ "$ST_E26" = "201" ] && wait_for_view "$UID26" 200 20; then
+  printf '\033[1;32mPASS\033[0m (both roles created, id=%s)\n' "$UID26"; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (seed failed: UID26=%s employee_status=%s)\n' "$UID26" "$ST_E26"; FAIL=$((FAIL+1))
+fi
+
+title "26.1 Wait for the employee view to materialize (list by document)"
+deadline=$(( $(date +%s) + 20 )); EMP_SEEN=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  EMP_CNT=$(curl -sS "$BASE/employees?document=$D26" \
+    | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(len(d))' 2>/dev/null)
+  [ "$EMP_CNT" = "1" ] && { EMP_SEEN=ok; break; }
+  sleep 0.3
+done
+[ "$EMP_SEEN" = ok ] && { printf '\033[1;32mPASS\033[0m (employee doc visible)\n'; PASS=$((PASS+1)); } \
+                     || { printf '\033[1;31mFAIL\033[0m (employee view never materialized)\n'; FAIL=$((FAIL+1)); }
+
+title "26.2 PUT the single-address subresource through the USER role"
+ADDR26=$(curl -sS "$BASE/users/$UID26" \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"]["addresses"];print(d[0]["id"] if d else "")')
+echo "ADDR26=$ADDR26"
+ST_PUT26=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT "$BASE/users/$UID26/addresses/$ADDR26" \
+  -H "Content-Type: application/json" --data '{
+    "label":"home","street":"Fanout Street","number":"42","complement":null,
+    "neighborhood":"FiDi","city":"Fanout City","state":"CA","zipCode":"94199","country":"US"}')
+if [ "$ST_PUT26" = "200" ]; then
+  printf '\033[1;32mPASS\033[0m (subresource PUT accepted)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (subresource PUT status=%s)\n' "$ST_PUT26"; FAIL=$((FAIL+1))
+fi
+
+title "26.3 USER view reflects the subresource change"
+deadline=$(( $(date +%s) + 20 )); U_FAN=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  s=$(curl -sS "$BASE/users/$UID26" \
+      | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"]["addresses"];print(next((a["street"] for a in d if a["id"]=="'"$ADDR26"'"), ""))' 2>/dev/null)
+  [ "$s" = "Fanout Street" ] && { U_FAN=ok; break; }
+  sleep 0.3
+done
+[ "$U_FAN" = ok ] && { printf '\033[1;32mPASS\033[0m (users view carries Fanout Street)\n'; PASS=$((PASS+1)); } \
+                  || { printf '\033[1;31mFAIL\033[0m (users view stale after subresource PUT)\n'; FAIL=$((FAIL+1)); }
+
+title "26.4 EMPLOYEE view reflects the SAME change (shared base child fans out)"
+deadline=$(( $(date +%s) + 20 )); E_FAN=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  s=$(curl -sS "$BASE/employees?document=$D26" \
+      | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);a=d[0].get("addresses",[]) if d else [];print(next((x["street"] for x in a if x["id"]=="'"$ADDR26"'"), ""))' 2>/dev/null)
+  [ "$s" = "Fanout Street" ] && { E_FAN=ok; break; }
+  sleep 0.3
+done
+[ "$E_FAN" = ok ] && { printf '\033[1;32mPASS\033[0m (employees view carries Fanout Street — cross-role fan-out proven)\n'; PASS=$((PASS+1)); } \
+                  || { printf '\033[1;31mFAIL\033[0m (employees view stale after USER subresource PUT)\n'; FAIL=$((FAIL+1)); }
+
+title "26.5 Cleanup: delete employee role then user role (purges the base)"
+curl -sS -o /dev/null -X DELETE "$BASE/employees/$UID26"
+curl -sS -o /dev/null -X DELETE "$BASE/users/$UID26"
+echo "deleted both roles for document $D26"
+
+####################################
+sec "27. Outbox granularity B — the aggregate is the event unit"
+####################################
+# lifecycle-map contract: each write lands a deterministic set of outbox rows
+# in the SAME TX — one row per AGGREGATE operation, never per child. On the
+# SharedBase design a role write is two aggregate ops (the role + the shared
+# base), so the exact fingerprint per verb is:
+#   POST            → users INSERTED +1, persons UPDATED +1
+#   PUT / PATCH     → users UPDATED  +1, persons UPDATED +1
+#   ARCHIVE         → users ARCHIVED +1
+#   UNARCHIVE       → users UNARCHIVED +1
+#   DELETE (orphan) → users DELETED  +1, persons DELETED +1  (refcount purge)
+# Addresses NEVER get their own outbox rows (granularity B): asserted after
+# every verb, on writes that touch 2-3 address children.
+
+outbox_count() { qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='$1' AND event_type='$2';"; }
+
+# assert_outbox_delta <label> <before> <after> <want_delta>
+assert_outbox_delta() {
+  local label="$1" before="$2" after="$3" want="$4"
+  if [ "$after" = "$((before + want))" ]; then
+    printf '\033[1;32mPASS\033[0m %s (%s → %s, +%s)\n' "$label" "$before" "$after" "$want"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m %s (%s → %s, want +%s)\n' "$label" "$before" "$after" "$want"; FAIL=$((FAIL+1))
+  fi
+}
+
+D27="39000002701"
+ADDR_OUTBOX_27=$(qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='addresses';")
+
+title "27.1 POST with two addresses → users INSERTED +1, persons UPDATED +1, zero address rows"
+UI_B=$(outbox_count users INSERTED); PU_B=$(outbox_count persons UPDATED)
+RESP_27=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
+  "name":"Outbox Probe","email":"outbox.qa27@example.com","phone":"14155552671",
+  "document":"'"$D27"'","userName":"outboxp",
+  "addresses":[
+    {"label":"home","street":"First","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"},
+    {"label":"work","street":"Second","number":"2","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94105","country":"US"}
+  ]}')
+UID27=$(echo "$RESP_27" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
+UI_A=$(outbox_count users INSERTED); PU_A=$(outbox_count persons UPDATED)
+assert_outbox_delta "users INSERTED" "$UI_B" "$UI_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+
+title "27.2 PATCH name → users UPDATED +1, persons UPDATED +1"
+UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
+curl -sS -o /dev/null -X PATCH "$BASE/users/$UID27" -H "Content-Type: application/json" \
+  --data '{"name":"Outbox Probe Renamed"}'
+UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
+assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+
+title "27.3 PUT replacing both addresses with three → users UPDATED +1, persons UPDATED +1"
+UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
+curl -sS -o /dev/null -X PUT "$BASE/users/$UID27" -H "Content-Type: application/json" --data '{
+  "name":"Outbox Probe Renamed","email":"outbox.qa27@example.com","phone":"14155552671",
+  "userName":"outboxp","emailNotification":false,"smsNotification":false,
+  "addresses":[
+    {"label":"a","street":"Third","number":"3","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"},
+    {"label":"b","street":"Fourth","number":"4","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94111","country":"US"},
+    {"label":"c","street":"Fifth","number":"5","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94112","country":"US"}
+  ]}'
+UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
+assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+
+title "27.4 ARCHIVE → users ARCHIVED +1"
+AR_B=$(outbox_count users ARCHIVED)
+curl -sS -o /dev/null -X PATCH "$BASE/users/$UID27/archive" -H "Content-Type: application/json"
+AR_A=$(outbox_count users ARCHIVED)
+assert_outbox_delta "users ARCHIVED" "$AR_B" "$AR_A" 1
+
+title "27.5 UNARCHIVE → users UNARCHIVED +1"
+UN_B=$(outbox_count users UNARCHIVED)
+curl -sS -o /dev/null -X PATCH "$BASE/users/$UID27/unarchive" -H "Content-Type: application/json"
+UN_A=$(outbox_count users UNARCHIVED)
+assert_outbox_delta "users UNARCHIVED" "$UN_B" "$UN_A" 1
+
+title "27.6 DELETE (last role, orphan base) → users DELETED +1, persons DELETED +1"
+UD_B=$(outbox_count users DELETED); PD_B=$(outbox_count persons DELETED)
+curl -sS -o /dev/null -X DELETE "$BASE/users/$UID27"
+UD_A=$(outbox_count users DELETED); PD_A=$(outbox_count persons DELETED)
+assert_outbox_delta "users DELETED" "$UD_B" "$UD_A" 1
+assert_outbox_delta "persons DELETED (refcount purge)" "$PD_B" "$PD_A" 1
+
+title "27.7 Grand invariant — addresses NEVER appear in the outbox (granularity B)"
+ADDR_OUTBOX_27_AFTER=$(qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='addresses';")
+if [ "$ADDR_OUTBOX_27_AFTER" = "$ADDR_OUTBOX_27" ] && [ "$ADDR_OUTBOX_27_AFTER" = "0" ]; then
+  printf '\033[1;32mPASS\033[0m (zero address-typed outbox rows across every verb)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (addresses outbox rows: %s → %s, want 0)\n' "$ADDR_OUTBOX_27" "$ADDR_OUTBOX_27_AFTER"; FAIL=$((FAIL+1))
+fi
+
+####################################
 sec "Summary"
 ####################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

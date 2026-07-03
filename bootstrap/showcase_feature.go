@@ -1,74 +1,52 @@
+//go:build qa
+
 package main
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 
-	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/infra"
-	appexternal "github.com/ClaudioSchirmer/omnicore-example-users/infra/external"
-	appweb "github.com/ClaudioSchirmer/omnicore-example-users/web"
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
+	webqa "github.com/ClaudioSchirmer/omnicore-example-users/web/qafixtures"
 
 	"github.com/gofiber/fiber/v3"
 )
 
-// ShowcaseFeature mounts every framework-exercise route under a single
-// context so the User aggregate's feature stays focused on user CRUD.
-// Four Mount entry points are called:
+// ShowcaseFeature mounts the framework-exercise routes that are NOT part of the
+// business surface — the "abobrinhas" that only exist to drive framework
+// subsystems end to end from the QA suites:
 //
-//	appweb.MountWhoami      → GET /whoami (auth identity demo)
-//	appweb.MountShowcase    → /showcase/keycloak/* + /showcase/httpclient/*
-//	appweb.MountEcho        → /echo/* in-process upstream for the
-//	                           /showcase/httpclient/* demos
-//	appweb.MountUsersCustom → /showcase/users-custom/* manual chain over
-//	                           the User aggregate (write side — read side
-//	                           arrives in a follow-up)
+//	MountWhoami        → GET /whoami (auth identity demo)
+//	MountShowcase      → /showcase/keycloak/* + /showcase/httpclient/*
+//	MountEcho          → /echo/* in-process upstream for the httpclient demos
+//	MountCacheShowcase → /showcase/cache/* over Deps.Cache / Deps.SharedCache
 //
-// The feature does not contribute a view to the SyncEngine — implements
-// bootstrap.Feature only (no Views method). The KeycloakService and
-// EchoService are constructed over the shared HttpClient registry the
-// framework exposes on bootstrap.Deps; the custom repo + service for the
-// users-custom showcase are constructed over the shared relational engine
-// (Deps.DB) so the surface persists to the same `users` table the canonical
-// UsersFeature writes to — both routes exercising the same aggregate is the
-// whole point of the side-by-side comparison.
+// It is compiled only under //go:build qa, so the canonical binary never
+// carries these routes. The User aggregate's manual showcase
+// (/showcase/users-custom/*) is BUSINESS and lives in the canonical
+// UserCustomFeature, not here.
 //
-// Splitting showcase from UsersFeature keeps the canonical example
-// (UsersFeature) free of demo routes that would otherwise dilute the
-// "one aggregate, one feature" pattern documented in CLAUDE.md.
+// The feature contributes no view to the SyncEngine — it implements
+// bootstrap.Feature only. KeycloakService and EchoService are constructed over
+// the shared HttpClient registry the framework exposes on bootstrap.Deps.
 type ShowcaseFeature struct {
-	kc         *appexternal.KeycloakService
-	echo       *appexternal.EchoService
-	customRepo *appinfra.UserCustomRepository
+	kc   *infraqa.KeycloakService
+	echo *infraqa.EchoService
 }
 
-// NewShowcaseFeature builds the outbound adapters over the shared HttpClient
-// and the manual showcase Repository over the shared relational engine. The
-// User aggregate needs no domain service (the SharedBase write path enforces
-// identity), so none is constructed; the manual handlers receive a nil service,
-// tolerated by the framework when the entity requires none.
+// NewShowcaseFeature builds the outbound adapters over the shared HttpClient.
 func NewShowcaseFeature(d bootstrap.Deps) *ShowcaseFeature {
-	// customRepo is backend-neutral: it takes the relational engine (Deps.DB)
-	// directly, so swapping the SQL backend is a YAML dialect change with no
-	// edit here.
 	return &ShowcaseFeature{
-		kc:         appexternal.NewKeycloakService(d.HttpClient),
-		echo:       appexternal.NewEchoService(d.HttpClient),
-		customRepo: appinfra.NewUserCustomRepository(d.DB),
+		kc:   infraqa.NewKeycloakService(d.HttpClient),
+		echo: infraqa.NewEchoService(d.HttpClient),
 	}
 }
 
-// Mount satisfies bootstrap.Feature — registers the framework-exercise
-// routes via four thin entry points in web/. /echo/* is the upstream
-// of /showcase/httpclient/* so MountEcho lands in the same Fiber app;
-// MountUsersCustom lives next to the other showcases so /showcase/* is
-// the visual prefix for "demos" across the surface.
+// Mount satisfies bootstrap.Feature — registers the framework-exercise routes.
+// /echo/* is the upstream of /showcase/httpclient/* so MountEcho lands in the
+// same Fiber app.
 func (f *ShowcaseFeature) Mount(app *fiber.App, d bootstrap.Deps) {
-	appweb.MountWhoami(app, d)
-	appweb.MountEcho(app, d)
-	appweb.MountShowcase(app, f.kc, f.echo, d)
-	appweb.MountUsersCustom(app, f.customRepo, nil, d)
-	// /showcase/cache/* — minimal CRUD over Deps.Cache (private) and
-	// Deps.SharedCache (shared) so qa/cache.sh can drive the framework's
-	// cache subsystem end to end. Hidden in the OpenAPI spec because it's
-	// a QA fixture, not a production surface.
-	appweb.MountCacheShowcase(app, d)
+	webqa.MountWhoami(app, d)
+	webqa.MountEcho(app, d)
+	webqa.MountShowcase(app, f.kc, f.echo, d)
+	webqa.MountCacheShowcase(app, d)
 }

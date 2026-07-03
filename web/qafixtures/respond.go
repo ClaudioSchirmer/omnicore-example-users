@@ -1,4 +1,6 @@
-package web
+//go:build qa
+
+package qafixtures
 
 import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"

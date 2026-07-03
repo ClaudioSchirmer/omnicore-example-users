@@ -1,6 +1,12 @@
 //go:build integration
 
-// Dialect-driven integration harness for omnicore-example-users/infra.
+// Dialect-driven database acceptance harness for omnicore-example-users/infra.
+//
+// NOTE: the `integration` build tag here is the Go-standard marker for
+// DB-backed acceptance tests (they need a live, migrated database) — it is
+// UNRELATED to the framework's integration-EVENTS subsystem (publish/subscribe),
+// which is exercised only by the qa Gadget fixtures under //go:build qa. These
+// files test the business User/UserCustom repositories against a real backend.
 //
 // The harness names no backend. It reads the configured dialect from the
 // service YAML (database.dialect) and the connection string from DATABASE_URL —
@@ -47,7 +53,7 @@ func newTestEngine(t *testing.T) (core.RelationalEngine, func()) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	eng, err := core.NewEngine(configuredDialect(t), ctx, dsn, false)
+	eng, err := core.NewEngine(configuredDialect(t), ctx, core.EngineConfig{DSN: dsn})
 	if err != nil {
 		t.Skipf("cannot build the engine for the configured dialect: %v", err)
 	}
