@@ -162,7 +162,7 @@ if ! $COMPOSE ps --status running --format '{{.Name}}' | grep -q omnicore-exampl
 fi
 
 title "0.1 Build server binary"
-(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap)
+(cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap)
 echo "Binary: $SERVER_BIN"
 
 title "0.2 Reset state (Redis FLUSHDB + log file)"

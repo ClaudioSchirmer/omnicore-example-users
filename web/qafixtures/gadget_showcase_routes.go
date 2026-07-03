@@ -120,7 +120,8 @@ func MountGadgetShowcase(
 			Summary:     "List gadgets (DeleteOnArchive hot-tier view)",
 			Description: "Paged read against the `gadgets_hot` Mongo view, which opts into DeleteOnArchive(): archiving a gadget DROPS it from this collection. Compare with GET /qa/gadgets, where the archived row is kept (hidden unless ?includeArchived=true).",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
 
 	// MaxLimit — list over `gadgets_capped` (MaxLimit 5). ?limit>5 is rejected
 	// with 400 LimitExceededNotification at read time.
@@ -136,7 +137,8 @@ func MountGadgetShowcase(
 			Summary:     "List gadgets (MaxLimit(5) capped view)",
 			Description: "Paged read against the `gadgets_capped` Mongo view, declared with .MaxLimit(5). A ?limit greater than 5 is rejected with 400 LimitExceededNotification (per-view ceiling); the default `gadgets` view keeps the framework default of 100.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
 
 	// RawDoc — list over the default `gadgets` view using the RawDoc projector,
 	// so the raw view document (map[string]any) passes through verbatim instead

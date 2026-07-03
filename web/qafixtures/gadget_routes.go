@@ -52,7 +52,8 @@ func MountGadgets(
 			Summary:     "Create a gadget (Auto path, in-TX lifecycle hooks)",
 			Description: "Creates a gadget via the Auto InsertCommandHandler. The command declares AfterBegin (slot A — journals `before-write` with no id) and BeforeCommit (slot D — journals `after-write` with the generated id). Sending `code:\"POISON\"` makes BeforeCommit return an error, rolling back the whole TX so the gadget row AND both journal rows vanish.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:write"))
 
 	// Manual insert — same lifecycle by hand, hooks attached as closures via
 	// WithAfterBegin/WithBeforeCommit on repo.Scope.
@@ -67,7 +68,8 @@ func MountGadgets(
 			Summary:     "Create a gadget (manual path, closure lifecycle hooks)",
 			Description: "Identical behavior to POST /qa/gadgets, but the handler is hand-rolled and attaches the two hooks as WithAfterBegin/WithBeforeCommit closures on repo.Scope — proving hook invariance across the Auto and manual paths. Same `code:\"POISON\"` forced-rollback case.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:write"))
 
 	// List — the full filter-operator vocabulary.
 	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
@@ -82,7 +84,8 @@ func MountGadgets(
 			Summary:     "List gadgets (paged + full filter vocabulary)",
 			Description: "Paged read against the `gadgets` Mongo view. The four fields spread all 16 filter operators across their leaves (eq,ne,in,nin,gte,lte,gt,lt,startswith,contains,ieq,ine,iin,inin,istartswith,icontains). Unknown keys/operators return 400.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
 
 	// By id.
 	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
@@ -97,7 +100,8 @@ func MountGadgets(
 			Summary:     "Get a gadget by id",
 			Description: "Fetches the gadget document from the `gadgets` Mongo view. Only `?includeArchived=true` is recognized. 404 when absent or filtered out.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
 
 	// Delete — hard delete via the Auto DeleteCommandHandler.
 	deleteH, deleteSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
@@ -111,7 +115,8 @@ func MountGadgets(
 			Summary:     "Hard-delete a gadget",
 			Description: "Irreversible hard delete of the gadget row.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:delete"))
 
 	// Archive / Unarchive — the soft-delete pair, so the DeleteOnArchive view
 	// (gadgets_hot) can be exercised: archive drops the doc there but keeps it
@@ -127,7 +132,8 @@ func MountGadgets(
 			Summary:     "Archive (soft-delete) a gadget",
 			Description: "Soft-deletes the gadget: kept (hidden) in the default gadgets view, DROPPED from the DeleteOnArchive gadgets_hot view.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:archive"))
 
 	unarchiveH, unarchiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
@@ -140,5 +146,6 @@ func MountGadgets(
 			Summary:     "Unarchive a gadget",
 			Description: "Restores a soft-deleted gadget.",
 			Tags:        []string{"QA Gadgets"},
-		})
+		},
+		fwopenapi.RequirePermission("gadgets:archive"))
 }
