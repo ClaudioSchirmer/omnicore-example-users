@@ -144,3 +144,34 @@ type FindGadgetByIDResponse struct {
 	Category string `json:"category" example:"tools"`
 	Status   string `json:"status"   example:"active"`
 }
+
+// ─── Composed by id (root gadget + one-to-one upstream mirror) ───────────────
+
+// FindGadgetComposedByIDResponse is the wire projection of the composed read
+// (GET /qa/gadgets-composed/:id) against the `gadgets_composed` view. It is the
+// flat gadget PLUS the one-to-one `upstreamMirror` embed the composer fills from
+// the `upstream_gadgets` projection. UpstreamMirror is a pointer + omitempty so
+// it elides while the upstream copy has not been materialized yet (the composer
+// omits an unresolved embed); once the ripple recomposes, it carries the
+// allow-listed [id, code, name]. AutoFromDoc keys the nested segment by the Go
+// field name "UpstreamMirror" (the view's .As), so the field name — not the json
+// tag — is the mapping handle.
+type FindGadgetComposedByIDResponse struct {
+	ID             string                      `json:"id"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Code           string                      `json:"code"     example:"WIDGET-001"`
+	Name           string                      `json:"name"     example:"Widget One"`
+	Category       string                      `json:"category" example:"tools"`
+	Status         string                      `json:"status"   example:"active"`
+	UpstreamMirror *GadgetUpstreamMirrorOutput `json:"upstreamMirror,omitempty"`
+}
+
+// GadgetUpstreamMirrorOutput is the nested projection of the `upstream_gadgets`
+// mirror. Only [id, code, name] survive the subscription filter — category and
+// status are intentionally absent, which is the visible proof that the upstream
+// projection is filtered. Field names match the external schema's Go names (ID
+// from PK, Code/Name from the declared fields).
+type GadgetUpstreamMirrorOutput struct {
+	ID   string `json:"id"   example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Code string `json:"code" example:"WIDGET-001"`
+	Name string `json:"name" example:"Widget One"`
+}

@@ -92,6 +92,60 @@ func GadgetCappedView() *query.ViewDefinition {
 		)
 }
 
+// GadgetUpstreamMirrorSchema is the type-less EXTERNAL schema describing the
+// `upstream_gadgets` Mongo collection — the local, filtered projection the
+// UpstreamSubscriber materializes from the service's OWN gadgets CDC topic
+// (declared under upstreamSubscriptions in microservice.qa.yaml, filter
+// [id, code, name]). It carries only the allow-listed columns; there is no Go
+// struct to anchor it (the columns belong to the upstream event), so the leaf
+// names are declared inline. PK("id") is the collection's document key — the
+// UpstreamSubscriber upserts each doc under _id = the gadget's aggregate id, so
+// the composer's one-to-one join (parent gadget.id → source _id) resolves the
+// mirror.
+func GadgetUpstreamMirrorSchema() *fwdb.TableSchema {
+	return fwdb.NewExternalSchema("upstream_gadgets").
+		PK("id").
+		Field("Code", "code").
+		Field("Name", "name")
+}
+
+// GadgetComposedView is a FOURTH projection over the SAME `gadgets` root,
+// landing in the `gadgets_composed` collection. Unlike the other three, it
+// COMPOSES: besides the flat gadget it one-to-one-embeds the `upstream_gadgets`
+// projection under the "UpstreamMirror" segment via an external FromSchema. This
+// is the read surface that closes the upstream-composition loop end to end —
+// without it the materialized `upstream_gadgets` collection is only observable
+// by poking Mongo directly; here it is served through a normal ViewReader
+// endpoint (GET /qa/gadgets-composed/:id).
+//
+// The embed proves the whole ripple pipeline: an `upstream_gadgets` event
+// triggers recompose-ripple on this view (auto-registered via
+// query.DependentMongoViews), so reading the composed doc reflects the current
+// mirror. Because the upstream filter keeps only [id, code, name], the nested
+// mirror deliberately omits category/status — reading it shows exactly what
+// survived the projection filter, next to the full root gadget.
+//
+//   - .On("id") joins the parent gadget's id column to the mirror doc's _id.
+//   - .As("UpstreamMirror") names the Go segment (external sources have no Go
+//     type to derive it from — mandatory).
+//   - query.Index("id") is the §8.1 covering index on the one-to-one join field
+//     (the ripple's FindIDsByField consults it on every upstream event).
+func GadgetComposedView() *query.ViewDefinition {
+	mirror := query.FromSchema(GadgetUpstreamMirrorSchema()).
+		On("id").
+		As("UpstreamMirror")
+	return query.View("gadgets_composed").
+		Version(1).
+		Root("gadgets").
+		Schema(GadgetSchema()).
+		Embed("upstreamMirror", mirror).
+		Indexes(
+			query.Index("id"),
+			query.Index("code"),
+			query.Index("created_at").Desc(),
+		)
+}
+
 // GadgetRepository is the flat aggregate-aware repository for Gadget. It embeds
 // BaseAggregateRepository (the canonical common case): 5 writes + New() +
 // schema-driven FindByID/Scope, satisfying persistence.ScopedRepository.
