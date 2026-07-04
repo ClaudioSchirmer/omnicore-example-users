@@ -201,7 +201,7 @@ stop_server() {
 reset_state() {
   title "Reset: wipe users+addresses+outbox + omnicore_mongo_views ($BACKEND); db.users.deleteMany (Mongo: $QA_MONGO_DB)"
   qa_db_reset_domain
-  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
+  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');"
   qa_mongo_reset
   echo "OK — clean baseline"
   sleep 1
@@ -811,7 +811,7 @@ sec "Phase 12a — DriftAlienData: populated Mongo + NO registry row → abort (
 
 title "Reset to a clean baseline and boot v1 (autoRun=true) to seed a certified view"
 qa_db_reset_domain
-qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');"
 qa_mongo_reset
 start_server_with "$SERVER_BIN" "" || exit 1
 s_alien=$(post_user "Alien Seed" "alien.seed@example.com" "39000004001")
@@ -859,7 +859,7 @@ sec "Phase 12b — DriftForgotToBump: shape changed without a Version() bump →
 
 title "Reset + boot the plain v1 binary to write a v1 registry row"
 qa_db_reset_domain
-qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');"
 qa_mongo_reset
 start_server_with "$SERVER_BIN" "" || exit 1
 fb_version=$(pg_registry_field version)
@@ -911,7 +911,7 @@ sec "Phase 13 — OMNICORE_CODE_VERSION env stamps the registry row"
 
 title "Reset registry + Mongo so the next boot is a true DriftFreshInit"
 qa_db_reset_domain
-qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees');"
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');"
 qa_mongo_reset
 
 title "Start v1 with OMNICORE_CODE_VERSION=qa-test-deploy-abc set"

@@ -6,6 +6,13 @@
 #   ./qa/run.sh postgres     # one backend only
 #   ./qa/run.sh mysql
 #   SUITES="e2e employee" ./qa/run.sh   # subset (space-separated overrides)
+#   ./qa/run.sh --keep-going            # do NOT stop at the first RED suite
+#
+# FAIL-FAST is the default: the matrix stops at the FIRST suite that goes RED
+# (server stopped, remaining runs reported as "never ran", exit 1) so a broken
+# run surfaces in seconds instead of after the whole matrix. Pass --keep-going
+# (or KEEP_GOING=1) to run every scheduled suite regardless of failures — the
+# old exhaustive behavior, useful to size the blast radius of a change.
 #
 # Prerequisites: the bench up (docker compose -f devops/docker-compose.yml up -d)
 # and jq installed. Everything else is handled here: the dual-engine binary is
@@ -32,12 +39,19 @@ set -u
 cd "$(dirname "$0")/.."
 STACK_ROOT="$(cd ../ && pwd)"
 
-BACKENDS="${1:-all}"
+BACKENDS="all"
+KEEP_GOING="${KEEP_GOING:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    all|postgres|mysql) BACKENDS="$arg" ;;
+    --keep-going|-k)    KEEP_GOING=1 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql] [--keep-going]" >&2; exit 2 ;;
+  esac
+done
 case "$BACKENDS" in
   all)      BACKEND_LIST="postgres mysql" ;;
   postgres) BACKEND_LIST="postgres" ;;
   mysql)    BACKEND_LIST="mysql" ;;
-  *) echo "usage: qa/run.sh [all|postgres|mysql]" >&2; exit 2 ;;
 esac
 
 # Server-dependent suites run first (server up), self-managed after (port free).
@@ -134,7 +148,7 @@ summarize() {
   if [ "$rc" = "0" ]; then echo "? 0"; else echo "? ?"; fi
 }
 
-record() { # record <suite> <backend> <log> <rc> <secs>
+record() { # record <suite> <backend> <log> <rc> <secs> — returns 1 on a RED run
   local suite="$1" backend="$2" log="$3" rc="$4" secs="$5" counts p f word verdict
   counts=$(summarize "$log" "$rc")
   p=${counts%% *}; f=${counts##* }
@@ -147,6 +161,18 @@ record() { # record <suite> <backend> <log> <rc> <secs>
   report_row "$suite" "$backend" "$p" "$f" "$word" "$secs"
   printf '%-18s %-9s %6s pass %5s fail   %s  %4ss  %s\n' \
     "$suite" "$backend" "$p" "$f" "$verdict" "$secs" "$log"
+  [ "$word" = "OK" ]
+}
+
+# fail_fast <suite> <backend> — under the fail-fast default, mark the sentinel
+# and tell the caller to stop; under --keep-going, a no-op. The final verdict
+# already reports the un-run suites ("N never ran") and exits 1.
+fail_fast() {
+  [ "$KEEP_GOING" = "1" ] && return 1
+  touch "$LOG_DIR/failfast"
+  printf '%s fail-fast: %s (%s) went RED — stopping here (pass --keep-going to run everything)\n' \
+    "$(red "✗")" "$1" "$2"
+  return 0
 }
 
 # abort_backend leaves a visible RED row when a backend dies before its suites
@@ -253,7 +279,12 @@ for B in $BACKEND_LIST; do
         t0=$(date +%s)
         ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1
         rc=$?
-        record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"
+        if ! record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"; then
+          if fail_fast "$s" "$B"; then
+            kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null
+            exit 1
+          fi
+        fi
       done
       kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null
       port_free || {
@@ -267,10 +298,15 @@ for B in $BACKEND_LIST; do
       t0=$(date +%s)
       ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1
       rc=$?
-      record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"
+      if ! record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"; then
+        fail_fast "$s" "$B" && exit 1
+      fi
       port_free >/dev/null 2>&1 || true
     done
   ) || true   # the abort row already carries the failure into the accounting
+  # Fail-fast sentinel: a suite went RED inside the subshell — stop the whole
+  # matrix (remaining backends included) instead of grinding on.
+  [ -f "$LOG_DIR/failfast" ] && break
 done
 
 # The per-backend subshell appended each row to $ROWS; totals come from there
@@ -298,6 +334,7 @@ if [ "$RED_RUNS" = "0" ] && [ "$MISSING_RUNS" = "0" ] && [ "$COMPLETED_RUNS" != 
 else
   detail="$RED_RUNS red"
   [ "$MISSING_RUNS" != "0" ] && detail="$detail, $MISSING_RUNS never ran"
+  [ -f "$LOG_DIR/failfast" ] && detail="$detail (fail-fast — pass --keep-going for the full sweep)"
   report_final "❌ RED — $detail of $EXPECTED_RUNS scheduled runs. Logs kept: \`$LOG_DIR\`" "$elapsed"
   printf '%s — %s of %s scheduled runs, %ss, report: %s, logs: %s\n' \
     "$(red "RED")" "$detail" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$LOG_DIR"
