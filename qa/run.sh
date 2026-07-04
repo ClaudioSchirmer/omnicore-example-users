@@ -12,7 +12,7 @@
 # built once; the Debezium connector for each backend is (re)registered — the
 # register script itself waits for the outbox table, so a virgin volume works
 # as long as the server boots first (this runner boots it first); the
-# "running already" suites (e2e, employee, graphql, openapi, httpclient) run
+# "running already" suites (e2e, employee, person, graphql, openapi, httpclient) run
 # against a server this script starts and stops per backend; the self-managed
 # suites (audit, cache, authz, schema_evolution, auth) get a free :8080.
 #
@@ -48,7 +48,7 @@ esac
 # they exercise the qa-only Gadget mirror aggregate, invisible to the canonical
 # binary the server suites use. config_validation/migrations/tracing are
 # framework control-plane suites needing no mirror entity.
-SERVER_SUITES="e2e employee graphql openapi httpclient"
+SERVER_SUITES="e2e employee person graphql openapi httpclient"
 SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition integration_events auth"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"

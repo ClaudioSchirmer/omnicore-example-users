@@ -96,5 +96,5 @@ esac
 # Mongo collection wipe used by several suites (dialect-independent, but the DB
 # name differs per backend).
 qa_mongo_reset() {
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.deleteMany({}); db.employees.deleteMany({});" >/dev/null 2>&1
+  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.deleteMany({}); db.employees.deleteMany({}); db.persons.deleteMany({});" >/dev/null 2>&1
 }
