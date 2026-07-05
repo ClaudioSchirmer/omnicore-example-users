@@ -10,10 +10,10 @@
 #
 # Asserts: (1) an upstream event materializes the local projection carrying ONLY
 # the allow-listed fields (filter: [id, code, name]); (1.5) the COMPOSED read view
-# `gadgets_composed` one-to-one-embeds that projection under "upstreamMirror" and
-# serves it over GET /qa/gadgets-composed/:id — proving the composition is
+# `gadgets_embedded` one-to-one-embeds that projection under "upstreamMirror" and
+# serves it over GET /qa/gadgets-embedded/:id — proving the composition is
 # readable through a normal ViewReader endpoint, not just via a direct Mongo
-# query; (2) onUpstreamDelete=cascade removes the local doc (and 404s the composed
+# query; (2) onUpstreamDelete=cascade removes the local doc (and 404s the embedded
 # endpoint) when the upstream entity is deleted; (3) the failure registry stays
 # empty on the happy path and the /admin/retries/upstream drain route responds.
 # Uses the qa binary + microservice.qa.yaml (upstreamSubscriptions).
@@ -40,7 +40,7 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_composed.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
 mongo_up() {  # eval a mongosh expression against the upstream collection
@@ -65,6 +65,11 @@ deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready" || { bad "server not ready"; tail -n 40 "$SERVER_LOG"; exit 1; }
 
+# Prove the CDC pipeline is hot (consumer groups joined, Debezium task live)
+# BEFORE any per-step deadline starts counting; the clean-baseline step below
+# sweeps the sentinel. Non-fatal — see qa/_backend.sh.
+qa_cdc_warmup_gadget
+
 title "0.4 Reset gadgets + upstream_gadgets + gadgets view collection"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
@@ -83,7 +88,7 @@ GID=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get(
 [ -n "$GID" ] && ok "gadget created ($GID)" || { bad "create failed: $RESP"; }
 
 title "1.2 upstream_gadgets materializes the doc (via gadgets.events → UpstreamSubscriber)"
-deadline=$(( $(date +%s) + 40 )); seen=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); seen=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-001'})")
   [ "${c:-0}" -ge 1 ] 2>/dev/null && { seen=ok; break; }
@@ -101,13 +106,13 @@ echo "code=$HASCODE name=$HASNAME category=$HASCAT status=$HASSTATUS"
 [ "$HASCAT" = n ] && [ "$HASSTATUS" = n ] && ok "non-allow-listed category + status filtered OUT (GDPR-style projection)" || bad "filter did not drop category/status"
 
 ##############################################################################
-sec "1.5 Composed read endpoint serves the mirror through a view (not mongosh)"
+sec "1.5 Embedded read endpoint serves the mirror through a view (not mongosh)"
 ##############################################################################
-# gadgets_composed one-to-one-embeds upstream_gadgets under "upstreamMirror".
+# gadgets_embedded one-to-one-embeds upstream_gadgets under "upstreamMirror".
 # Reading it proves the composition end to end: the flat gadget PLUS the nested
 # mirror the ripple recomposed — the read surface that makes the projection
 # consumable over HTTP instead of only via a direct Mongo query.
-GCB="$BASE/qa/gadgets-composed/$GID"
+GCB="$BASE/qa/gadgets-embedded/$GID"
 get_field() {  # $1 = dotted path into the JSON body, $2 = json file
   python3 -c '
 import sys, json
@@ -122,15 +127,15 @@ for k in path.split("."):
 print(cur if cur is not None else "")' "$1" "$2" 2>/dev/null
 }
 
-title "1.5.1 GET /qa/gadgets-composed/:id returns the composed doc with the mirror rippled in"
-deadline=$(( $(date +%s) + 40 )); composed=fail
+title "1.5.1 GET /qa/gadgets-embedded/:id returns the embedded doc with the mirror rippled in"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); embedded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   curl -sS -o /tmp/qa-gc.json "$GCB"
   MC=$(get_field data.upstreamMirror.code /tmp/qa-gc.json)
-  [ "$MC" = "UP-001" ] && { composed=ok; break; }
+  [ "$MC" = "UP-001" ] && { embedded=ok; break; }
   sleep 1
 done
-[ "$composed" = ok ] && ok "composed endpoint serves upstreamMirror.code=UP-001 (ripple recomposed the embed)" || { bad "composed doc never carried the mirror"; cat /tmp/qa-gc.json 2>/dev/null; tail -n 25 "$SERVER_LOG"; }
+[ "$embedded" = ok ] && ok "embedded endpoint serves upstreamMirror.code=UP-001 (ripple recomposed the embed)" || { bad "embedded doc never carried the mirror"; cat /tmp/qa-gc.json 2>/dev/null; tail -n 25 "$SERVER_LOG"; }
 
 title "1.5.2 The nested mirror carries [id, code, name] but NOT the filtered-out category/status"
 MNAME=$(get_field data.upstreamMirror.name /tmp/qa-gc.json)
@@ -151,7 +156,7 @@ sec "2. onUpstreamDelete=cascade removes the local projection"
 ##############################################################################
 title "2.1 DELETE the gadget → gadgets.events DELETED → upstream doc cascades away"
 curl -sS -o /dev/null -X DELETE "$BASE/qa/gadgets/$GID"
-deadline=$(( $(date +%s) + 40 )); gone=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); gone=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-001'})")
   [ "${c:-1}" = "0" ] && { gone=ok; break; }
@@ -159,14 +164,14 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 done
 [ "$gone" = ok ] && ok "upstream projection removed on upstream DELETE (cascade policy)" || bad "upstream doc survived the delete"
 
-title "2.2 The composed read endpoint 404s after the gadget is hard-deleted"
-deadline=$(( $(date +%s) + 40 )); notfound=fail
+title "2.2 The embedded read endpoint 404s after the gadget is hard-deleted"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); notfound=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-composed/$GID")
+  ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-embedded/$GID")
   [ "$ST" = "404" ] && { notfound=ok; break; }
   sleep 1
 done
-[ "$notfound" = ok ] && ok "composed endpoint returns 404 once the root gadget is gone" || bad "composed endpoint still served the deleted gadget (status $ST)"
+[ "$notfound" = ok ] && ok "embedded endpoint returns 404 once the root gadget is gone" || bad "embedded endpoint still served the deleted gadget (status $ST)"
 
 ##############################################################################
 sec "3. Failure registry + admin drain route"
@@ -187,6 +192,6 @@ sec "Cleanup + Summary"
 qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 # DROP the qa collections so the canonical (non-qa) binary's boot registry
 # guard does not later abort on foreign collections it cannot map to a view.
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadgets_composed.drop(); db.$UP_COLL.drop()" >/dev/null 2>&1 || true
+docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_embedded.drop(); db.$UP_COLL.drop()" >/dev/null 2>&1 || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

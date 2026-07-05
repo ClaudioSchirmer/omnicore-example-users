@@ -145,10 +145,10 @@ type FindGadgetByIDResponse struct {
 	Status   string `json:"status"   example:"active"`
 }
 
-// ─── Composed by id (root gadget + one-to-one upstream mirror) ───────────────
+// ─── Embedded by id (root gadget + one-to-one upstream mirror) ───────────────
 
-// FindGadgetComposedByIDResponse is the wire projection of the composed read
-// (GET /qa/gadgets-composed/:id) against the `gadgets_composed` view. It is the
+// FindGadgetEmbeddedByIDResponse is the wire projection of the embedded read
+// (GET /qa/gadgets-embedded/:id) against the `gadgets_embedded` view. It is the
 // flat gadget PLUS the one-to-one `upstreamMirror` embed the composer fills from
 // the `upstream_gadgets` projection. UpstreamMirror is a pointer + omitempty so
 // it elides while the upstream copy has not been materialized yet (the composer
@@ -156,7 +156,7 @@ type FindGadgetByIDResponse struct {
 // allow-listed [id, code, name]. AutoFromDoc keys the nested segment by the Go
 // field name "UpstreamMirror" (the view's .As), so the field name — not the json
 // tag — is the mapping handle.
-type FindGadgetComposedByIDResponse struct {
+type FindGadgetEmbeddedByIDResponse struct {
 	ID             string                      `json:"id"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Code           string                      `json:"code"     example:"WIDGET-001"`
 	Name           string                      `json:"name"     example:"Widget One"`

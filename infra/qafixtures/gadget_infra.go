@@ -109,32 +109,32 @@ func GadgetUpstreamMirrorSchema() *fwdb.TableSchema {
 		Field("Name", "name")
 }
 
-// GadgetComposedView is a FOURTH projection over the SAME `gadgets` root,
-// landing in the `gadgets_composed` collection. Unlike the other three, it
+// GadgetEmbeddedView is a FOURTH projection over the SAME `gadgets` root,
+// landing in the `gadgets_embedded` collection. Unlike the other three, it
 // COMPOSES: besides the flat gadget it one-to-one-embeds the `upstream_gadgets`
 // projection under the "UpstreamMirror" segment via an external FromSchema. This
 // is the read surface that closes the upstream-composition loop end to end —
 // without it the materialized `upstream_gadgets` collection is only observable
 // by poking Mongo directly; here it is served through a normal ViewReader
-// endpoint (GET /qa/gadgets-composed/:id).
+// endpoint (GET /qa/gadgets-embedded/:id).
 //
 // The embed proves the whole ripple pipeline: an `upstream_gadgets` event
 // triggers recompose-ripple on this view (auto-registered via
-// query.DependentMongoViews), so reading the composed doc reflects the current
+// query.DependentMongoViews), so reading the embedded doc reflects the current
 // mirror. Because the upstream filter keeps only [id, code, name], the nested
 // mirror deliberately omits category/status — reading it shows exactly what
 // survived the projection filter, next to the full root gadget.
 //
-//   - .On("id") joins the parent gadget's id column to the mirror doc's _id.
+//   - .FK("id") joins the parent gadget's id column to the mirror doc's _id.
 //   - .As("UpstreamMirror") names the Go segment (external sources have no Go
 //     type to derive it from — mandatory).
 //   - query.Index("id") is the §8.1 covering index on the one-to-one join field
 //     (the ripple's FindIDsByField consults it on every upstream event).
-func GadgetComposedView() *query.ViewDefinition {
+func GadgetEmbeddedView() *query.ViewDefinition {
 	mirror := query.FromSchema(GadgetUpstreamMirrorSchema()).
-		On("id").
+		FK("id").
 		As("UpstreamMirror")
-	return query.View("gadgets_composed").
+	return query.View("gadgets_embedded").
 		Version(1).
 		Root("gadgets").
 		Schema(GadgetSchema()).

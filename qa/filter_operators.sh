@@ -34,7 +34,7 @@ kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   kill_port 8080
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
+  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -85,6 +85,11 @@ deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready (PID=$SERVER_PID)" || { bad "server not ready"; tail -n 30 "$SERVER_LOG"; exit 1; }
 
+# Prove the CDC pipeline is hot (consumer groups joined, Debezium task live)
+# BEFORE any per-step deadline starts counting; the clean-baseline step below
+# sweeps the sentinel. Non-fatal — see qa/_backend.sh.
+qa_cdc_warmup_gadget
+
 title "0.4 Reset + seed four ordered fixtures + wait for CDC"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
@@ -100,7 +105,7 @@ seed_g "GADGET-03" "Charlie Three" "cat-b" "active"
 seed_g "GADGET-04" "Delta Four"    "cat-c" "retired"
 # 60s tolerates the SyncEngine consumer-group rebalance after a long matrix of
 # prior server boots.
-deadline=$(( $(date +%s) + 60 )); seeded=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(curl -sS "$BASE/qa/gadgets?code.startswith=GADGET" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("data",[])))' 2>/dev/null)
   [ "${c:-0}" = "4" ] && { seeded=ok; break; }

@@ -48,7 +48,7 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
 # Create-if-absent only: a config PUT restarts the Debezium task (re-snapshot +
@@ -98,7 +98,7 @@ if register_qa_connector; then ok "qa-integration connector registered"; else ba
 # needs a moment to re-snapshot + resume streaming, and an event produced during
 # that window would be missed by the consumer.
 QA_CONN_NAME=$(jq -r '.name' "$QA_CONNECTOR")
-deadline=$(( $(date +%s) + 30 )); crun=fail
+deadline=$(( $(date +%s) + 90 )); crun=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   st=$(curl -sf "$CONNECT_URL/connectors/$QA_CONN_NAME/status" 2>/dev/null \
     | python3 -c 'import sys,json
@@ -146,7 +146,7 @@ title "2.1 gadget_events_sink records the consumed event"
 # single gadget) — robust across engines regardless of how the gadget_id column
 # is physically typed (UUID on postgres vs BINARY(16) on mysql, which a string
 # WHERE comparison would miss).
-deadline=$(( $(date +%s) + 60 )); sunk=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); sunk=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(qa_db_query "SELECT count(*) FROM gadget_events_sink;" 2>/dev/null | tr -d ' ')
   [ "${c:-0}" = "1" ] && { sunk=ok; break; }
@@ -193,6 +193,6 @@ qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM integration_events;" 2>/dev/null || true
 # DROP the qa collection so a later non-qa suite's boot registry guard does not
 # abort on a foreign collection.
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop()' >/dev/null 2>&1 || true
+docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop()' >/dev/null 2>&1 || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

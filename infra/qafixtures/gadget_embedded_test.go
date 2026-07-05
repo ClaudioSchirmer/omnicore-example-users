@@ -8,16 +8,16 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 )
 
-// These tests lock the declarative artifacts of the composed gadget view — the
+// These tests lock the declarative artifacts of the embedded gadget view — the
 // read surface that turns the upstream_gadgets projection into something served
 // through a ViewReader endpoint instead of Mongo-only. The boot-side IO
 // (createCollection / ripple round-trips) is covered by qa/upstream_composition.sh
 // once docker-compose is up; the declaration is what stays locked here.
 
-func TestGadgetComposedView_ShapeAndEmbed(t *testing.T) {
-	v := GadgetComposedView()
-	if v.Name() != "gadgets_composed" {
-		t.Errorf("Name = %q, want %q", v.Name(), "gadgets_composed")
+func TestGadgetEmbeddedView_ShapeAndEmbed(t *testing.T) {
+	v := GadgetEmbeddedView()
+	if v.Name() != "gadgets_embedded" {
+		t.Errorf("Name = %q, want %q", v.Name(), "gadgets_embedded")
 	}
 	if v.RootTable() != "gadgets" {
 		t.Errorf("RootTable = %q, want %q", v.RootTable(), "gadgets")
@@ -46,11 +46,11 @@ func TestGadgetComposedView_ShapeAndEmbed(t *testing.T) {
 	}
 }
 
-// TestGadgetComposedView_CoversJoinFieldIndex mirrors the §8.1 boot guard: an
+// TestGadgetEmbeddedView_CoversJoinFieldIndex mirrors the §8.1 boot guard: an
 // external Mongo embed must have a covering index whose FIRST key is the join
 // field. Without query.Index("id") the framework would abort boot.
-func TestGadgetComposedView_CoversJoinFieldIndex(t *testing.T) {
-	v := GadgetComposedView()
+func TestGadgetEmbeddedView_CoversJoinFieldIndex(t *testing.T) {
+	v := GadgetEmbeddedView()
 	for _, idx := range v.IndexSpecs() {
 		keys := idx.KeyNames()
 		if len(keys) > 0 && keys[0] == "id" {
@@ -60,11 +60,11 @@ func TestGadgetComposedView_CoversJoinFieldIndex(t *testing.T) {
 	t.Error(`no covering index whose first key is the join field "id" — §8.1 boot guard would reject the view`)
 }
 
-// TestGadgetComposedView_SchemasValidate runs the same completeness check the
+// TestGadgetEmbeddedView_SchemasValidate runs the same completeness check the
 // framework runs at boot: root schema + every embed declares a TableSchema, PK,
 // join key, and (for external embeds) a Go segment via .As.
-func TestGadgetComposedView_SchemasValidate(t *testing.T) {
-	if err := query.ValidateViewSchemas([]*query.ViewDefinition{GadgetComposedView()}); err != nil {
+func TestGadgetEmbeddedView_SchemasValidate(t *testing.T) {
+	if err := query.ValidateViewSchemas([]*query.ViewDefinition{GadgetEmbeddedView()}); err != nil {
 		t.Fatalf("ValidateViewSchemas: %v", err)
 	}
 }

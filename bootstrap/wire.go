@@ -21,6 +21,7 @@ import (
 func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	users := NewUsersFeature(d)
 	employees := NewEmployeesFeature(d)
+	persons := NewPersonsFeature(d)
 
 	// GraphQL is ONE surface (POST /graphql) backed by ONE registry, created
 	// here like the OpenAPI registry. Registration is cumulative: each feature
@@ -29,6 +30,10 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	gql := fwgraphql.New(d.Pipeline)
 	users.MountGraphQL(gql, d)
 	employees.MountGraphQL(gql, d)
+	persons.MountGraphQL(gql, d)
+	// QA-only GraphQL fields (no-op in the canonical build) — the same
+	// build-tag seam qaFeatures uses, applied to the shared registry.
+	qaMountGraphQL(gql, d)
 
 	return bootstrap.Wiring{
 		Translations: []translation.Module{
@@ -42,6 +47,7 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 		Features: append([]bootstrap.Feature{
 			users,
 			employees,
+			persons,
 			NewUserCustomFeature(d),
 			NewAuditFeature(),
 		}, qaFeatures(d)...),

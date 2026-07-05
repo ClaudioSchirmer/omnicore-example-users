@@ -6,13 +6,20 @@
 #   ./qa/run.sh postgres     # one backend only
 #   ./qa/run.sh mysql
 #   SUITES="e2e employee" ./qa/run.sh   # subset (space-separated overrides)
+#   ./qa/run.sh --keep-going            # do NOT stop at the first RED suite
+#
+# FAIL-FAST is the default: the matrix stops at the FIRST suite that goes RED
+# (server stopped, remaining runs reported as "never ran", exit 1) so a broken
+# run surfaces in seconds instead of after the whole matrix. Pass --keep-going
+# (or KEEP_GOING=1) to run every scheduled suite regardless of failures — the
+# old exhaustive behavior, useful to size the blast radius of a change.
 #
 # Prerequisites: the bench up (docker compose -f devops/docker-compose.yml up -d)
 # and jq installed. Everything else is handled here: the dual-engine binary is
 # built once; the Debezium connector for each backend is (re)registered — the
 # register script itself waits for the outbox table, so a virgin volume works
 # as long as the server boots first (this runner boots it first); the
-# "running already" suites (e2e, employee, graphql, openapi, httpclient) run
+# "running already" suites (e2e, employee, person, graphql, openapi, httpclient) run
 # against a server this script starts and stops per backend; the self-managed
 # suites (audit, cache, authz, schema_evolution, auth) get a free :8080.
 #
@@ -32,24 +39,32 @@ set -u
 cd "$(dirname "$0")/.."
 STACK_ROOT="$(cd ../ && pwd)"
 
-BACKENDS="${1:-all}"
+BACKENDS="all"
+KEEP_GOING="${KEEP_GOING:-0}"
+for arg in "$@"; do
+  case "$arg" in
+    all|postgres|mysql) BACKENDS="$arg" ;;
+    --keep-going|-k)    KEEP_GOING=1 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql] [--keep-going]" >&2; exit 2 ;;
+  esac
+done
 case "$BACKENDS" in
   all)      BACKEND_LIST="postgres mysql" ;;
   postgres) BACKEND_LIST="postgres" ;;
   mysql)    BACKEND_LIST="mysql" ;;
-  *) echo "usage: qa/run.sh [all|postgres|mysql]" >&2; exit 2 ;;
 esac
 
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 # The Gadget-mirror suites (lifecycle_hooks, filter_operators, view_options,
-# status_mapping, httpclient_middleware, upstream_composition, integration_events)
+# status_mapping, httpclient_middleware, upstream_composition, composed_view,
+# integration_events)
 # build their OWN `-tags '<engine> qa'` binary and boot microservice.qa.yaml —
 # they exercise the qa-only Gadget mirror aggregate, invisible to the canonical
 # binary the server suites use. config_validation/migrations/tracing are
 # framework control-plane suites needing no mirror entity.
-SERVER_SUITES="e2e employee graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition integration_events auth"
+SERVER_SUITES="e2e employee person graphql openapi httpclient"
+SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition composed_view integration_events auth"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -134,7 +149,7 @@ summarize() {
   if [ "$rc" = "0" ]; then echo "? 0"; else echo "? ?"; fi
 }
 
-record() { # record <suite> <backend> <log> <rc> <secs>
+record() { # record <suite> <backend> <log> <rc> <secs> — returns 1 on a RED run
   local suite="$1" backend="$2" log="$3" rc="$4" secs="$5" counts p f word verdict
   counts=$(summarize "$log" "$rc")
   p=${counts%% *}; f=${counts##* }
@@ -147,6 +162,18 @@ record() { # record <suite> <backend> <log> <rc> <secs>
   report_row "$suite" "$backend" "$p" "$f" "$word" "$secs"
   printf '%-18s %-9s %6s pass %5s fail   %s  %4ss  %s\n' \
     "$suite" "$backend" "$p" "$f" "$verdict" "$secs" "$log"
+  [ "$word" = "OK" ]
+}
+
+# fail_fast <suite> <backend> — under the fail-fast default, mark the sentinel
+# and tell the caller to stop; under --keep-going, a no-op. The final verdict
+# already reports the un-run suites ("N never ran") and exits 1.
+fail_fast() {
+  [ "$KEEP_GOING" = "1" ] && return 1
+  touch "$LOG_DIR/failfast"
+  printf '%s fail-fast: %s (%s) went RED — stopping here (pass --keep-going to run everything)\n' \
+    "$(red "✗")" "$1" "$2"
+  return 0
 }
 
 # abort_backend leaves a visible RED row when a backend dies before its suites
@@ -197,6 +224,36 @@ wait_connector_running() { # wait_connector_running <postgres|mysql>
   done
 }
 
+# cdc_warmup proves the WHOLE pipeline (outbox → Debezium → Kafka → SyncEngine
+# consumer joined → Mongo) is hot before the first CDC-dependent server suite
+# starts asserting under its own deadlines: connector RUNNING is necessary but
+# not sufficient — the SyncEngine's consumer-group join (which can block tens
+# of seconds on a rebalance after back-to-back boots) happens after it. Creates
+# a sentinel user, waits for the users view to carry it, hard-deletes it.
+# Non-fatal: a cold pipeline downgrades to a WARNING and the suites' own waits
+# still apply.
+cdc_warmup() {
+  local doc id deadline c t0
+  doc="9$(date +%s)"
+  t0=$(date +%s)
+  id=$(curl -sS -X POST http://localhost:8080/users -H "Content-Type: application/json" \
+    --data "{\"name\":\"QA Warmup Sentinel\",\"email\":\"warmup-$doc@qa.local\",\"phone\":\"14155550100\",\"document\":\"$doc\",\"userName\":\"warmup$doc\",\"emailNotification\":false,\"smsNotification\":false}" \
+    | jq -r '.data.id // .data // empty' 2>/dev/null)
+  deadline=$(( $(date +%s) + 120 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    c=$(docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet \
+      --eval "db.users.countDocuments({document:'$doc'})" 2>/dev/null | tail -1 | tr -d ' ')
+    [ "${c:-0}" -ge 1 ] 2>/dev/null && break
+    sleep 1
+  done
+  if [ "${c:-0}" -ge 1 ] 2>/dev/null; then
+    bold "cdc warmup: pipeline hot in $(( $(date +%s) - t0 ))s"
+  else
+    echo "WARNING: cdc warmup sentinel never landed in Mongo after 120s — CDC suites may flake" >&2
+  fi
+  [ -n "$id" ] && curl -sS -o /dev/null -X DELETE "http://localhost:8080/users/$id" 2>/dev/null || true
+}
+
 bold "qa/run.sh — suites: $SUITES"
 bold "backends: $BACKEND_LIST   logs: $LOG_DIR"
 bold "report:   $REPORT_MD"
@@ -226,6 +283,18 @@ for B in $BACKEND_LIST; do
 
     pkill -f "$SRV_BIN" 2>/dev/null; sleep 1
 
+    # Preflight: drop the qa-only gadget collections from this backend's view
+    # DB. They are created by the gadget CDC suites and cleaned by their own
+    # traps — but a suite that crashes (or a manual boot of the qa binary)
+    # before its trap runs leaves them behind. Under a prd/prd-authz profile
+    # (audit, authz) the DB-per-service registry guard then finds an orphan
+    # collection no view declares and ABORTS boot — a green run must not depend
+    # on the Mongo being pristine from a prior session. Dropping them here is
+    # safe: the gadget suites re-materialize them via CDC when they run.
+    docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+      "['gadgets','gadgets_hot','gadgets_capped','gadgets_embedded','gadget_notes','upstream_gadgets'].forEach(c => db[c].drop())" \
+      >/dev/null 2>&1 || true
+
     run_server_suites=""
     run_self_suites=""
     for s in $SUITES; do
@@ -248,12 +317,17 @@ for B in $BACKEND_LIST; do
         || echo "WARNING: connector registration failed for $B (see $LOG_DIR/connector-$B.log)" >&2
       wait_connector_running "$B" \
         || echo "WARNING: connector for $B not RUNNING after 90s — CDC suites may flake" >&2
-      sleep 3
+      cdc_warmup
       for s in $run_server_suites; do
         t0=$(date +%s)
         ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1
         rc=$?
-        record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"
+        if ! record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"; then
+          if fail_fast "$s" "$B"; then
+            kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null
+            exit 1
+          fi
+        fi
       done
       kill "$SRV_PID" 2>/dev/null; wait "$SRV_PID" 2>/dev/null
       port_free || {
@@ -267,10 +341,15 @@ for B in $BACKEND_LIST; do
       t0=$(date +%s)
       ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1
       rc=$?
-      record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"
+      if ! record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))"; then
+        fail_fast "$s" "$B" && exit 1
+      fi
       port_free >/dev/null 2>&1 || true
     done
   ) || true   # the abort row already carries the failure into the accounting
+  # Fail-fast sentinel: a suite went RED inside the subshell — stop the whole
+  # matrix (remaining backends included) instead of grinding on.
+  [ -f "$LOG_DIR/failfast" ] && break
 done
 
 # The per-backend subshell appended each row to $ROWS; totals come from there
@@ -298,6 +377,7 @@ if [ "$RED_RUNS" = "0" ] && [ "$MISSING_RUNS" = "0" ] && [ "$COMPLETED_RUNS" != 
 else
   detail="$RED_RUNS red"
   [ "$MISSING_RUNS" != "0" ] && detail="$detail, $MISSING_RUNS never ran"
+  [ -f "$LOG_DIR/failfast" ] && detail="$detail (fail-fast — pass --keep-going for the full sweep)"
   report_final "❌ RED — $detail of $EXPECTED_RUNS scheduled runs. Logs kept: \`$LOG_DIR\`" "$elapsed"
   printf '%s — %s of %s scheduled runs, %ss, report: %s, logs: %s\n' \
     "$(red "RED")" "$detail" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$LOG_DIR"
