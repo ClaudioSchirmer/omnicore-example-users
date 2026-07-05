@@ -31,6 +31,9 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	users.MountGraphQL(gql, d)
 	employees.MountGraphQL(gql, d)
 	persons.MountGraphQL(gql, d)
+	// QA-only GraphQL fields (no-op in the canonical build) — the same
+	// build-tag seam qaFeatures uses, applied to the shared registry.
+	qaMountGraphQL(gql, d)
 
 	return bootstrap.Wiring{
 		Translations: []translation.Module{

@@ -27,17 +27,27 @@ type GadgetFeature struct {
 	view       *query.ViewDefinition
 	hotView    *query.ViewDefinition
 	cappedView *query.ViewDefinition
-	// composedView is nil unless the loaded config declares the
+	// embeddedView is nil unless the loaded config declares the
 	// `upstream_gadgets` subscription (only microservice.qa.yaml does). It embeds
 	// that upstream projection, and the §8.3 boot guard requires a matching
 	// UpstreamSubscription — so contributing it under the prd configs the
 	// auth/audit/authz suites boot (which carry no upstreamSubscriptions block)
 	// would abort boot. Gated the same way MountReceivers gates `self_gadgets`.
-	composedView *query.ViewDefinition
-	journal      infraqa.GadgetJournalAdapter
-	publisher    infraqa.GadgetEventPublisherAdapter
-	sink         *infraqa.GadgetEventSinkAdapter
-	httpShow     *infraqa.QaHttpShowcase
+	embeddedView *query.ViewDefinition
+	// notesView is the GadgetNote's own projection — a regular view that also
+	// serves as the 1:N leg of the composed read. Always contributed.
+	notesView *query.ViewDefinition
+	noteRepo  *infraqa.GadgetNoteRepository
+	// fullView is the READ-TIME composition showcase (`gadgets_full`). Nil
+	// unless the config declares the `upstream_gadgets` subscription: its 1:1
+	// external leg must resolve to a locally materialized collection (R14), so
+	// contributing it under the prd configs would abort boot — the same gating
+	// embeddedView uses.
+	fullView  *query.ComposedViewDefinition
+	journal   infraqa.GadgetJournalAdapter
+	publisher infraqa.GadgetEventPublisherAdapter
+	sink      *infraqa.GadgetEventSinkAdapter
+	httpShow  *infraqa.QaHttpShowcase
 }
 
 // NewGadgetFeature is constructed inside Wire(deps), which bootstrap.Run calls
@@ -51,28 +61,35 @@ func NewGadgetFeature(d bootstrap.Deps) *GadgetFeature {
 	if err := infraqa.ProvisionGadgetTables(context.Background(), d.DB); err != nil {
 		panic("GadgetFeature: provisioning QA tables failed: " + err.Error())
 	}
+	if err := infraqa.ProvisionGadgetNoteTable(context.Background(), d.DB); err != nil {
+		panic("GadgetFeature: provisioning gadget_notes failed: " + err.Error())
+	}
 	f := &GadgetFeature{
 		repo:       infraqa.NewGadgetRepository(d.DB),
 		view:       infraqa.GadgetView(),
 		hotView:    infraqa.GadgetHotView(),
 		cappedView: infraqa.GadgetCappedView(),
+		notesView:  infraqa.GadgetNotesView(),
+		noteRepo:   infraqa.NewGadgetNoteRepository(d.DB),
 		journal:    infraqa.GadgetJournalAdapter{},
 		publisher:  infraqa.GadgetEventPublisherAdapter{},
 		sink:       infraqa.NewGadgetEventSinkAdapter(d.DB),
 		httpShow:   infraqa.NewQaHttpShowcase(d.HttpClient),
 	}
-	// The composed view is only bootable when its embedded `upstream_gadgets`
+	// The embedded view is only bootable when its embedded `upstream_gadgets`
 	// projection has a declared subscription (microservice.qa.yaml). Under the
 	// prd configs the other suites use, leave it nil so Views()/Mount skip it.
+	// The composed view carries the same external leg, so it gates identically.
 	if declaresUpstreamCollection(d, "upstream_gadgets") {
-		f.composedView = infraqa.GadgetComposedView()
+		f.embeddedView = infraqa.GadgetEmbeddedView()
+		f.fullView = infraqa.GadgetFullView()
 	}
 	return f
 }
 
 // declaresUpstreamCollection reports whether the loaded config declares an
 // upstream subscription materializing the named Mongo collection. Used to gate
-// the composed view (and its route) so the qa binary stays bootable under the
+// the embedded view (and its route) so the qa binary stays bootable under the
 // prd profiles that carry no upstreamSubscriptions block.
 func declaresUpstreamCollection(d bootstrap.Deps, collection string) bool {
 	if d.Config == nil {
@@ -92,13 +109,25 @@ func declaresUpstreamCollection(d bootstrap.Deps, collection string) bool {
 // (MaxLimit 5). All three are materialized by the SyncEngine on every gadgets
 // change.
 func (f *GadgetFeature) Views() []*query.ViewDefinition {
-	views := []*query.ViewDefinition{f.view, f.hotView, f.cappedView}
-	// gadgets_composed embeds the upstream_gadgets projection; contributed only
+	views := []*query.ViewDefinition{f.view, f.hotView, f.cappedView, f.notesView}
+	// gadgets_embedded embeds the upstream_gadgets projection; contributed only
 	// when the config declares that subscription (see NewGadgetFeature).
-	if f.composedView != nil {
-		views = append(views, f.composedView)
+	if f.embeddedView != nil {
+		views = append(views, f.embeddedView)
 	}
 	return views
+}
+
+// ComposedViews satisfies bootstrap.ComposingFeature: the read-time composed
+// showcase (`gadgets_full`). Unlike Views(), nothing here reaches the
+// SyncEngine — a composed view has no collection, no Version, no recompose;
+// the framework only validates it and wires the composed decorator over the
+// ViewReader. Nil (skipped) under configs without the upstream subscription.
+func (f *GadgetFeature) ComposedViews() []*query.ComposedViewDefinition {
+	if f.fullView == nil {
+		return nil
+	}
+	return []*query.ComposedViewDefinition{f.fullView}
 }
 
 // Mount injects the journal + publisher ports for the Auto command hooks and
@@ -110,10 +139,16 @@ func (f *GadgetFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	appqa.UsePublisher(f.publisher)
 	webqa.MountGadgets(app, f.repo, f.journal, f.publisher, f.view.Name(), d)
 	webqa.MountGadgetShowcase(app, f.hotView.Name(), f.cappedView.Name(), f.view.Name(), d)
-	// Composed read surface (/qa/gadgets-composed/:id) — mounted only when the
-	// composed view exists (i.e. the upstream_gadgets subscription is declared).
-	if f.composedView != nil {
-		webqa.MountGadgetComposed(app, f.composedView.Name(), d)
+	// Embedded read surface (/qa/gadgets-embedded/:id) — mounted only when the
+	// embedded view exists (i.e. the upstream_gadgets subscription is declared).
+	if f.embeddedView != nil {
+		webqa.MountGadgetEmbedded(app, f.embeddedView.Name(), d)
+	}
+	// GadgetNote surface (create/archive + the leg view's own list) — always.
+	webqa.MountGadgetNotes(app, f.noteRepo, f.notesView.Name(), d)
+	// Composed read surface (/qa/gadgets-full/*) — gated with the composed view.
+	if f.fullView != nil {
+		webqa.MountGadgetsFull(app, f.fullView, d)
 	}
 	// Outbound httpclient-advanced showcase: the /qa/echo/* upstream + the
 	// /qa/showcase/httpclient/* consumer routes driving the QaHttpShowcase

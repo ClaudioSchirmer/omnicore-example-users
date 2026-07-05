@@ -57,13 +57,14 @@ esac
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 # The Gadget-mirror suites (lifecycle_hooks, filter_operators, view_options,
-# status_mapping, httpclient_middleware, upstream_composition, integration_events)
+# status_mapping, httpclient_middleware, upstream_composition, composed_view,
+# integration_events)
 # build their OWN `-tags '<engine> qa'` binary and boot microservice.qa.yaml —
 # they exercise the qa-only Gadget mirror aggregate, invisible to the canonical
 # binary the server suites use. config_validation/migrations/tracing are
 # framework control-plane suites needing no mirror entity.
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition integration_events auth"
+SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition composed_view integration_events auth"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
