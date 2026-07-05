@@ -64,7 +64,7 @@ esac
 # binary the server suites use. config_validation/migrations/tracing are
 # framework control-plane suites needing no mirror entity.
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition composed_view integration_events auth"
+SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition composed_view external_embed integration_events auth"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -283,16 +283,18 @@ for B in $BACKEND_LIST; do
 
     pkill -f "$SRV_BIN" 2>/dev/null; sleep 1
 
-    # Preflight: drop the qa-only gadget collections from this backend's view
-    # DB. They are created by the gadget CDC suites and cleaned by their own
-    # traps — but a suite that crashes (or a manual boot of the qa binary)
-    # before its trap runs leaves them behind. Under a prd/prd-authz profile
-    # (audit, authz) the DB-per-service registry guard then finds an orphan
-    # collection no view declares and ABORTS boot — a green run must not depend
-    # on the Mongo being pristine from a prior session. Dropping them here is
-    # safe: the gadget suites re-materialize them via CDC when they run.
+    # Preflight: drop the qa-only view collections (gadget mirror + the
+    # embed-showcase views qa_accounts_view/qa_catalog_view + their upstream_items
+    # projection) from this backend's view DB. They are created at qa-binary boot
+    # (view registration) by the CDC suites and cleaned by their own traps — but a
+    # suite that crashes (or a manual boot of the qa binary) before its trap runs
+    # leaves them behind. Under a prd/prd-authz profile (audit, authz, auth) the
+    # DB-per-service registry guard then finds an orphan collection no view
+    # declares and ABORTS boot — a green run must not depend on the Mongo being
+    # pristine from a prior session. Dropping them here is safe: the suites
+    # re-materialize them when they run.
     docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
-      "['gadgets','gadgets_hot','gadgets_capped','gadgets_embedded','gadget_notes','upstream_gadgets'].forEach(c => db[c].drop())" \
+      "['gadgets','gadgets_hot','gadgets_capped','gadgets_embedded','gadget_notes','upstream_gadgets','qa_accounts_view','qa_catalog_view','upstream_items'].forEach(c => db[c].drop())" \
       >/dev/null 2>&1 || true
 
     run_server_suites=""
