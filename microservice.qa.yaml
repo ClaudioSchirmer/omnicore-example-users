@@ -336,3 +336,16 @@ upstreamSubscriptions:
     filter: [id, code, name]
     startFrom: earliest
     onUpstreamDelete: cascade
+  # QA-only shared-base embed showcase — the service subscribes to its OWN
+  # qa_items CDC topic (qa_items.events, routed by the outbox EventRouter on
+  # aggregate_type=qa_items) and materializes a filtered `upstream_items`
+  # projection. That collection is the EXTERNAL source the `qa_accounts_view`
+  # SharedBaseView embeds both 1:1 (Embed "featuredItem") and 1:N (EmbedMany
+  # "items") — proving external embeds compose on a shared-base root end to end.
+  - topic: qa_items.events
+    collection: upstream_items
+    consumerGroup: omnicore-example-users-upstream-items
+    workers: 1
+    filter: [id, account_id, catalog_id, label]
+    startFrom: earliest
+    onUpstreamDelete: cascade
