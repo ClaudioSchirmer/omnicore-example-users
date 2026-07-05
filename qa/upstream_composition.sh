@@ -65,6 +65,11 @@ deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready" || { bad "server not ready"; tail -n 40 "$SERVER_LOG"; exit 1; }
 
+# Prove the CDC pipeline is hot (consumer groups joined, Debezium task live)
+# BEFORE any per-step deadline starts counting; the clean-baseline step below
+# sweeps the sentinel. Non-fatal — see qa/_backend.sh.
+qa_cdc_warmup_gadget
+
 title "0.4 Reset gadgets + upstream_gadgets + gadgets view collection"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
@@ -83,7 +88,7 @@ GID=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get(
 [ -n "$GID" ] && ok "gadget created ($GID)" || { bad "create failed: $RESP"; }
 
 title "1.2 upstream_gadgets materializes the doc (via gadgets.events → UpstreamSubscriber)"
-deadline=$(( $(date +%s) + 40 )); seen=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); seen=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-001'})")
   [ "${c:-0}" -ge 1 ] 2>/dev/null && { seen=ok; break; }
@@ -123,7 +128,7 @@ print(cur if cur is not None else "")' "$1" "$2" 2>/dev/null
 }
 
 title "1.5.1 GET /qa/gadgets-embedded/:id returns the embedded doc with the mirror rippled in"
-deadline=$(( $(date +%s) + 40 )); embedded=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); embedded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   curl -sS -o /tmp/qa-gc.json "$GCB"
   MC=$(get_field data.upstreamMirror.code /tmp/qa-gc.json)
@@ -151,7 +156,7 @@ sec "2. onUpstreamDelete=cascade removes the local projection"
 ##############################################################################
 title "2.1 DELETE the gadget → gadgets.events DELETED → upstream doc cascades away"
 curl -sS -o /dev/null -X DELETE "$BASE/qa/gadgets/$GID"
-deadline=$(( $(date +%s) + 40 )); gone=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); gone=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-001'})")
   [ "${c:-1}" = "0" ] && { gone=ok; break; }
@@ -160,7 +165,7 @@ done
 [ "$gone" = ok ] && ok "upstream projection removed on upstream DELETE (cascade policy)" || bad "upstream doc survived the delete"
 
 title "2.2 The embedded read endpoint 404s after the gadget is hard-deleted"
-deadline=$(( $(date +%s) + 40 )); notfound=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); notfound=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-embedded/$GID")
   [ "$ST" = "404" ] && { notfound=ok; break; }

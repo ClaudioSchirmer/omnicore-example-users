@@ -224,6 +224,36 @@ wait_connector_running() { # wait_connector_running <postgres|mysql>
   done
 }
 
+# cdc_warmup proves the WHOLE pipeline (outbox → Debezium → Kafka → SyncEngine
+# consumer joined → Mongo) is hot before the first CDC-dependent server suite
+# starts asserting under its own deadlines: connector RUNNING is necessary but
+# not sufficient — the SyncEngine's consumer-group join (which can block tens
+# of seconds on a rebalance after back-to-back boots) happens after it. Creates
+# a sentinel user, waits for the users view to carry it, hard-deletes it.
+# Non-fatal: a cold pipeline downgrades to a WARNING and the suites' own waits
+# still apply.
+cdc_warmup() {
+  local doc id deadline c t0
+  doc="9$(date +%s)"
+  t0=$(date +%s)
+  id=$(curl -sS -X POST http://localhost:8080/users -H "Content-Type: application/json" \
+    --data "{\"name\":\"QA Warmup Sentinel\",\"email\":\"warmup-$doc@qa.local\",\"phone\":\"14155550100\",\"document\":\"$doc\",\"userName\":\"warmup$doc\",\"emailNotification\":false,\"smsNotification\":false}" \
+    | jq -r '.data.id // .data // empty' 2>/dev/null)
+  deadline=$(( $(date +%s) + 120 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    c=$(docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet \
+      --eval "db.users.countDocuments({document:'$doc'})" 2>/dev/null | tail -1 | tr -d ' ')
+    [ "${c:-0}" -ge 1 ] 2>/dev/null && break
+    sleep 1
+  done
+  if [ "${c:-0}" -ge 1 ] 2>/dev/null; then
+    bold "cdc warmup: pipeline hot in $(( $(date +%s) - t0 ))s"
+  else
+    echo "WARNING: cdc warmup sentinel never landed in Mongo after 120s — CDC suites may flake" >&2
+  fi
+  [ -n "$id" ] && curl -sS -o /dev/null -X DELETE "http://localhost:8080/users/$id" 2>/dev/null || true
+}
+
 bold "qa/run.sh — suites: $SUITES"
 bold "backends: $BACKEND_LIST   logs: $LOG_DIR"
 bold "report:   $REPORT_MD"
@@ -253,6 +283,18 @@ for B in $BACKEND_LIST; do
 
     pkill -f "$SRV_BIN" 2>/dev/null; sleep 1
 
+    # Preflight: drop the qa-only gadget collections from this backend's view
+    # DB. They are created by the gadget CDC suites and cleaned by their own
+    # traps — but a suite that crashes (or a manual boot of the qa binary)
+    # before its trap runs leaves them behind. Under a prd/prd-authz profile
+    # (audit, authz) the DB-per-service registry guard then finds an orphan
+    # collection no view declares and ABORTS boot — a green run must not depend
+    # on the Mongo being pristine from a prior session. Dropping them here is
+    # safe: the gadget suites re-materialize them via CDC when they run.
+    docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+      "['gadgets','gadgets_hot','gadgets_capped','gadgets_embedded','gadget_notes','upstream_gadgets'].forEach(c => db[c].drop())" \
+      >/dev/null 2>&1 || true
+
     run_server_suites=""
     run_self_suites=""
     for s in $SUITES; do
@@ -275,7 +317,7 @@ for B in $BACKEND_LIST; do
         || echo "WARNING: connector registration failed for $B (see $LOG_DIR/connector-$B.log)" >&2
       wait_connector_running "$B" \
         || echo "WARNING: connector for $B not RUNNING after 90s — CDC suites may flake" >&2
-      sleep 3
+      cdc_warmup
       for s in $run_server_suites; do
         t0=$(date +%s)
         ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1

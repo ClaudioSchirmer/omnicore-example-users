@@ -32,7 +32,11 @@
 # list/by-id overlay CONTRAST on kind=internal; (15) an archived PRIMARY 404s
 # by id and leaves the list, ?includeArchived serves it with legs, unarchive
 # restores; (16) CSV ?fields= pruning + XLSX; (17) GraphQL where + Relay
-# after-cursor navigation.
+# after-cursor navigation; (18) a SECURITY OVERLAY in ToCriteria (row gate
+# Status=active, the tenant-gate seam) filters rows on list AND by-id while
+# cursor navigation keeps round-tripping — the framework's post-ToCriteria
+# authoritative cursor validation, i.e. a dev adding a security filter can
+# never break pagination.
 #
 # Deliberately NOT covered here (unit-covered in the framework; not exercisable
 # against a running binary): boot-fatal composed declarations (they are Go
@@ -98,6 +102,11 @@ deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready" || { bad "server not ready"; tail -n 40 "$SERVER_LOG"; exit 1; }
 
+# Prove the CDC pipeline is hot (consumer groups joined, Debezium task live)
+# BEFORE any per-step deadline starts counting; the clean-baseline step below
+# sweeps the sentinel. Non-fatal — see qa/_backend.sh.
+qa_cdc_warmup_gadget
+
 title "0.4 Clean baseline"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
@@ -129,7 +138,7 @@ NB=$(note "$GB" "b-pub" public); NI=$(note "$GB" "x-internal" internal)
 { [ -n "$N1" ] && [ -n "$N4" ] && [ -n "$NB" ] && [ -n "$NI" ]; } && ok "notes created" || bad "note creation failed"
 
 title "0.6 Wait for CDC (gadgets ×2, gadget_notes ×6, upstream mirrors ×2)"
-deadline=$(( $(date +%s) + 60 )); synced=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); synced=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   g=$(mongoq "db.gadgets.countDocuments({})")
   n=$(mongoq "db.gadget_notes.countDocuments({})")
@@ -229,7 +238,7 @@ sec "5. Archived gate per leg (R8) + LEFT semantics (R5)"
 ##############################################################################
 title "5.1 Archive note b-pub → B's default segment empties; ?includeArchived restores it"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/gadget-notes/$NB/archive"
-deadline=$(( $(date +%s) + 40 )); gated=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); gated=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB"
   BN=$(jget 'len(d["data"]["notes"])' /tmp/qa-cv.json)
@@ -360,7 +369,7 @@ sec "10. Archived PRIMARY through the composed name"
 ##############################################################################
 title "10.1 Archive gadget B → composed by-id 404s on default reads"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$GB/archive"
-deadline=$(( $(date +%s) + 40 )); parch=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); parch=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/$GB")
   [ "$ST" = "404" ] && { parch=ok; break; }
@@ -379,7 +388,7 @@ curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/"
 COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
 [ "$COUNT" = "1" ] && ok "default list shows only the active gadget" || bad "default list wrong ($COUNT)"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$GB/unarchive"
-deadline=$(( $(date +%s) + 40 )); prest=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); prest=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/"
   COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
@@ -424,6 +433,51 @@ curl -sS -o /tmp/qa-cv.json -X POST "$BASE/graphql" -H "Content-Type: applicatio
   --data "{\"query\":\"{ gadgetsFull(first: 1, after: \\\"$GCUR\\\") { edges { node { code notes { text } } } } }\"}"
 GC2=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json)
 { [ -n "$GCUR" ] && [ "$GC1" != "$GC2" ] && [ -n "$GC2" ]; } && ok "Relay after-cursor advanced ($GC1 → $GC2)" || bad "GraphQL cursor navigation wrong ($GC1 → '$GC2')"
+
+##############################################################################
+sec "13. Security overlay in ToCriteria × cursor pagination (framework fix)"
+##############################################################################
+# FindGadgetsFullQuery.ToCriteria overlays Status=active — the same seam a
+# tenant gate uses. Before the framework fix, ANY ToCriteria filter overlay on
+# a paged query broke navigation (the wire layer pre-compared the cursor hash
+# against the PRE-overlay criteria → every ?after was 400). Now the hash check
+# is authoritative at the reader, post-ToCriteria. Note: every cursor case
+# above already ran WITH this overlay active; this section asserts the overlay
+# is real (filters rows) AND that navigation survives it.
+title "13.1 Seed a non-active gadget (status=retired)"
+GC=$(curl -sS -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
+  --data '{"code":"CV-003","name":"Composed Three","category":"tools","status":"retired"}' \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null)
+[ -n "$GC" ] && ok "retired gadget created ($GC)" || bad "retired gadget creation failed"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); seeded=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  g=$(mongoq "db.gadgets.countDocuments({})")
+  [ "${g:-0}" = "3" ] && { seeded=ok; break; }
+  sleep 1
+done
+[ "$seeded" = ok ] && ok "gadgets view carries 3 docs" || bad "CDC never landed the 3rd gadget"
+
+title "13.2 The overlay filters rows: raw view shows 3, composed surface shows 2"
+curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets/"
+RAW=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code"
+FULL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
+CODES=$(jget '",".join(i["code"] for i in d["data"])' /tmp/qa-cv.json)
+{ [ "$RAW" = "3" ] && [ "$FULL" = "2" ]; } && ok "overlay hides the retired gadget from the composed surface (raw=3, composed=2)" || bad "overlay row gate wrong (raw=$RAW composed=$FULL)"
+case "$CODES" in *CV-003*) bad "retired gadget leaked into the composed list ($CODES)";; *) ok "composed list carries only active gadgets ($CODES)";; esac
+
+title "13.3 The composed by-id honors the same overlay (404 for the retired gadget)"
+ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/$GC")
+[ "$ST" = "404" ] && ok "retired gadget 404s on the composed by-id" || bad "composed by-id served a non-active gadget ($ST)"
+
+title "13.4 Cursor navigation round-trips WITH the security overlay (the fixed bug)"
+curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code&limit=1"
+P1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
+NC=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json)
+ENC=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$NC")
+ST=$(curl -sS -o /tmp/qa-cv.json -w "%{http_code}" "$BASE/qa/gadgets-full/?sort=code&limit=1&after=$ENC")
+P2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
+{ [ "$ST" = "200" ] && [ "$P1" = "CV-001" ] && [ "$P2" = "CV-002" ]; } && ok "?after accepted with the ToCriteria overlay active ($P1 → $P2)" || bad "overlay broke pagination (st=$ST $P1 → '$P2')"
 
 ##############################################################################
 sec "Cleanup + Summary"

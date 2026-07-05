@@ -56,6 +56,11 @@ deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready" || { bad "server not ready"; tail -n 30 "$SERVER_LOG"; exit 1; }
 
+# Prove the CDC pipeline is hot (consumer groups joined, Debezium task live)
+# BEFORE any per-step deadline starts counting; the clean-baseline step below
+# sweeps the sentinel. Non-fatal — see qa/_backend.sh.
+qa_cdc_warmup_gadget
+
 title "0.1 Reset + seed 8 gadgets (enough to overflow the MaxLimit(5) cap)"
 qa_db_exec "DELETE FROM gadgets;"
 docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
@@ -74,7 +79,7 @@ for i in 1 2 3 4 5 6 7 8; do
   done
   [ "$st" = "201" ] || echo "WARN: seed POST RX-$i returned $st after 3 attempts"
 done
-deadline=$(( $(date +%s) + 90 )); seeded=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   [ "$(list_count "/qa/gadgets?code.startswith=RX")" = "8" ] && { seeded=ok; break; }
   sleep 1
@@ -129,7 +134,7 @@ sec "3. DeleteOnArchive — archived rows DROP from gadgets_hot, KEPT in gadgets
 title "3.0 Pick a gadget id + confirm it is in BOTH gadgets and gadgets_hot"
 GID=$(curl -sS "$BASE/qa/gadgets?code.eq=RX-1" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
 echo "GID=$GID"
-deadline=$(( $(date +%s) + 20 )); inhot=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); inhot=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   [ "$(list_count "/qa/gadgets-hot?code.eq=RX-1")" = "1" ] && { inhot=ok; break; }
   sleep 1
@@ -141,7 +146,7 @@ st=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/qa/gadgets/$GID/arc
 [ "$st" = "200" ] && ok "archive accepted (200)" || bad "archive status $st"
 
 title "3.2 gadgets_hot DROPS the archived row (even with ?includeArchived=true)"
-deadline=$(( $(date +%s) + 20 )); dropped=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); dropped=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   [ "$(list_count "/qa/gadgets-hot?code.eq=RX-1&includeArchived=true")" = "0" ] && { dropped=ok; break; }
   sleep 1

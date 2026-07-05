@@ -85,19 +85,29 @@ func (q FindGadgetNotesQuery) ToCriteria(_ *configuration.AppContext) (fwqueries
 
 // ─── Composed reads (gadgets_full) ───────────────────────────────────────────
 
-// FindGadgetsFullQuery is the paged composed read. ToCriteria applies NO
-// overlay here: the paged surface exercises the full cursor machinery, and a
-// deterministic ToCriteria filter overlay would change the reader-side context
-// hash that the wire layer pre-validates cursors against (the same framework
-// posture every overlay-bearing paged view has today). The per-leg overlay
-// showcase (R9) lives on the by-id query below, where no cursor exists.
+// FindGadgetsFullQuery is the paged composed read AND the security-overlay ×
+// pagination showcase: ToCriteria layers a ROW overlay ("Status" = "active")
+// onto whatever the wire asked, exactly like a tenant/owner gate would — the
+// composed surface never serves non-active gadgets, regardless of the query
+// string. Cursor navigation keeps working WITH the overlay because the
+// context-hash validation is authoritative at the reader, post-ToCriteria
+// (the wire layer performs structural cursor checks only) — the guarantee
+// that a developer adding a security filter never breaks pagination.
 type FindGadgetsFullQuery struct {
 	pipeline.QueryBase
 	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindGadgetsFullQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return q.Criteria, nil
+	crit := q.Criteria
+	if crit.Filter == nil {
+		crit.Filter = map[string]any{}
+	}
+	// Security-style row overlay: identical seam a tenant gate uses
+	// (crit.Filter["TenantID"] = ctx.Identity()...); deterministic here so the
+	// QA suite can assert it without an authenticated identity.
+	crit.Filter["Status"] = "active"
+	return crit, nil
 }
 
 // FindGadgetFullByIDQuery is the composed by-id read AND the per-leg
@@ -115,10 +125,15 @@ type FindGadgetFullByIDQuery struct {
 func (q FindGadgetFullByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return fwqueries.ReadCriteria{
 		IncludeArchived: q.IncludeArchived,
-		// The per-leg overlay: full developer responsibility, declared here in
-		// ToCriteria (D1/R9) — the single read-side authz seam. Segment paths
-		// resolve at every level of the linked document.
-		Filter: map[string]any{"Notes.Kind": "public"},
+		Filter: map[string]any{
+			// The per-leg overlay: full developer responsibility, declared here
+			// in ToCriteria (D1/R9) — the single read-side authz seam. Segment
+			// paths resolve at every level of the linked document.
+			"Notes.Kind": "public",
+			// The same row overlay the paged surface applies: the composed
+			// surface as a whole never serves non-active gadgets (404 here).
+			"Status": "active",
+		},
 	}, nil
 }
 

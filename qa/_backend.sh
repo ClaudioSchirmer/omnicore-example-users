@@ -98,3 +98,45 @@ esac
 qa_mongo_reset() {
   docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.deleteMany({}); db.employees.deleteMany({}); db.persons.deleteMany({});" >/dev/null 2>&1
 }
+
+# ── CDC pipeline knobs + warmup ──────────────────────────────────────────────
+
+# QA_CDC_DEADLINE bounds every "wait for the pipeline to land data" loop in the
+# CDC-dependent suites. The waits exit as soon as the condition holds, so a
+# generous ceiling costs nothing on a healthy bench — it only buys headroom for
+# the real-world slow cases: Kafka consumer-group rebalances after the
+# back-to-back server boots the self-managed suites perform (a leaving member
+# holds its group slot until the session times out, and the next boot's join
+# blocks on that), Debezium task restarts, cold page caches. Override per run:
+# QA_CDC_DEADLINE=180 ./qa/run.sh
+QA_CDC_DEADLINE="${QA_CDC_DEADLINE:-90}"
+
+# qa_cdc_warmup_gadget proves the WHOLE pipeline (outbox → Debezium → Kafka →
+# SyncEngine consumer joined → Mongo upsert) is hot before a suite starts
+# asserting under per-step deadlines: it creates a sentinel gadget, waits for
+# it to land in the gadgets view, then hard-deletes it. Call it right after
+# the server is healthy and BEFORE the suite's clean-baseline step (the reset
+# sweeps any leftovers). Non-fatal by design — a cold pipeline surfaces as a
+# WARN here and the suite's own deadlines still apply.
+qa_cdc_warmup_gadget() {
+  local base="${BASE:-http://localhost:8080}" code id deadline c
+  code="QA-WARMUP-$$-$(date +%s)"
+  id=$(curl -sS -X POST "$base/qa/gadgets" -H "Content-Type: application/json" \
+    --data "{\"code\":\"$code\",\"name\":\"CDC warmup sentinel\",\"category\":\"warmup\",\"status\":\"active\"}" \
+    | python3 -c 'import sys,json
+d=json.load(sys.stdin).get("data")
+print(d.get("id","") if isinstance(d,dict) else "")' 2>/dev/null)
+  deadline=$(( $(date +%s) + 120 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    c=$(docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet \
+      --eval "db.gadgets.countDocuments({code:'$code'})" 2>/dev/null | tail -1 | tr -d ' ')
+    [ "${c:-0}" -ge 1 ] 2>/dev/null && break
+    sleep 1
+  done
+  if [ "${c:-0}" -ge 1 ] 2>/dev/null; then
+    echo "cdc warmup: pipeline hot ($(( $(date +%s) - (deadline - 120) ))s)"
+  else
+    echo "WARN cdc warmup: sentinel never landed in Mongo after 120s — CDC waits may flake" >&2
+  fi
+  [ -n "$id" ] && curl -sS -o /dev/null -X DELETE "$base/qa/gadgets/$id" 2>/dev/null || true
+}

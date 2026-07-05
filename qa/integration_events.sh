@@ -98,7 +98,7 @@ if register_qa_connector; then ok "qa-integration connector registered"; else ba
 # needs a moment to re-snapshot + resume streaming, and an event produced during
 # that window would be missed by the consumer.
 QA_CONN_NAME=$(jq -r '.name' "$QA_CONNECTOR")
-deadline=$(( $(date +%s) + 30 )); crun=fail
+deadline=$(( $(date +%s) + 90 )); crun=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   st=$(curl -sf "$CONNECT_URL/connectors/$QA_CONN_NAME/status" 2>/dev/null \
     | python3 -c 'import sys,json
@@ -146,7 +146,7 @@ title "2.1 gadget_events_sink records the consumed event"
 # single gadget) — robust across engines regardless of how the gadget_id column
 # is physically typed (UUID on postgres vs BINARY(16) on mysql, which a string
 # WHERE comparison would miss).
-deadline=$(( $(date +%s) + 60 )); sunk=fail
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); sunk=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   c=$(qa_db_query "SELECT count(*) FROM gadget_events_sink;" 2>/dev/null | tr -d ' ')
   [ "${c:-0}" = "1" ] && { sunk=ok; break; }
