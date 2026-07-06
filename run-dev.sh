@@ -21,4 +21,11 @@ echo "==> Registering Debezium outbox connector (idempotent)"
 
 echo "==> Starting omnicore-example-users (APP_PROFILE=dev)"
 mkdir -p devops/elk/logs
-env APP_PROFILE=dev go run -work -tags postgres ./bootstrap 2>&1 | tee -a devops/elk/logs/omnicore-example-users.log
+# The `tee` must ignore INT/TERM. On Ctrl+C the terminal signals the whole
+# foreground process group at once; a plain `tee` dies immediately, the
+# server's stdout becomes a broken pipe, and every graceful-shutdown log line
+# is lost (Go even raises SIGPIPE on the first shutdown write). Trapping the
+# signals keeps `tee` alive until the server closes stdout on a clean exit, so
+# the drain output is captured both on screen and in the mirrored log.
+env APP_PROFILE=dev go run -work -tags postgres ./bootstrap 2>&1 \
+  | { trap '' INT TERM; tee -a devops/elk/logs/omnicore-example-users.log; }
