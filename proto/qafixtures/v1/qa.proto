@@ -54,10 +54,8 @@ message Gadget {
 }
 
 message ListGadgetsResponse {
-  int64 total = 1;
-  repeated Gadget items = 2;
-  string next_cursor = 3;
-  string prev_cursor = 4;
+  repeated Gadget items = 1;
+  omnicore.v1.PageInfo page_info = 2;
 }
 
 message FlakyEchoRequest {

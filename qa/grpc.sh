@@ -144,8 +144,8 @@ else
   bad "only_total (got $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
-title "4.3 contains filter + sort + read_mask (shared omnicore.v1 components)"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_CONTAINS","values":["grpcqa"]}]}},"sort":[{"field":"user_name","desc":true}],"readMask":"id,userName"}'
+title "4.3 icontains filter + sort + read_mask (shared omnicore.v1 components)"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_ICONTAINS","values":["GRPCQA"]}]}},"sort":[{"field":"user_name","desc":true}],"readMask":"id,userName"}'
 echo "status=$RPC_STATUS body=${RPC_BODY:0:200}"
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"userName":"grpcqa_alice"' \
    && ! echo "$RPC_BODY" | grep -q '"email"'; then
@@ -294,7 +294,7 @@ else
 fi
 
 title "6c.4 IN filter with multiple values"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_IN","values":["grpcqa_carol","grpcqa_dave"]}]}},"page":{"onlyTotal":true}}'
+rpc ListUsers '{"filters":{"email":{"conditions":[{"op":"STRING_OP_IN","values":["carol.renamed@example.com","grpc.dave@example.com"]}]}},"page":{"onlyTotal":true}}'
 if echo "$RPC_BODY" | grep -Eq '"total":"?2"?'; then ok "IN matches both"; else bad "IN"; echo "$RPC_BODY" | head -c 200; fi
 
 title "6c.5 include_archived resurfaces alice in the count"
@@ -366,12 +366,12 @@ check_op() { # check_op <label> <field> <op> <values> <want>
   if [ "$got" = "$5" ]; then OPS_OK=$((OPS_OK+1)); else bad "$1 (want $5, got ${got:-none})"; fi
 }
 check_op eq          name     STRING_OP_EQ          '["Hammer"]'            1
-check_op ne          category STRING_OP_NE          '["tools"]'             1
+check_op ne          name     STRING_OP_NE          '["Hammer"]'            2
 check_op in          code     STRING_OP_IN          '["ALPHA-1","GAMMA-3"]' 2
-check_op nin         status   STRING_OP_NIN         '["active"]'            1
+check_op nin         code     STRING_OP_NIN         '["ALPHA-1"]'           2
 check_op startswith  name     STRING_OP_STARTSWITH  '["Rocket"]'            2
 check_op contains    name     STRING_OP_CONTAINS    '["ck"]'                2
-check_op ieq         name     STRING_OP_IEQ         '["hammer"]'            1
+check_op ieq         status   STRING_OP_IEQ         '["ACTIVE"]'            2
 check_op ine         name     STRING_OP_INE         '["hammer"]'            2
 check_op istartswith name     STRING_OP_ISTARTSWITH '["rock"]'              2
 check_op icontains   name     STRING_OP_ICONTAINS   '["CK"]'                2
@@ -379,7 +379,17 @@ check_op iin         category STRING_OP_IIN         '["TOOLS"]'             2
 check_op inin        category STRING_OP_ININ        '["TOOLS"]'             1
 [ "$OPS_OK" = "12" ] && ok "12/12 StringOps behave like the REST vocabulary" || bad "operator vocabulary ($OPS_OK/12)"
 
-title "6e.3 two ops on the same field AND-combine (MultiClause)"
+title "6e.3 operator outside the leaf's filter: tag → invalid_argument (allowlist parity with REST)"
+REJ=$(curl -sS -o /tmp/grpc-optag.json -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+  "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
+  -d '{"filters":{"category":{"conditions":[{"op":"STRING_OP_NE","values":["tools"]}]}},"page":{"onlyTotal":true}}')
+if [ "$REJ" = "400" ] && grep -q '"code":"invalid_argument"' /tmp/grpc-optag.json && grep -q 'SchemaViolationNotification' /tmp/grpc-optag.json; then
+  ok "ne on category (declared: eq,in,iin,inin,ieq) rejects with the allowlist"
+else
+  bad "filter-tag allowlist (status $REJ)"; head -c 300 /tmp/grpc-optag.json; echo
+fi
+
+title "6e.4 two ops on the same field AND-combine (MultiClause)"
 RES=$(curl -sS -X POST -H "Content-Type: application/json" \
   "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
   -d '{"filters":{"name":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["Rocket"]},{"op":"STRING_OP_ICONTAINS","values":["DRILL"]}]}},"page":{"onlyTotal":true}}')

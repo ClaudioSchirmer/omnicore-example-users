@@ -13,10 +13,10 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	"github.com/ClaudioSchirmer/omnicore/application/handlers"
 	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
-	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 	"github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1"
@@ -35,6 +35,17 @@ import (
 type provokeCommand struct {
 	pipeline.CommandWithBodyBase
 	Semantic string
+}
+
+// provokeDTO is Provoke's Request-DTO seat: the bridge fills it from the
+// proto and ToCommand crosses into the application layer, exactly like a
+// REST body DTO.
+type provokeDTO struct {
+	Semantic string `json:"semantic"`
+}
+
+func (d provokeDTO) ToCommand() *provokeCommand {
+	return &provokeCommand{Semantic: d.Semantic}
 }
 
 type provokeHandler struct{}
@@ -67,54 +78,6 @@ func (provokeHandler) Handle(_ *configuration.AppContext, cmd *provokeCommand) (
 		Notification: domain.RequiredFieldNotification{}.WithSemantic(sem),
 	})
 	return nil, domain.NewDomainError([]*domain.NotificationContext{nctx})
-}
-
-// ─── ListGadgets: the complete StringOp vocabulary over the gadgets view ───
-
-var gadgetWireFields = map[string]string{
-	"id":       "ID",
-	"code":     "Code",
-	"name":     "Name",
-	"category": "Category",
-	"status":   "Status",
-}
-
-func toListGadgetsQuery(pb *qafixturesv1.ListGadgetsRequest) (*appqa.FindGadgetsQuery, error) {
-	crit, err := fwgrpc.NewCriteria().
-		Fields(gadgetWireFields).
-		Page(pb.GetPage()).
-		Sort(pb.GetSort()...).
-		ReadMask(pb.GetReadMask()).
-		String("Name", pb.GetFilters().GetName()).
-		String("Code", pb.GetFilters().GetCode()).
-		String("Category", pb.GetFilters().GetCategory()).
-		String("Status", pb.GetFilters().GetStatus()).
-		Build()
-	if err != nil {
-		return nil, err
-	}
-	return &appqa.FindGadgetsQuery{Criteria: crit}, nil
-}
-
-func fromGadgetsPage(p fwqueries.Page) *qafixturesv1.ListGadgetsResponse {
-	resp := &qafixturesv1.ListGadgetsResponse{Total: p.Total, NextCursor: p.NextCursor, PrevCursor: p.PrevCursor}
-	for _, doc := range p.Items {
-		resp.Items = append(resp.Items, &qafixturesv1.Gadget{
-			Id:       docStr(doc, "ID"),
-			Code:     docStr(doc, "Code"),
-			Name:     docStr(doc, "Name"),
-			Category: docStr(doc, "Category"),
-			Status:   docStr(doc, "Status"),
-		})
-	}
-	return resp
-}
-
-func docStr(doc map[string]any, key string) string {
-	if v, ok := doc[key].(string); ok {
-		return v
-	}
-	return ""
 }
 
 // ─── FlakyEcho / Boom: raw transport fixtures for the client chain ─────────
@@ -156,17 +119,20 @@ func boom(context.Context, *connect.Request[qafixturesv1.BoomRequest]) (*connect
 }
 
 // MountQAGRPC registers the fixture surface on the service's gRPC registry.
+// ListGadgets rides the SAME REST DTOs (FindGadgetsRequest's `filter:` tags
+// are the operator allowlist; FindGadgetsResponse the mask/sort vocabulary
+// and the item projection) — the gRPC file adds zero marshalling.
 func MountQAGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
-	reg.Register(fwgrpc.CommandWithBody(qafixturesv1connect.QAServiceProvokeProcedure,
-		func(pb *qafixturesv1.ProvokeRequest) (*provokeCommand, error) {
-			return &provokeCommand{Semantic: pb.GetSemantic()}, nil
-		},
-		func(*struct{}) *qafixturesv1.ProvokeResponse { return &qafixturesv1.ProvokeResponse{} },
+	reg.Register(fwgrpc.CommandWithBody[qafixturesv1.ProvokeRequest, qafixturesv1.ProvokeResponse](
+		qafixturesv1connect.QAServiceProvokeProcedure,
+		provokeDTO{},
+		func(*struct{}) struct{} { return struct{}{} },
 		provokeHandler{}))
 
-	reg.Register(fwgrpc.QueryWithParams(qafixturesv1connect.QAServiceListGadgetsProcedure,
-		toListGadgetsQuery,
-		fromGadgetsPage,
+	reg.Register(fwgrpc.QueryWithParams[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse](
+		qafixturesv1connect.QAServiceListGadgetsProcedure,
+		FindGadgetsRequest{},
+		fwresponses.AutoFromDoc[FindGadgetsResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
 			Reader: d.ViewReader, View: "gadgets",
 		}))

@@ -62,7 +62,7 @@ func MountGrpcClientShowcase(app *fiber.App, users *infraqa.UsersGRPCService, qa
 		for _, u := range res.GetItems() {
 			names = append(names, u.GetUserName())
 		}
-		return c.JSON(fiber.Map{"via": "grpcclient", "total": res.GetTotal(), "userNames": names})
+		return c.JSON(fiber.Map{"via": "grpcclient", "total": res.GetPageInfo().GetTotal(), "userNames": names})
 	}, fwopenapi.RawSpec{
 		Summary:     "grpcclient showcase — ListUsers via the outbound gRPC toolbox",
 		Description: "The list sibling of the GetUser showcase: `?userName=` becomes the typed equality filter (shared omnicore.v1 components) on the proto request, composed inside the adapter.",

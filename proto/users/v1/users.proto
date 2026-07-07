@@ -61,13 +61,15 @@ message User {
   string email = 3;
   string document = 4;
   string user_name = 5;
+  // Restricted leaf: projected only for users:admin (the query type's
+  // ToCriteria Restrict) — also the read_mask/sort path the authz suites
+  // probe. optional: absent and empty are distinct.
+  optional string phone = 6;
 }
 
 message ListUsersResponse {
-  int64 total = 1;
-  repeated User items = 2;
-  string next_cursor = 3;
-  string prev_cursor = 4;
+  repeated User items = 1;
+  omnicore.v1.PageInfo page_info = 2;
 }
 
 message GetUserRequest {

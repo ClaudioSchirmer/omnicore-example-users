@@ -321,10 +321,8 @@ func (x *Gadget) GetStatus() string {
 
 type ListGadgetsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Total         int64                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
-	Items         []*Gadget              `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
-	NextCursor    string                 `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
-	PrevCursor    string                 `protobuf:"bytes,4,opt,name=prev_cursor,json=prevCursor,proto3" json:"prev_cursor,omitempty"`
+	Items         []*Gadget              `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	PageInfo      *pb.PageInfo           `protobuf:"bytes,2,opt,name=page_info,json=pageInfo,proto3" json:"page_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -359,13 +357,6 @@ func (*ListGadgetsResponse) Descriptor() ([]byte, []int) {
 	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *ListGadgetsResponse) GetTotal() int64 {
-	if x != nil {
-		return x.Total
-	}
-	return 0
-}
-
 func (x *ListGadgetsResponse) GetItems() []*Gadget {
 	if x != nil {
 		return x.Items
@@ -373,18 +364,11 @@ func (x *ListGadgetsResponse) GetItems() []*Gadget {
 	return nil
 }
 
-func (x *ListGadgetsResponse) GetNextCursor() string {
+func (x *ListGadgetsResponse) GetPageInfo() *pb.PageInfo {
 	if x != nil {
-		return x.NextCursor
+		return x.PageInfo
 	}
-	return ""
-}
-
-func (x *ListGadgetsResponse) GetPrevCursor() string {
-	if x != nil {
-		return x.PrevCursor
-	}
-	return ""
+	return nil
 }
 
 type FlakyEchoRequest struct {
@@ -587,14 +571,10 @@ const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1a\n" +
 	"\bcategory\x18\x04 \x01(\tR\bcategory\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"\x9a\x01\n" +
-	"\x13ListGadgetsResponse\x12\x14\n" +
-	"\x05total\x18\x01 \x01(\x03R\x05total\x12+\n" +
-	"\x05items\x18\x02 \x03(\v2\x15.qafixtures.v1.GadgetR\x05items\x12\x1f\n" +
-	"\vnext_cursor\x18\x03 \x01(\tR\n" +
-	"nextCursor\x12\x1f\n" +
-	"\vprev_cursor\x18\x04 \x01(\tR\n" +
-	"prevCursor\"d\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"v\n" +
+	"\x13ListGadgetsResponse\x12+\n" +
+	"\x05items\x18\x01 \x03(\v2\x15.qafixtures.v1.GadgetR\x05items\x122\n" +
+	"\tpage_info\x18\x02 \x01(\v2\x15.omnicore.v1.PageInfoR\bpageInfo\"d\n" +
 	"\x10FlakyEchoRequest\x12\x15\n" +
 	"\x03key\x18\x01 \x01(\tH\x00R\x03key\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -640,6 +620,7 @@ var file_qafixtures_v1_qa_proto_goTypes = []any{
 	(*pb.PageRequest)(nil),        // 11: omnicore.v1.PageRequest
 	(*pb.SortField)(nil),          // 12: omnicore.v1.SortField
 	(*fieldmaskpb.FieldMask)(nil), // 13: google.protobuf.FieldMask
+	(*pb.PageInfo)(nil),           // 14: omnicore.v1.PageInfo
 }
 var file_qafixtures_v1_qa_proto_depIdxs = []int32{
 	10, // 0: qafixtures.v1.GadgetFilters.name:type_name -> omnicore.v1.StringFilter
@@ -651,19 +632,20 @@ var file_qafixtures_v1_qa_proto_depIdxs = []int32{
 	13, // 6: qafixtures.v1.ListGadgetsRequest.read_mask:type_name -> google.protobuf.FieldMask
 	2,  // 7: qafixtures.v1.ListGadgetsRequest.filters:type_name -> qafixtures.v1.GadgetFilters
 	4,  // 8: qafixtures.v1.ListGadgetsResponse.items:type_name -> qafixtures.v1.Gadget
-	0,  // 9: qafixtures.v1.QAService.Provoke:input_type -> qafixtures.v1.ProvokeRequest
-	3,  // 10: qafixtures.v1.QAService.ListGadgets:input_type -> qafixtures.v1.ListGadgetsRequest
-	6,  // 11: qafixtures.v1.QAService.FlakyEcho:input_type -> qafixtures.v1.FlakyEchoRequest
-	8,  // 12: qafixtures.v1.QAService.Boom:input_type -> qafixtures.v1.BoomRequest
-	1,  // 13: qafixtures.v1.QAService.Provoke:output_type -> qafixtures.v1.ProvokeResponse
-	5,  // 14: qafixtures.v1.QAService.ListGadgets:output_type -> qafixtures.v1.ListGadgetsResponse
-	7,  // 15: qafixtures.v1.QAService.FlakyEcho:output_type -> qafixtures.v1.FlakyEchoResponse
-	9,  // 16: qafixtures.v1.QAService.Boom:output_type -> qafixtures.v1.BoomResponse
-	13, // [13:17] is the sub-list for method output_type
-	9,  // [9:13] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	14, // 9: qafixtures.v1.ListGadgetsResponse.page_info:type_name -> omnicore.v1.PageInfo
+	0,  // 10: qafixtures.v1.QAService.Provoke:input_type -> qafixtures.v1.ProvokeRequest
+	3,  // 11: qafixtures.v1.QAService.ListGadgets:input_type -> qafixtures.v1.ListGadgetsRequest
+	6,  // 12: qafixtures.v1.QAService.FlakyEcho:input_type -> qafixtures.v1.FlakyEchoRequest
+	8,  // 13: qafixtures.v1.QAService.Boom:input_type -> qafixtures.v1.BoomRequest
+	1,  // 14: qafixtures.v1.QAService.Provoke:output_type -> qafixtures.v1.ProvokeResponse
+	5,  // 15: qafixtures.v1.QAService.ListGadgets:output_type -> qafixtures.v1.ListGadgetsResponse
+	7,  // 16: qafixtures.v1.QAService.FlakyEcho:output_type -> qafixtures.v1.FlakyEchoResponse
+	9,  // 17: qafixtures.v1.QAService.Boom:output_type -> qafixtures.v1.BoomResponse
+	14, // [14:18] is the sub-list for method output_type
+	10, // [10:14] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_qafixtures_v1_qa_proto_init() }

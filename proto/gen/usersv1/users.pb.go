@@ -325,12 +325,16 @@ func (x *ListUsersRequest) GetFilters() *UserFilters {
 }
 
 type User struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
-	Document      string                 `protobuf:"bytes,4,opt,name=document,proto3" json:"document,omitempty"`
-	UserName      string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Id       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name     string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Email    string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Document string                 `protobuf:"bytes,4,opt,name=document,proto3" json:"document,omitempty"`
+	UserName string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	// Restricted leaf: projected only for users:admin (the query type's
+	// ToCriteria Restrict) — also the read_mask/sort path the authz suites
+	// probe. optional: absent and empty are distinct.
+	Phone         *string `protobuf:"bytes,6,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -400,12 +404,17 @@ func (x *User) GetUserName() string {
 	return ""
 }
 
+func (x *User) GetPhone() string {
+	if x != nil && x.Phone != nil {
+		return *x.Phone
+	}
+	return ""
+}
+
 type ListUsersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Total         int64                  `protobuf:"varint,1,opt,name=total,proto3" json:"total,omitempty"`
-	Items         []*User                `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
-	NextCursor    string                 `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
-	PrevCursor    string                 `protobuf:"bytes,4,opt,name=prev_cursor,json=prevCursor,proto3" json:"prev_cursor,omitempty"`
+	Items         []*User                `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	PageInfo      *pb.PageInfo           `protobuf:"bytes,2,opt,name=page_info,json=pageInfo,proto3" json:"page_info,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -440,13 +449,6 @@ func (*ListUsersResponse) Descriptor() ([]byte, []int) {
 	return file_users_v1_users_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *ListUsersResponse) GetTotal() int64 {
-	if x != nil {
-		return x.Total
-	}
-	return 0
-}
-
 func (x *ListUsersResponse) GetItems() []*User {
 	if x != nil {
 		return x.Items
@@ -454,18 +456,11 @@ func (x *ListUsersResponse) GetItems() []*User {
 	return nil
 }
 
-func (x *ListUsersResponse) GetNextCursor() string {
+func (x *ListUsersResponse) GetPageInfo() *pb.PageInfo {
 	if x != nil {
-		return x.NextCursor
+		return x.PageInfo
 	}
-	return ""
-}
-
-func (x *ListUsersResponse) GetPrevCursor() string {
-	if x != nil {
-		return x.PrevCursor
-	}
-	return ""
+	return nil
 }
 
 type GetUserRequest struct {
@@ -993,20 +988,18 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\x04page\x18\x01 \x01(\v2\x18.omnicore.v1.PageRequestR\x04page\x12*\n" +
 	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
 	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x12/\n" +
-	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"y\n" +
+	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\x9e\x01\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
 	"\bdocument\x18\x04 \x01(\tR\bdocument\x12\x1b\n" +
-	"\tuser_name\x18\x05 \x01(\tR\buserName\"\x91\x01\n" +
-	"\x11ListUsersResponse\x12\x14\n" +
-	"\x05total\x18\x01 \x01(\x03R\x05total\x12$\n" +
-	"\x05items\x18\x02 \x03(\v2\x0e.users.v1.UserR\x05items\x12\x1f\n" +
-	"\vnext_cursor\x18\x03 \x01(\tR\n" +
-	"nextCursor\x12\x1f\n" +
-	"\vprev_cursor\x18\x04 \x01(\tR\n" +
-	"prevCursor\"W\n" +
+	"\tuser_name\x18\x05 \x01(\tR\buserName\x12\x19\n" +
+	"\x05phone\x18\x06 \x01(\tH\x00R\x05phone\x88\x01\x01B\b\n" +
+	"\x06_phone\"m\n" +
+	"\x11ListUsersResponse\x12$\n" +
+	"\x05items\x18\x01 \x03(\v2\x0e.users.v1.UserR\x05items\x122\n" +
+	"\tpage_info\x18\x02 \x01(\v2\x15.omnicore.v1.PageInfoR\bpageInfo\"W\n" +
 	"\x0eGetUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12)\n" +
 	"\x10include_archived\x18\x02 \x01(\bR\x0fincludeArchivedB\x05\n" +
@@ -1104,6 +1097,7 @@ var file_users_v1_users_proto_goTypes = []any{
 	(*pb.PageRequest)(nil),        // 14: omnicore.v1.PageRequest
 	(*pb.SortField)(nil),          // 15: omnicore.v1.SortField
 	(*fieldmaskpb.FieldMask)(nil), // 16: google.protobuf.FieldMask
+	(*pb.PageInfo)(nil),           // 17: omnicore.v1.PageInfo
 }
 var file_users_v1_users_proto_depIdxs = []int32{
 	13, // 0: users.v1.UserFilters.user_name:type_name -> omnicore.v1.StringFilter
@@ -1113,22 +1107,23 @@ var file_users_v1_users_proto_depIdxs = []int32{
 	16, // 4: users.v1.ListUsersRequest.read_mask:type_name -> google.protobuf.FieldMask
 	2,  // 5: users.v1.ListUsersRequest.filters:type_name -> users.v1.UserFilters
 	4,  // 6: users.v1.ListUsersResponse.items:type_name -> users.v1.User
-	10, // 7: users.v1.UpdateUserRequest.addresses:type_name -> users.v1.AddressInput
-	0,  // 8: users.v1.UsersService.CreateUser:input_type -> users.v1.CreateUserRequest
-	3,  // 9: users.v1.UsersService.ListUsers:input_type -> users.v1.ListUsersRequest
-	11, // 10: users.v1.UsersService.UpdateUser:input_type -> users.v1.UpdateUserRequest
-	6,  // 11: users.v1.UsersService.GetUser:input_type -> users.v1.GetUserRequest
-	8,  // 12: users.v1.UsersService.ArchiveUser:input_type -> users.v1.ArchiveUserRequest
-	1,  // 13: users.v1.UsersService.CreateUser:output_type -> users.v1.CreateUserResponse
-	5,  // 14: users.v1.UsersService.ListUsers:output_type -> users.v1.ListUsersResponse
-	12, // 15: users.v1.UsersService.UpdateUser:output_type -> users.v1.UpdateUserResponse
-	7,  // 16: users.v1.UsersService.GetUser:output_type -> users.v1.GetUserResponse
-	9,  // 17: users.v1.UsersService.ArchiveUser:output_type -> users.v1.ArchiveUserResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	17, // 7: users.v1.ListUsersResponse.page_info:type_name -> omnicore.v1.PageInfo
+	10, // 8: users.v1.UpdateUserRequest.addresses:type_name -> users.v1.AddressInput
+	0,  // 9: users.v1.UsersService.CreateUser:input_type -> users.v1.CreateUserRequest
+	3,  // 10: users.v1.UsersService.ListUsers:input_type -> users.v1.ListUsersRequest
+	11, // 11: users.v1.UsersService.UpdateUser:input_type -> users.v1.UpdateUserRequest
+	6,  // 12: users.v1.UsersService.GetUser:input_type -> users.v1.GetUserRequest
+	8,  // 13: users.v1.UsersService.ArchiveUser:input_type -> users.v1.ArchiveUserRequest
+	1,  // 14: users.v1.UsersService.CreateUser:output_type -> users.v1.CreateUserResponse
+	5,  // 15: users.v1.UsersService.ListUsers:output_type -> users.v1.ListUsersResponse
+	12, // 16: users.v1.UsersService.UpdateUser:output_type -> users.v1.UpdateUserResponse
+	7,  // 17: users.v1.UsersService.GetUser:output_type -> users.v1.GetUserResponse
+	9,  // 18: users.v1.UsersService.ArchiveUser:output_type -> users.v1.ArchiveUserResponse
+	14, // [14:19] is the sub-list for method output_type
+	9,  // [9:14] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_users_v1_users_proto_init() }
@@ -1138,6 +1133,7 @@ func file_users_v1_users_proto_init() {
 	}
 	file_users_v1_users_proto_msgTypes[0].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[1].OneofWrappers = []any{}
+	file_users_v1_users_proto_msgTypes[4].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[6].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[8].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[10].OneofWrappers = []any{}
