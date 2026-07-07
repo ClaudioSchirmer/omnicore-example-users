@@ -64,7 +64,7 @@ esac
 # binary the server suites use. config_validation/migrations/tracing are
 # framework control-plane suites needing no mirror entity.
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition composed_view external_embed integration_events auth"
+SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping view_options httpclient_middleware lifecycle_hooks filter_operators upstream_composition composed_view external_embed integration_events auth grpc grpcclient grpc_security"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -293,8 +293,10 @@ for B in $BACKEND_LIST; do
     # declares and ABORTS boot — a green run must not depend on the Mongo being
     # pristine from a prior session. Dropping them here is safe: the suites
     # re-materialize them when they run.
+    # Pattern-based (gadget* / upstream_* / qa_*) so a future qa fixture that
+    # follows the naming convention is covered without touching this list.
     docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
-      "['gadgets','gadgets_hot','gadgets_capped','gadgets_embedded','gadget_notes','upstream_gadgets','qa_accounts_view','qa_catalog_view','upstream_items'].forEach(c => db[c].drop())" \
+      "db.getCollectionNames().filter(n => /^(gadget|upstream_|qa_)/.test(n)).forEach(n => db.getCollection(n).drop())" \
       >/dev/null 2>&1 || true
 
     run_server_suites=""

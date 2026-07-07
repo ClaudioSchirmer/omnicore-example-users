@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.20.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/MicahParks/jwkset v0.11.0 // indirect
 	github.com/MicahParks/keyfunc/v3 v3.8.0 // indirect

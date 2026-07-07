@@ -4,6 +4,47 @@ http:
   addr: "${HTTP_ADDR::8080}"
   requestTimeoutSeconds: 30   # inbound request deadline; unset would also default to 30, 0 disables
 
+grpc:
+  # The gRPC surface (Wiring.GRPC) — its own listener, never the Fiber one.
+  # No TLS here: the listener serves h2c, so the gRPC protocol works in dev.
+  addr: ":9090"
+  reflection: false
+
+grpcClient:
+  # Outbound gRPC toolbox (Deps.GRPCClient) — the loopback self-call feeds
+  # the grpcclient showcase/QA; a real service points this at its upstreams.
+  services:
+    self-qa-flaky:
+      baseURL: "http://localhost:9090"
+      timeoutSeconds: 5
+      retry:
+        maxAttempts: 3
+        backoff: constant
+        initialDelayMS: 20
+        maxDelayMS: 40
+        retryOn: ["unavailable"]
+      idempotency:
+        enabled: true
+    self-qa-boom:
+      baseURL: "http://localhost:9090"
+      timeoutSeconds: 5
+      circuitBreaker:
+        enabled: true
+        failureThreshold: 2
+        successThreshold: 1
+        openForMS: 60000
+    self-users:
+      baseURL: "http://localhost:9090"
+      timeoutSeconds: 10
+      retry:
+        maxAttempts: 3
+        backoff: constant
+        initialDelayMS: 50
+        maxDelayMS: 100
+        retryOn: ["unavailable"]
+      idempotency:
+        enabled: true
+
 relational:
   dialect: "${REL_DIALECT:postgres}"
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"

@@ -6,6 +6,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/handlers"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
+	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/application/qafixtures"
 	webqa "github.com/ClaudioSchirmer/omnicore-example-users/web/qafixtures"
@@ -21,6 +22,13 @@ func qaFeatures(d bootstrap.Deps) []bootstrap.Feature {
 		NewGadgetFeature(d),
 		NewAccountFeature(d),
 	}
+}
+
+// qaMountGRPC contributes the QA-only gRPC fixture surface (Provoke's full
+// Semantic table, the gadgets StringOp vocabulary, the FlakyEcho/Boom
+// transport fixtures) — the gRPC twin of qaMountGraphQL.
+func qaMountGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
+	webqa.MountQAGRPC(reg, d)
 }
 
 // qaMountGraphQL contributes the QA-only GraphQL fields when the qa binary
