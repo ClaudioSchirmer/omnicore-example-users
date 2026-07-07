@@ -8,7 +8,7 @@ import (
 
 // FindAddressByIDRequest is the wire allowlist for the canonical
 // GET /users/:id/addresses/:addressId. The User UUID is auto-bound by the
-// HandleQueryByID wrapper into the Query's embedded QueryBaseWithID via
+// QueryByID wrapper into the Query's embedded QueryByIDBase via
 // SetPathID — declaring `path:"id"` here would be a boot panic (the
 // framework's auto-bind owns the `:id` slot). The Address UUID arrives via
 // the `path:"addressId"` tag (BindPath populates it before ToQuery).
@@ -22,7 +22,7 @@ type FindAddressByIDRequest struct {
 
 // ToQuery is the web→application boundary — pure body mapping with no ctx.
 // Reads the Address UUID populated by BindPath and the `includeArchived` flag.
-// The User UUID arrives later via QueryBaseWithID.SetPathID, invoked by
+// The User UUID arrives later via QueryByIDBase.SetPathID, invoked by
 // the wrapper after ToQuery returns.
 func (r FindAddressByIDRequest) ToQuery() *queries.FindAddressByIDQuery {
 	arch := false

@@ -34,7 +34,7 @@ func MountCatalogs(
 	g := app.Group("/qa/catalogs")
 	viewName := view.Name()
 
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		InsertCatalogRequest{},
 		InsertCatalogResponse{}.FromResult,
 		&handlers.InsertCommandHandler[*qadomain.Catalog, *appqa.InsertCatalogCommand, appqa.CatalogResult]{
@@ -49,7 +49,7 @@ func MountCatalogs(
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
 
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindCatalogByIDRequest{},
 		fwresponses.AutoFromDoc[FindCatalogByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqa.FindCatalogByIDQuery]{
@@ -64,7 +64,7 @@ func MountCatalogs(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindCatalogsRequest{},
 		fwresponses.AutoFromDoc[FindCatalogsListResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{
@@ -79,7 +79,7 @@ func MountCatalogs(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		FindCatalogsRequest{}, view, d.Export,
 		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName},
 		export.WithDelimiter(','))
@@ -91,7 +91,7 @@ func MountCatalogs(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		FindCatalogsRequest{}, view, d.Export,
 		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName},
 		export.WithSheetName("Catalogs"))

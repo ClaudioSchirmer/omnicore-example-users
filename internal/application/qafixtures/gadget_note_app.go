@@ -17,7 +17,7 @@ import (
 // InsertGadgetNoteCommand is the "attach a note to a gadget" use case — a
 // plain flat insert (no hooks; the hook showcase belongs to the Gadget).
 type InsertGadgetNoteCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	GadgetID string
 	Text     string
 	Kind     string
@@ -50,7 +50,7 @@ var _ pipeline.InsertCommand[*qadomain.GadgetNote, InsertGadgetNoteResult] = (*I
 // pair, exercised by the composed suite: an archived note vanishes from the
 // composed `Notes` segment on default reads (the leg's own gate) and returns
 // under ?includeArchived — the R8 per-leg behavior, observed end to end.
-type ArchiveGadgetNoteCommand struct{ pipeline.CommandBaseWithID }
+type ArchiveGadgetNoteCommand struct{ pipeline.CommandByIDBase }
 
 func (*ArchiveGadgetNoteCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.GadgetNote) error {
 	return nil
@@ -59,7 +59,7 @@ func (*ArchiveGadgetNoteCommand) FromEntity(_ *configuration.AppContext, _ *qado
 	return fwresults.None{}, nil
 }
 
-type UnarchiveGadgetNoteCommand struct{ pipeline.CommandBaseWithID }
+type UnarchiveGadgetNoteCommand struct{ pipeline.CommandByIDBase }
 
 func (*UnarchiveGadgetNoteCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.GadgetNote) error {
 	return nil
@@ -75,7 +75,7 @@ func (*UnarchiveGadgetNoteCommand) FromEntity(_ *configuration.AppContext, _ *qa
 // projection of it. No overlays: this surface shows every note (including
 // kind=internal), which is what makes the composed by-id overlay observable.
 type FindGadgetNotesQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 
@@ -94,7 +94,7 @@ func (q FindGadgetNotesQuery) ToCriteria(_ *configuration.AppContext) (fwqueries
 // (the wire layer performs structural cursor checks only) — the guarantee
 // that a developer adding a security filter never breaks pagination.
 type FindGadgetsFullQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 
@@ -118,7 +118,7 @@ func (q FindGadgetsFullQuery) ToCriteria(_ *configuration.AppContext) (fwqueries
 // shows them. The overlay filters what enters the segment; it can never select
 // or leak primary rows (framework guarantee, R2).
 type FindGadgetFullByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	IncludeArchived bool
 }
 

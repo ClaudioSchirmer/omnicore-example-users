@@ -33,7 +33,7 @@ func MountAccounts(
 	g := app.Group("/qa/accounts")
 	viewName := view.Name()
 
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		InsertAccountRequest{},
 		InsertAccountResponse{}.FromResult,
 		&handlers.SharedBaseInsertCommandHandler[*qadomain.AccountHolder, *appqa.InsertAccountHolderCommand, appqa.AccountHolderResult]{
@@ -48,7 +48,7 @@ func MountAccounts(
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
 
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindAccountByIDRequest{},
 		fwresponses.AutoFromDoc[FindAccountByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqa.FindAccountByIDQuery]{
@@ -63,7 +63,7 @@ func MountAccounts(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindAccountsRequest{},
 		fwresponses.AutoFromDoc[FindAccountsListResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{
@@ -78,7 +78,7 @@ func MountAccounts(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		FindAccountsRequest{}, view, d.Export,
 		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{Reader: d.ViewReader, View: viewName},
 		export.WithDelimiter(','))
@@ -90,7 +90,7 @@ func MountAccounts(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		FindAccountsRequest{}, view, d.Export,
 		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{Reader: d.ViewReader, View: viewName},
 		export.WithSheetName("Accounts"))

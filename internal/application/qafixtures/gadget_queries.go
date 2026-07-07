@@ -15,7 +15,7 @@ import (
 // wrapper has already parsed the query string into the embedded ReadCriteria;
 // ToCriteria applies any identity-derived overlay (none here).
 type FindGadgetsQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 
@@ -23,11 +23,11 @@ func (q FindGadgetsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.Rea
 	return q.Criteria, nil
 }
 
-// FindGadgetByIDQuery is the by-id read transport. QueryBaseWithID supplies
+// FindGadgetByIDQuery is the by-id read transport. QueryByIDBase supplies
 // SetPathID + GetID; ContextName aligns the 404 NotificationContext with the
 // singular domain identity ("Gadget").
 type FindGadgetByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	IncludeArchived bool
 }
 
@@ -38,7 +38,7 @@ func (q FindGadgetByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.
 func (q FindGadgetByIDQuery) ContextName() string { return "Gadget" }
 
 // DeleteGadgetCommand triggers a hard delete; the id comes from the URL path.
-type DeleteGadgetCommand struct{ pipeline.CommandBaseWithID }
+type DeleteGadgetCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the ctx → business translation hook on the delete verb (no-op).
 func (*DeleteGadgetCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.Gadget) error {
@@ -55,7 +55,7 @@ func (*DeleteGadgetCommand) FromEntity(_ *configuration.AppContext, _ *qadomain.
 // read-side option is exercisable end to end: archiving a gadget drops it from
 // the `gadgets_hot` view (which opts into DeleteOnArchive) while it survives,
 // hidden, in the default keep-by-default `gadgets` view.
-type ArchiveGadgetCommand struct{ pipeline.CommandBaseWithID }
+type ArchiveGadgetCommand struct{ pipeline.CommandByIDBase }
 
 func (*ArchiveGadgetCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.Gadget) error {
 	return nil
@@ -64,7 +64,7 @@ func (*ArchiveGadgetCommand) FromEntity(_ *configuration.AppContext, _ *qadomain
 	return fwresults.None{}, nil
 }
 
-type UnarchiveGadgetCommand struct{ pipeline.CommandBaseWithID }
+type UnarchiveGadgetCommand struct{ pipeline.CommandByIDBase }
 
 func (*UnarchiveGadgetCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.Gadget) error {
 	return nil

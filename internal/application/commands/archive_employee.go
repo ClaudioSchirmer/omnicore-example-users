@@ -13,7 +13,7 @@ import (
 // the URL path. Unlike ArchiveUserCommand there is no Layer-2 owner-check
 // here — the Employee surface exercises Layer 1 only (the User surface
 // already covers Layer 2).
-type ArchiveEmployeeCommand struct{ pipeline.CommandBaseWithID }
+type ArchiveEmployeeCommand struct{ pipeline.CommandByIDBase }
 
 func (*ArchiveEmployeeCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.Employee) error {
 	return nil

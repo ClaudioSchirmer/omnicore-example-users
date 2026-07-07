@@ -20,7 +20,7 @@ import (
 // this role exists to prove. Declares ApplyTo (not ToEntity) to satisfy
 // pipeline.SharedBaseInsertCommand.
 type InsertEmployeeCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	Name           string
 	Email          string
 	Phone          *string

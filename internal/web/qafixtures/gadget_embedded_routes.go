@@ -29,7 +29,7 @@ import (
 func MountGadgetEmbedded(app *fiber.App, viewName string, d bootstrap.Deps) {
 	g := app.Group("/qa/gadgets-embedded")
 
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetByIDRequest{},
 		fwresponses.AutoFromDoc[FindGadgetEmbeddedByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{

@@ -19,7 +19,7 @@ import (
 // this on top. FeaturedItemID is the 1:1 embed FK — set it to an existing
 // upstream_items _id to wire the "featuredItem" segment at insert time.
 type InsertAccountHolderCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	AccountRef     string
 	DisplayName    string
 	FeaturedItemID *string
@@ -62,7 +62,7 @@ var _ pipeline.SharedBaseInsertCommand[*qadomain.AccountHolder, AccountHolderRes
 // SharedBaseView: the base fields flat, the AccountHolder role sub-document,
 // and the two external embeds (FeaturedItem 1:1 + Items 1:N).
 type FindAccountByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	IncludeArchived bool
 }
 
@@ -78,7 +78,7 @@ func (q FindAccountByIDQuery) ContextName() string { return "Account" }
 // document — a segment filter selects ROWS (the doc whose nested segment
 // matches), unlike a ComposedView where it shapes the segment at read time.
 type FindAccountsQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 

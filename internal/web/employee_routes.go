@@ -35,7 +35,7 @@ func MountEmployees(
 	employees := app.Group("/employees")
 	viewName := view.Name()
 
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		requests.InsertEmployeeRequest{},
 		requests.InsertEmployeeResponse{}.FromResult,
 		&handlers.SharedBaseInsertCommandHandler[*appdomain.Employee, *commands.InsertEmployeeCommand, commands.InsertEmployeeResult]{
@@ -50,7 +50,7 @@ func MountEmployees(
 		},
 		fwopenapi.RequirePermission("employees:write"))
 
-	updateH, updateSpec := fwweb.HandleCommandWithBodyIDSpec(d.Pipeline,
+	updateH, updateSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
 		requests.UpdateEmployeeRequest{},
 		requests.UpdateEmployeeResponse{}.FromResult,
 		&handlers.UpdateCommandHandler[*appdomain.Employee, *commands.UpdateEmployeeCommand, commands.UpdateEmployeeResult]{
@@ -65,7 +65,7 @@ func MountEmployees(
 		},
 		fwopenapi.RequirePermission("employees:write"))
 
-	patchH, patchSpec := fwweb.HandleCommandWithBodyIDSpec(d.Pipeline,
+	patchH, patchSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
 		requests.PatchEmployeeRequest{},
 		requests.PatchEmployeeResponse{}.FromResult,
 		&handlers.PartialUpdateCommandHandler[*appdomain.Employee, *commands.PatchEmployeeCommand, commands.PatchEmployeeResult]{
@@ -80,7 +80,7 @@ func MountEmployees(
 		},
 		fwopenapi.RequirePermission("employees:write"))
 
-	deleteH, deleteSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	deleteH, deleteSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.DeleteCommandHandler[*appdomain.Employee, *commands.DeleteEmployeeCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -94,7 +94,7 @@ func MountEmployees(
 		},
 		fwopenapi.RequirePermission("employees:delete"))
 
-	archiveH, archiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	archiveH, archiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.ArchiveCommandHandler[*appdomain.Employee, *commands.ArchiveEmployeeCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -108,7 +108,7 @@ func MountEmployees(
 		},
 		fwopenapi.RequirePermission("employees:archive"))
 
-	unarchiveH, unarchiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	unarchiveH, unarchiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.UnarchiveCommandHandler[*appdomain.Employee, *commands.UnarchiveEmployeeCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -122,7 +122,7 @@ func MountEmployees(
 		},
 		fwopenapi.RequirePermission("employees:archive"))
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindEmployeesByParamsRequest{},
 		fwresponses.AutoFromDoc[requests.FindEmployeesByParamsResponse],
 		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeeByParamsQuery]{
@@ -140,7 +140,7 @@ func MountEmployees(
 	// CSV export — same Request DTO and view query handler as GET /employees,
 	// rendered hierarchically (root at column A, each child one level in).
 	// Registered at the app root to avoid colliding with /employees/:id.
-	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		requests.FindEmployeesByParamsRequest{},
 		view,
 		d.Export,
@@ -158,7 +158,7 @@ func MountEmployees(
 		fwopenapi.RequirePermission("employees:read"))
 
 	// XLSX export — identical surface, different encoder.
-	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		requests.FindEmployeesByParamsRequest{},
 		view,
 		d.Export,

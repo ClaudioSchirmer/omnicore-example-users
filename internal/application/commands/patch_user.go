@@ -33,7 +33,7 @@ import (
 // either makes the framework UPSERT the user_configurations sibling row;
 // omitting both leaves the sibling untouched.
 type PatchUserCommand struct {
-	pipeline.CommandBaseWithID
+	pipeline.CommandWithBodyIDBase
 	Name              *string
 	Email             *string
 	Phone             *string

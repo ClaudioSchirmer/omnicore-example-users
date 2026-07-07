@@ -48,7 +48,7 @@ func UseJournal(j GadgetJournal) { journal = j }
 // aggregate declares ToEntity/FromEntity per pipeline.InsertCommand — the Auto
 // handlers.InsertCommandHandler hydrates a fresh entity and projects the result.
 type InsertGadgetCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	Code     string
 	Name     string
 	Category string

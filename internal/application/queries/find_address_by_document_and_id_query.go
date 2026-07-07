@@ -14,7 +14,7 @@ import (
 // walks the embedded addresses[] for the matching ID, matching the
 // canonical handler's shape.
 //
-// QueryBase (not QueryBaseWithID) — the manual chain assembles the
+// QueryBase (not QueryByIDBase) — the manual chain assembles the
 // Query inline from the Request DTO's path-tagged fields; no SetPathID
 // auto-bind is involved.
 type FindAddressByDocumentAndIDQuery struct {

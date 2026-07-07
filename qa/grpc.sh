@@ -173,7 +173,7 @@ else
 fi
 
 ##############################################################################
-sec "5. GetUser — HandleQueryByID"
+sec "5. GetUser — QueryByID"
 ##############################################################################
 title "5.1 GetUser by created id → 200 (poll: projection is async)"
 deadline=$(( $(date +%s) + 15 )); found=fail
@@ -198,7 +198,7 @@ else
 fi
 
 ##############################################################################
-sec "6. ArchiveUser — HandleCommandByID + hidden-by-default invariant"
+sec "6. ArchiveUser — CommandByID + hidden-by-default invariant"
 ##############################################################################
 title "6.1 ArchiveUser → 200"
 rpc ArchiveUser "{\"id\":\"$USER_ID\"}"

@@ -16,7 +16,7 @@ import (
 // InsertCatalogCommand is a plain (non-shared-base) insert: ToEntity, unlike the
 // AccountHolder shared-base upsert. FeaturedItemID wires the 1:1 embed.
 type InsertCatalogCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	Name           string
 	FeaturedItemID *string
 }
@@ -44,7 +44,7 @@ var _ pipeline.InsertCommand[*qadomain.Catalog, CatalogResult] = (*InsertCatalog
 // FindCatalogByIDQuery is the by-id read of the `qa_catalog_view` regular view:
 // the flat catalog plus the two external embeds (FeaturedItem 1:1 + Items 1:N).
 type FindCatalogByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	IncludeArchived bool
 }
 
@@ -59,7 +59,7 @@ func (q FindCatalogByIDQuery) ContextName() string { return "Catalog" }
 // materialized document, proving the read-side vocabulary works on external
 // embeds of a normal query.View exactly as it does on a shared-base view.
 type FindCatalogsQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 

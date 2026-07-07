@@ -108,7 +108,7 @@ func MountGadgetShowcase(
 
 	// DeleteOnArchive — list over `gadgets_hot`. Archived gadgets are absent here
 	// (dropped from the projection) but survive in the default `gadgets` list.
-	hotH, hotSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	hotH, hotSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
 		fwresponses.AutoFromDoc[FindGadgetsResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
@@ -125,7 +125,7 @@ func MountGadgetShowcase(
 
 	// MaxLimit — list over `gadgets_capped` (MaxLimit 5). ?limit>5 is rejected
 	// with 400 LimitExceededNotification at read time.
-	cappedH, cappedSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	cappedH, cappedSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
 		fwresponses.AutoFromDoc[FindGadgetsResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
@@ -145,7 +145,7 @@ func MountGadgetShowcase(
 	// of a typed Response. MountRaw (not the reflected Mount) because the spec
 	// generator cannot reflect over map[string]any — but the route must still go
 	// through the openapi channel to satisfy the boot guard.
-	rawH := fwweb.HandleQueryWithParams(d.Pipeline,
+	rawH := fwweb.QueryWithParams(d.Pipeline,
 		FindGadgetsRequest{},
 		fwresponses.RawDoc,
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{

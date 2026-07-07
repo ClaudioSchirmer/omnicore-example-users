@@ -27,7 +27,7 @@ func TestFindUserByIDQuery_ToCriteria_IncludeArchivedFlagPropagates(t *testing.T
 func TestFindUserByIDQuery_SetPathIDRoundtrip(t *testing.T) {
 	q := &FindUserByIDQuery{}
 	q.SetPathID("abc")
-	if got := q.GetID().Value(); got != "abc" {
+	if got := q.PathID().Value(); got != "abc" {
 		t.Errorf("expected GetID()='abc', got %q", got)
 	}
 }

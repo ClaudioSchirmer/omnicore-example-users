@@ -56,7 +56,7 @@ func (h *FindAddressByIDQueryHandler) Handle(
 	//
 	// ──────────────────────────────────────────────────────────────────────
 
-	userID := q.GetID().Value()
+	userID := q.PathID().Value()
 	doc, found, err := h.Reader.ReadByID(ctx, h.View, userID, criteria)
 	if err != nil {
 		return nil, err

@@ -17,7 +17,7 @@ import (
 // (bank account on the root, health plan on each dependent) follow the PUT
 // rule: absent (all-nil) = remove the row, present = upsert it.
 type UpdateEmployeeCommand struct {
-	pipeline.CommandBaseWithID
+	pipeline.CommandWithBodyIDBase
 	Name           string
 	Email          string
 	Phone          *string

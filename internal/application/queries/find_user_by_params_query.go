@@ -2,17 +2,16 @@ package queries
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
-	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 )
 
 // FindUserByParamsQuery is the application-side transport for a paged user
-// read. The wrapper HandleQueryWithParams has already parsed the query string
+// read. The wrapper QueryWithParams has already parsed the query string
 // into the embedded ReadCriteria; ToCriteria(ctx) then applies identity-derived
 // overlays — the Query is the only layer below the web boundary that may consume
 // ctx, and the criteria is what reaches the ViewReader, so security belongs here.
 type FindUserByParamsQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 

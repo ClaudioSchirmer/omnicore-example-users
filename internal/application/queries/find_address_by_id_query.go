@@ -7,18 +7,18 @@ import (
 
 // FindAddressByIDQuery is the application-side transport for the canonical
 // GET /users/:id/addresses/:addressId. The User UUID arrives via the
-// wrapper's `:id` auto-bind (populated by HandleQueryByID into
-// QueryBaseWithID.SetPathID); the Address UUID arrives via the Request
+// wrapper's `:id` auto-bind (populated by QueryByID into
+// QueryByIDBase.SetPathID); the Address UUID arrives via the Request
 // DTO's `path:"addressId"` tag and is forwarded by ToQuery.
 //
-// Embedding QueryBaseWithID makes the Query satisfy the framework's
-// FindByIDQuery interface (GetID/SetPathID + ContextName + ToCriteria), so
-// it plugs into HandleQueryByIDSpec alongside any other by-id route —
+// Embedding QueryByIDBase makes the Query satisfy the framework's
+// QueryByID interface (GetID/SetPathID + ContextName + ToCriteria), so
+// it plugs into QueryByIDSpec alongside any other by-id route —
 // only the handler diverges from the Auto FindByIDQueryHandler because
 // this read returns a SUB-document (one address inside the user view),
 // not the root.
 type FindAddressByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	AddressID       string
 	IncludeArchived bool
 }

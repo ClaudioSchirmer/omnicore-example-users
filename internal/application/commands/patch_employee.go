@@ -22,7 +22,7 @@ import (
 // untouched — the "PATCH does not touch the sibling" semantics the QA suite
 // asserts.
 type PatchEmployeeCommand struct {
-	pipeline.CommandBaseWithID
+	pipeline.CommandWithBodyIDBase
 	Name           *string
 	Email          *string
 	Phone          *string

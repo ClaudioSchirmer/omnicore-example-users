@@ -6,7 +6,7 @@ import (
 )
 
 // FindUserByIDQuery is the application-side transport for a by-id user read.
-// QueryBaseWithID supplies SetPathID (called by the wrapper from the URL
+// QueryByIDBase supplies SetPathID (called by the wrapper from the URL
 // segment) + GetID consumed by the framework's FindByIDQueryHandler.
 // ContextName returns "User" so the 404 NotificationContext aligns with the
 // identity the write side emits (Insert/Update/Delete notifications carry
@@ -19,7 +19,7 @@ import (
 // deleted_at gate; Limit/Sort/After/Before/Search/Projection are ignored
 // by ReadByID by design (they only make sense on a paged read).
 type FindUserByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	IncludeArchived bool
 }
 

@@ -20,7 +20,7 @@ import (
 // PUT surface does not accept it (User.BuildRules also rejects a change as a
 // safety net).
 type UpdateUserCommand struct {
-	pipeline.CommandBaseWithID
+	pipeline.CommandWithBodyIDBase
 	Name              string
 	Email             string
 	Phone             *string

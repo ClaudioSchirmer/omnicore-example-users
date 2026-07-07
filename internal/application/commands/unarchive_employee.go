@@ -10,7 +10,7 @@ import (
 
 // UnarchiveEmployeeCommand restores a soft-deleted employee (symmetric
 // cascade to the children archived alongside it). ID comes from the URL path.
-type UnarchiveEmployeeCommand struct{ pipeline.CommandBaseWithID }
+type UnarchiveEmployeeCommand struct{ pipeline.CommandByIDBase }
 
 func (*UnarchiveEmployeeCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.Employee) error {
 	return nil

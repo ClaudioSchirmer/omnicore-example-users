@@ -2,7 +2,6 @@ package queries
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
-	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 )
 
@@ -12,7 +11,7 @@ import (
 // would layer on — none here (the field-level Restrict showcase lives on the
 // User surface).
 type FindEmployeeByParamsQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 

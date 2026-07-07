@@ -10,7 +10,7 @@ import (
 
 // DeleteUserCommand triggers a hard delete (cascade addresses via FK
 // ON DELETE CASCADE). ID comes from the URL path.
-type DeleteUserCommand struct{ pipeline.CommandBaseWithID }
+type DeleteUserCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the hook for ctx → business translation on the delete verb.
 // Runs AFTER FindByID and BEFORE GetDeletable runs BuildRules in ModeDelete

@@ -170,7 +170,7 @@ assert_spec "POST /users 201 refs InsertUserResponse"  '.paths["/users/"].post.r
 assert_spec "PUT /users/{id} 200 refs UpdateUserResponse"  '.paths["/users/{id}"].put.responses["200"].content["application/json"].schema.properties.data."$ref"'  "#/components/schemas/UpdateUserResponse"
 
 # ─── Paged success envelopes — data:array + pagination ────────────────────
-# GET /users uses HandleQueryWithParamsSpec; the envelope must carry
+# GET /users uses QueryWithParamsSpec; the envelope must carry
 # data as an array of FindUsersByParamsResponse AND a top-level
 # pagination property referencing the PaginationInfo schema. Mirrors
 # fwweb.RespondPaged runtime shape.

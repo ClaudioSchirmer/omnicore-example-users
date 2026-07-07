@@ -9,7 +9,7 @@ import (
 // ─── INPUT ──────────────────────────────────────────────────────────────────
 
 // FindUsersByParamsRequest declares the wire allowlist for GET /users via
-// struct tags consumed by fwweb.HandleQueryWithParams. Filterable fields
+// struct tags consumed by fwweb.QueryWithParams. Filterable fields
 // carry a filter tag with the operators they accept; pagination/control
 // keys carry only a query tag and are recognized by the framework's reserved
 // set (limit/after/before/sort/fields/search/includeArchived).

@@ -56,7 +56,7 @@ func MountUsers(
 	users := app.Group("/users")
 	viewName := view.Name()
 
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		requests.InsertUserRequest{},
 		requests.InsertUserResponse{}.FromResult,
 		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
@@ -71,7 +71,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:write"))
 
-	updateH, updateSpec := fwweb.HandleCommandWithBodyIDSpec(d.Pipeline,
+	updateH, updateSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
 		requests.UpdateUserRequest{},
 		requests.UpdateUserResponse{}.FromResult,
 		&handlers.UpdateCommandHandler[*appdomain.User, *commands.UpdateUserCommand, commands.UpdateUserResult]{
@@ -86,7 +86,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:write"))
 
-	patchH, patchSpec := fwweb.HandleCommandWithBodyIDSpec(d.Pipeline,
+	patchH, patchSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
 		requests.PatchUserRequest{},
 		requests.PatchUserResponse{}.FromResult,
 		&handlers.PartialUpdateCommandHandler[*appdomain.User, *commands.PatchUserCommand, commands.PatchUserResult]{
@@ -101,7 +101,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:write"))
 
-	deleteH, deleteSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	deleteH, deleteSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.DeleteCommandHandler[*appdomain.User, *commands.DeleteUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -115,7 +115,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:delete"))
 
-	archiveH, archiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	archiveH, archiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -129,7 +129,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:archive"))
 
-	unarchiveH, unarchiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	unarchiveH, unarchiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.UnarchiveCommandHandler[*appdomain.User, *commands.UnarchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
@@ -143,7 +143,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:archive"))
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
 		fwresponses.AutoFromDoc[requests.FindUsersByParamsResponse],
 		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
@@ -166,7 +166,7 @@ func MountUsers(
 	// the full filtered set capped at the resolved maxExportRows. Registered at
 	// the app root (`/users.csv`) to avoid colliding with `/users/:id`. The ';'
 	// delimiter is a showcase of the mount-time CSV option.
-	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
 		view,
 		d.Export,
@@ -187,7 +187,7 @@ func MountUsers(
 	// format-neutral core (ExportPlan + Generate) is reused verbatim; only the
 	// encoder swaps. Headers are bold, numeric/typed cells stay typed, and the
 	// per-level offset becomes the spreadsheet's own column offset.
-	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
 		view,
 		d.Export,
@@ -204,7 +204,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:read"))
 
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindUserByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
@@ -235,7 +235,7 @@ func MountUsers(
 	// matching sub-document via FindAddressByIDQueryHandler — a hand-rolled
 	// handler because the framework has no Auto "child of view doc" path.
 
-	changeAddrH, changeAddrSpec := fwweb.HandleCommandWithBodyIDSpec(d.Pipeline,
+	changeAddrH, changeAddrSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
 		requests.ChangeAddressRequest{},
 		requests.ChangeAddressResponse{}.FromResult,
 		&handlers.UpdateCommandHandler[*appdomain.User, *commands.ChangeAddressCommand, commands.ChangeAddressResult]{
@@ -250,7 +250,7 @@ func MountUsers(
 		},
 		fwopenapi.RequirePermission("users:write"))
 
-	findAddrH, findAddrSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	findAddrH, findAddrSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindAddressByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindAddressByIDResponse],
 		&appquery.FindAddressByIDQueryHandler{

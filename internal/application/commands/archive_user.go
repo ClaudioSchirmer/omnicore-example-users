@@ -9,7 +9,7 @@ import (
 )
 
 // ArchiveUserCommand triggers a soft-delete. ID comes from the URL path.
-type ArchiveUserCommand struct{ pipeline.CommandBaseWithID }
+type ArchiveUserCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the hook for ctx → business translation on the archive verb.
 // The framework calls it AFTER FindByID hydrates the aggregate and BEFORE

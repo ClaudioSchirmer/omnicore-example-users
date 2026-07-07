@@ -27,7 +27,7 @@ func MountPersons(
 	persons := app.Group("/persons")
 	viewName := view.Name()
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
 		fwresponses.AutoFromDoc[requests.FindPersonsByParamsResponse],
 		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonByParamsQuery]{
@@ -42,7 +42,7 @@ func MountPersons(
 		},
 		fwopenapi.RequirePermission("persons:read"))
 
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindPersonByIDRequest{},
 		fwresponses.AutoFromDoc[requests.FindPersonByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqueries.FindPersonByIDQuery]{
@@ -60,7 +60,7 @@ func MountPersons(
 	// CSV export — same Request DTO and view query handler as GET /persons,
 	// rendered hierarchically (root at column A; addresses and each role branch
 	// one level in; a role's own collections one level further).
-	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
 		view,
 		d.Export,
@@ -78,7 +78,7 @@ func MountPersons(
 		fwopenapi.RequirePermission("persons:read"))
 
 	// XLSX export — identical surface, different encoder.
-	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
 		view,
 		d.Export,

@@ -13,7 +13,7 @@ import (
 // reference-counts the shared Person — the base purges only when NO role of
 // any type still references it, under the vetoable-savepoint rules).
 // ID comes from the URL path.
-type DeleteEmployeeCommand struct{ pipeline.CommandBaseWithID }
+type DeleteEmployeeCommand struct{ pipeline.CommandByIDBase }
 
 func (*DeleteEmployeeCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.Employee) error {
 	return nil

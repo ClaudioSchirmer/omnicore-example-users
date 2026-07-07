@@ -20,7 +20,7 @@ import (
 // SharedBaseInsertCommandHandler. No JSON tags (wire format lives in
 // web/requests/InsertUserRequest); types mirror the Request 1:1.
 type InsertUserCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	Name              string
 	Email             string
 	Phone             *string

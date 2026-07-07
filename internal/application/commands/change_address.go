@@ -30,7 +30,7 @@ import (
 //
 // No JSON tags; shape mirrors ChangeAddressRequest 1:1.
 type ChangeAddressCommand struct {
-	pipeline.CommandBaseWithID
+	pipeline.CommandWithBodyIDBase
 	AddressID string
 	Address   dtos.AddressInput
 }

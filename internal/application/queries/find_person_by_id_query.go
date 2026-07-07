@@ -12,7 +12,7 @@ import (
 // document. ContextName returns "Person" so the 404 NotificationContext names
 // the identity, not the collection.
 type FindPersonByIDQuery struct {
-	fwqueries.QueryBaseWithID
+	fwqueries.QueryByIDBase
 	IncludeArchived bool
 }
 

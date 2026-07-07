@@ -2,7 +2,6 @@ package queries
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
-	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 )
 
@@ -12,7 +11,7 @@ import (
 // ReadCriteria; ToCriteria(ctx) is where identity-derived overlays would layer
 // on — none here.
 type FindPersonByParamsQuery struct {
-	pipeline.QueryBase
+	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
 

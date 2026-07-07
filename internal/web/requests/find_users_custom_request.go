@@ -13,7 +13,7 @@ import (
 // /users surface uses. Filterable fields carry `query:"X" filter:"ops"`;
 // pagination/control keys carry only `query:"X"`. The manual route invokes
 // fwweb.ParseCriteria over this DTO to apply the same reflection-based
-// validation HandleQueryWithParams uses internally — chaves desconhecidas
+// validation QueryWithParams uses internally — chaves desconhecidas
 // viram 400 instead of being silently ignored, closing the asymmetry the
 // previous hand-parsed implementation carried.
 type FindUsersCustomRequest struct {

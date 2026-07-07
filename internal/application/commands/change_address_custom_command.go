@@ -17,7 +17,7 @@ import (
 //  1. Identifier is Email instead of User UUID (matches the manual
 //     showcase's surface convention; ApplyTo doesn't see Email — it just
 //     mutates the User the handler already loaded via FindByDocument).
-//  2. No pipeline.CommandBaseWithID — the manual chain does not consume the
+//  2. No pipeline.CommandByIDBase — the manual chain does not consume the
 //     SetPathID hook. The route handler assembles the command inline from
 //     the Request DTO's path-bound fields.
 //

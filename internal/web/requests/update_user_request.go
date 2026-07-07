@@ -13,7 +13,7 @@ import (
 // body — UpdateCommandHandler embeds FullBody in the framework). Shape
 // mirrors UpdateUserCommand 1:1. All exported fields are mandatory — a field
 // missing from the JSON fires 400 with RequiredFieldNotification per field
-// (semantic Schema), via HandleCommandWithBodyID + FullBody marker.
+// (semantic Schema), via CommandWithBodyID + FullBody marker.
 // Document is absent: it is the immutable natural key (not editable on any
 // surface). EmailNotification/SmsNotification are *bool so PUT can clear the
 // sibling by sending them null (a full replace with both null removes the

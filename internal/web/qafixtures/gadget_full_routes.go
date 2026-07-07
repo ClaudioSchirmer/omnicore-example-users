@@ -32,7 +32,7 @@ func MountGadgetNotes(
 ) {
 	g := app.Group("/qa/gadget-notes")
 
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		InsertGadgetNoteRequest{},
 		InsertGadgetNoteResponse{}.FromResult,
 		&handlers.InsertCommandHandler[*qadomain.GadgetNote, *appqa.InsertGadgetNoteCommand, appqa.InsertGadgetNoteResult]{
@@ -47,7 +47,7 @@ func MountGadgetNotes(
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetNotesRequest{},
 		fwresponses.AutoFromDoc[FindGadgetNotesResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetNotesQuery]{
@@ -62,7 +62,7 @@ func MountGadgetNotes(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	archiveH, archiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	archiveH, archiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.ArchiveCommandHandler[*qadomain.GadgetNote, *appqa.ArchiveGadgetNoteCommand, fwresults.None]{
 			Repo: repo,
@@ -76,7 +76,7 @@ func MountGadgetNotes(
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))
 
-	unarchiveH, unarchiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	unarchiveH, unarchiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.UnarchiveCommandHandler[*qadomain.GadgetNote, *appqa.UnarchiveGadgetNoteCommand, fwresults.None]{
 			Repo: repo,
@@ -103,7 +103,7 @@ func MountGadgetsFull(
 ) {
 	g := app.Group("/qa/gadgets-full")
 
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsFullRequest{},
 		fwresponses.AutoFromDoc[FindGadgetsFullResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery]{
@@ -118,7 +118,7 @@ func MountGadgetsFull(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetFullByIDRequest{},
 		fwresponses.AutoFromDoc[FindGadgetFullByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqa.FindGadgetFullByIDQuery]{
@@ -136,7 +136,7 @@ func MountGadgetsFull(
 	// CSV export over the composed name — same Request DTO, same handler; the
 	// ComposedViewDefinition satisfies the ExportView surface (its plan is the
 	// primary's tree + one branch per leg).
-	csvH, csvSpec := fwweb.HandleQueryAsCSVSpec(d.Pipeline,
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		FindGadgetsFullRequest{},
 		composed,
 		d.Export,
@@ -155,7 +155,7 @@ func MountGadgetsFull(
 
 	// XLSX export — identical surface, different encoder (format-neutral core
 	// reused verbatim, exactly like the canonical /users.xlsx twin).
-	xlsxH, xlsxSpec := fwweb.HandleQueryAsXLSXSpec(d.Pipeline,
+	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		FindGadgetsFullRequest{},
 		composed,
 		d.Export,

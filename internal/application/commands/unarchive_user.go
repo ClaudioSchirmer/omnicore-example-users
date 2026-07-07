@@ -9,7 +9,7 @@ import (
 )
 
 // UnarchiveUserCommand restores a soft-deleted user. ID comes from the URL path.
-type UnarchiveUserCommand struct{ pipeline.CommandBaseWithID }
+type UnarchiveUserCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the hook for ctx → business translation on the unarchive verb.
 // Symmetric to ArchiveUserCommand.ApplyTo — runs AFTER the archived

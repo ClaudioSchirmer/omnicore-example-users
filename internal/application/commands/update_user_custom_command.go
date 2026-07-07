@@ -14,7 +14,7 @@ import (
 //
 //  1. Identification is by Document (the showcase mounts /:document in the
 //     path), not the database UUID. DocumentKey is populated by the route
-//     handler before Dispatch — there is no pipeline.CommandBaseWithID
+//     handler before Dispatch — there is no pipeline.CommandByIDBase
 //     machinery because the manual path does not consume the SetPathID hook.
 //
 //  2. The mutable surface does NOT carry Document. Document is the immutable

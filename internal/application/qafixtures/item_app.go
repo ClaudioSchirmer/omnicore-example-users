@@ -16,7 +16,7 @@ import (
 // InsertItemCommand creates an Item — a flat insert whose only purpose is to
 // feed the `upstream_items` projection the shared-base view embeds.
 type InsertItemCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	AccountID *string
 	CatalogID *string
 	Label     string
@@ -41,7 +41,7 @@ func (c *InsertItemCommand) FromEntity(_ *configuration.AppContext, i *qadomain.
 //
 // Non-nil fields are applied; a nil field is left unchanged (partial semantics).
 type UpdateItemCommand struct {
-	pipeline.CommandBaseWithID
+	pipeline.CommandWithBodyIDBase
 	Label     *string
 	AccountID *string
 	CatalogID *string
@@ -67,7 +67,7 @@ func (c *UpdateItemCommand) FromEntity(_ *configuration.AppContext, i *qadomain.
 // DeleteItemCommand hard-deletes an Item — the lever for the delete ripple: the
 // item drops from its parent's Items array (onUpstreamDelete=cascade removes the
 // upstream_items doc, then the ripple recomposes the parent it belonged to).
-type DeleteItemCommand struct{ pipeline.CommandBaseWithID }
+type DeleteItemCommand struct{ pipeline.CommandByIDBase }
 
 func (*DeleteItemCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.Item) error {
 	return nil

@@ -27,7 +27,7 @@ const usersViewName = "users"
 
 // MountUsersCustom registers the manual showcase of the User aggregate
 // under /showcase/users-custom/*. Each route writes out the Fiber-handler
-// equivalent of what fwweb.HandleCommandWithBody{,ID} / HandleCommandByID
+// equivalent of what fwweb.CommandWithBody{,ID} / CommandByID
 // hide on the canonical /users/* surface:
 //
 //  1. fwweb.BindPath(c, &req) — every route, body-carrying and bodyless
@@ -71,7 +71,7 @@ func MountUsersCustom(
 	tags := []string{"Users — manual showcase"}
 
 	// QueryParsers are constructed once at Mount so the framework runs the
-	// same boot scan HandleQueryWithParams runs on the canonical surface:
+	// same boot scan QueryWithParams runs on the canonical surface:
 	// fields-side structural guard (panic on any field that violates the
 	// sparse-render contract — *T + ,omitempty recursively) when the
 	// Request opts into `?fields=`, sort-side advisory (slog.Warn listing
@@ -91,8 +91,8 @@ func MountUsersCustom(
 	byDocumentParser := fwweb.NewQueryParser[requests.FindUserByDocumentCustomRequest, requests.FindUserByDocumentCustomResponse]()
 
 	// Manual-with-pipeline routes route through openapi.Mount + a hand-crafted
-	// RouteSpec because the wrappers' siblings (HandleCommandWith*Spec /
-	// HandleQueryWith*Spec) only cover the canonical wrapper path. Both
+	// RouteSpec because the wrappers' siblings (CommandWith*Spec /
+	// QueryWith*Spec) only cover the canonical wrapper path. Both
 	// surfaces register against the SAME d.OpenAPIRegistry — the showcase
 	// proves the manual path is a first-class citizen on the documentation
 	// layer, not a second-tier escape hatch.
@@ -509,7 +509,7 @@ func customDeleteUser(
 // read the archived snapshot — matches the canonical
 // /users/:id?includeArchived=true behavior. Unknown query params are
 // rejected with the canonical 400 envelope via the QueryParser constructed
-// at Mount time (same allowlist HandleQueryWithParams runs internally).
+// at Mount time (same allowlist QueryWithParams runs internally).
 
 func customGetUserByDocument(
 	pipe *pipeline.Pipeline,
@@ -546,7 +546,7 @@ func customGetUserByDocument(
 // Paged list. The route delegates to a Mount-time-constructed QueryParser
 // that validates the query string against requests.FindUsersCustomRequest's
 // `query:` and `filter:` tags — same reflection-based allowlist
-// HandleQueryWithParams uses internally — AND threads the wire→doc
+// QueryWithParams uses internally — AND threads the wire→doc
 // projection schema built from FindUsersCustomResponse into ?fields=
 // + ?sort= translation. The Request DTO opts into both reserved keys, so
 // the parser's construction ran the sparse-render boot guard on the
@@ -671,7 +671,7 @@ func customGetAddressByDocumentAndID(
 
 // respondCustomSchemaViolation is the manual showcase's substitute for the
 // framework's package-private respondSchemaViolation. When the consumer
-// sends malformed JSON, the canonical wrappers (HandleCommandWithBody) emit
+// sends malformed JSON, the canonical wrappers (CommandWithBody) emit
 // a typed SchemaViolationNotification carried in a Schema-semantic context;
 // here we return the same 400 status with the bare envelope so the wire
 // shape stays compatible, at the cost of the typed notificationKey. The

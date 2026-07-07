@@ -29,7 +29,7 @@ func MountItems(
 ) {
 	g := app.Group("/qa/items")
 
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		InsertItemRequest{},
 		ItemResponse{}.FromResult,
 		&handlers.InsertCommandHandler[*qadomain.Item, *appqa.InsertItemCommand, appqa.ItemResult]{
@@ -44,7 +44,7 @@ func MountItems(
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
 
-	patchH, patchSpec := fwweb.HandleCommandWithBodyIDSpec(d.Pipeline,
+	patchH, patchSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
 		UpdateItemRequest{},
 		ItemResponse{}.FromResult,
 		&handlers.PartialUpdateCommandHandler[*qadomain.Item, *appqa.UpdateItemCommand, appqa.ItemResult]{
@@ -59,7 +59,7 @@ func MountItems(
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
 
-	deleteH, deleteSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	deleteH, deleteSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.DeleteCommandHandler[*qadomain.Item, *appqa.DeleteItemCommand, fwresults.None]{
 			Repo: repo,

@@ -33,7 +33,7 @@ import (
 // ─── Provoke: the full Semantic → code table through a real dispatch ───────
 
 type provokeCommand struct {
-	pipeline.CommandBase
+	pipeline.CommandWithBodyBase
 	Semantic string
 }
 

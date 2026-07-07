@@ -40,7 +40,7 @@ func MountGadgets(
 
 	// Auto insert — the framework detects the command's AfterBegin/BeforeCommit
 	// provider methods and fires them inside the write TX.
-	insertH, insertSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	insertH, insertSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		InsertGadgetRequest{},
 		InsertGadgetResponse{}.FromResult,
 		&handlers.InsertCommandHandler[*qadomain.Gadget, *appqa.InsertGadgetCommand, appqa.InsertGadgetResult]{
@@ -57,7 +57,7 @@ func MountGadgets(
 
 	// Manual insert — same lifecycle by hand, hooks attached as closures via
 	// WithAfterBegin/WithBeforeCommit on repo.Scope.
-	customH, customSpec := fwweb.HandleCommandWithBodySpec(d.Pipeline,
+	customH, customSpec := fwweb.CommandWithBodySpec(d.Pipeline,
 		InsertGadgetRequest{},
 		InsertGadgetResponse{}.FromResult,
 		&appqa.InsertGadgetCustomHandler{Repo: repo, Journal: journal, Publisher: publisher},
@@ -72,7 +72,7 @@ func MountGadgets(
 		fwopenapi.RequirePermission("gadgets:write"))
 
 	// List — the full filter-operator vocabulary.
-	listH, listSpec := fwweb.HandleQueryWithParamsSpec(d.Pipeline,
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
 		fwresponses.AutoFromDoc[FindGadgetsResponse],
 		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
@@ -88,7 +88,7 @@ func MountGadgets(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	// By id.
-	byIDH, byIDSpec := fwweb.HandleQueryByIDSpec(d.Pipeline,
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetByIDRequest{},
 		fwresponses.AutoFromDoc[FindGadgetByIDResponse],
 		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{
@@ -104,7 +104,7 @@ func MountGadgets(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	// Delete — hard delete via the Auto DeleteCommandHandler.
-	deleteH, deleteSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	deleteH, deleteSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.DeleteCommandHandler[*qadomain.Gadget, *appqa.DeleteGadgetCommand, fwresults.None]{
 			Repo: repo,
@@ -121,7 +121,7 @@ func MountGadgets(
 	// Archive / Unarchive — the soft-delete pair, so the DeleteOnArchive view
 	// (gadgets_hot) can be exercised: archive drops the doc there but keeps it
 	// (hidden) in the default gadgets view.
-	archiveH, archiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	archiveH, archiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.ArchiveCommandHandler[*qadomain.Gadget, *appqa.ArchiveGadgetCommand, fwresults.None]{
 			Repo: repo,
@@ -135,7 +135,7 @@ func MountGadgets(
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))
 
-	unarchiveH, unarchiveSpec := fwweb.HandleCommandByIDSpec(d.Pipeline,
+	unarchiveH, unarchiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
 		&handlers.UnarchiveCommandHandler[*qadomain.Gadget, *appqa.UnarchiveGadgetCommand, fwresults.None]{
 			Repo: repo,

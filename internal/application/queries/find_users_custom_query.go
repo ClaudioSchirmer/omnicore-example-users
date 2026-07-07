@@ -15,7 +15,7 @@ import (
 //
 // Why no Request DTO with filter tags shared with the canonical:
 // FindUsersByParamsRequest declares the allowlist via struct tags consumed
-// by HandleQueryWithParams reflection. The manual chain skips that
+// by QueryWithParams reflection. The manual chain skips that
 // wrapper but still feeds the same ParseCriteria — see web/user_custom_routes.go.
 type FindUsersCustomQuery struct {
 	pipeline.QueryBase
