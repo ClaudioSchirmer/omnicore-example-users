@@ -15,18 +15,19 @@ Condensed; the full reasoning lives in [`../omnicore/CLAUDE.md`](../omnicore/CLA
 2. **The `qa/` suites are an oracle, not editable to pass.** A failing case is a signal — investigate the real cause, report, wait for approval before touching any expectation/fixture. Adding new cases for new behavior is fine and expected.
 3. **Unit-test every change.** Wrap up a round with green `go build -tags postgres ./... && go vet -tags postgres ./... && go test -tags postgres ./... -count=1` (this service's dialect is postgres). Then ask via `AskUserQuestion` whether to also run the E2E suites — recommend the relevant subset, always offer "run all".
 4. **Verify, never guess** — back every claim about the code with a `Read`/`grep`, including while planning.
-5. **English everywhere** except the seven translation catalogs in `application/translations/` (`ptbr`/`eng`/`esp`/`fra`/`deu`/`ita`/`nld`).
+5. **English everywhere** except the seven translation catalogs in `internal/application/translations/` (`ptbr`/`eng`/`esp`/`fra`/`deu`/`ita`/`nld`).
 6. **The AI never writes git history.** Get onto a coherent branch at task start (`feature|fix|docs|refactor/<slug>` via `git checkout -b` off `main`, or `git branch -m` to rename an in-flight branch); apply edits; deliver one English commit-message suggestion as chat text. No commit/push/tag/PR/release.
 7. **This file is current state, not history** — no "Phase N", no changelog/dated entries, no references to removed APIs.
 
 ## Layout
 
-Standard DDD layers consuming the framework:
+Standard DDD layers consuming the framework. The four layers live under `internal/` (Go's compiler-enforced "private to this module" root — everything in this repo imports them freely, no other module can); the published gRPC contract lives beside it in `proto/`:
 
-- `domain/` — `User` + `Employee` (`AggregateRoot`s over the same Person identity), `Address` (base-child `AggregateValueObject`, shared across roles), `Dependent` (role child carrying the health-plan sibling facet) + `JobHistory` (role child), custom notifications, the manual-showcase repository port. Pure, zero IO.
-- `application/` — `commands/` (+ co-located Results + manual `commands/handlers/`), `queries/` (+ manual `queries/handlers/`), `dtos/`, `translations/` (7 catalogs).
-- `infra/` — `schema.go` (the explicit `TableSchema` Go↔column map, threaded into both repos + the view), repositories, `views.go`, `external/` (outbound HTTP adapters wrapping `omnicore/infra/httpclient`). Go only.
-- `web/` — Fiber routes (`MountXxx` per concern), `requests/` (+ co-located Responses), `responses/`. Owner of wire tags.
+- `internal/domain/` — `User` + `Employee` (`AggregateRoot`s over the same Person identity), `Address` (base-child `AggregateValueObject`, shared across roles), `Dependent` (role child carrying the health-plan sibling facet) + `JobHistory` (role child), custom notifications, the manual-showcase repository port. Pure, zero IO.
+- `internal/application/` — `commands/` (+ co-located Results + manual `commands/handlers/`), `queries/` (+ manual `queries/handlers/`), `dtos/`, `translations/` (7 catalogs).
+- `internal/infra/` — `schema.go` (the explicit `TableSchema` Go↔column map, threaded into both repos + the view), repositories, `views.go`, `external/` (outbound HTTP adapters wrapping `omnicore/infra/httpclient`). Go only.
+- `internal/web/` — Fiber routes (`MountXxx` per concern), `requests/` (+ co-located Responses), `responses/`. Owner of wire tags.
+- `proto/` — the service-owned protobuf contract (`users/v1/users.proto`, qa `qafixtures/v1/qa.proto`) plus `gen/` (committed generated Go — dependency-free, importable by BOTH `internal/web` and `internal/infra`, which is why it sits outside `internal/web`) and `generate.sh` (the official protoc invocation, incl. the `-I` into the framework checkout for the shared `omnicore/v1/query.proto`). Outside `internal/` on purpose: the contract is the publishable piece another team copies to call this service.
 - `bootstrap/` — `package main`: `main.go` (~10 lines), `wire.go`, one `*_feature.go` per feature.
 - `migrations/{postgres,mysql}/` — domain DDL split by dialect; service migrations start at `0002` (the framework injects `0001`).
 - `devops/` — local bench (`docker-compose.yml`, `debezium/`, `keycloak/`, `elk/`); replaced by real infra in production.
@@ -42,7 +43,7 @@ For any framework concept (BaseEntity, Rules DSL, Pipeline, Auto handlers, BaseR
 - **Backend-agnostic.** Repos/service/tests take the neutral `core.RelationalEngine` (`Deps.DB`); the SQL backend is chosen by `relational.dialect` in YAML. Only the YAML, `devops/`, and `qa/*.sh` name a concrete backend.
 - **Manual showcase** (`/showcase/users-custom/*`) persists the SAME `users`/`addresses` tables as `/users/*`; it exists to make the wrapper internals visible. Identifier is the user's **email** (`path:"email"`), treated as immutable on that surface. Projection still reuses framework infrastructure (`AutoFromDoc`/`RespondPaged`) — "manual" means the orchestration steps, not re-implementing primitives.
 - **Authorization** — all three framework layers are exercised: Layer 1 (`fwopenapi.RequirePermission` on routes), Layer 2 (`BuildRules` owner-check via `actionName == "GetArchivable"`, fields fed by the Command mapper from `ctx.Identity()`), Layer 3 (tenant) wired but not exercised (User has no `tenant_id`).
-- **Nullables** — empty JSON input → nil → NULL (`User.Phone`, `Address.Label`/`Complement`); no `db:` tags, the Go↔column map lives in `infra/schema.go`.
+- **Nullables** — empty JSON input → nil → NULL (`User.Phone`, `Address.Label`/`Complement`); no `db:` tags, the Go↔column map lives in `internal/infra/schema.go`.
 
 ## How to run
 

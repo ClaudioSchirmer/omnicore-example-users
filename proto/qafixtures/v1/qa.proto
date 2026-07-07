@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package qafixtures.v1;
 
-option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/gen/qafixturesv1";
+option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1";
 
 import "google/protobuf/field_mask.proto";
 import "omnicore/v1/query.proto";

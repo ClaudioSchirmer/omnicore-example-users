@@ -8,8 +8,8 @@ import (
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 
-	appqa "github.com/ClaudioSchirmer/omnicore-example-users/application/qafixtures"
-	webqa "github.com/ClaudioSchirmer/omnicore-example-users/web/qafixtures"
+	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
+	webqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/web/qafixtures"
 )
 
 // qaFeatures returns the QA-only features appended to the canonical set when

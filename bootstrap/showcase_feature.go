@@ -5,8 +5,8 @@ package main
 import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 
-	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
-	webqa "github.com/ClaudioSchirmer/omnicore-example-users/web/qafixtures"
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/qafixtures"
+	webqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/web/qafixtures"
 
 	"github.com/gofiber/fiber/v3"
 )

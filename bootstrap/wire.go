@@ -7,7 +7,7 @@ import (
 	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 	"github.com/ClaudioSchirmer/omnicore/web/openapi"
 
-	apptrans "github.com/ClaudioSchirmer/omnicore-example-users/application/translations"
+	apptrans "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/translations"
 )
 
 // Wire concentrates translations + features that the service exposes. Called

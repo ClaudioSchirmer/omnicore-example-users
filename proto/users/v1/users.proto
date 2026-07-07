@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package users.v1;
 
-option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/gen/usersv1";
+option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/usersv1";
 
 import "google/protobuf/field_mask.proto";
 import "omnicore/v1/query.proto";
