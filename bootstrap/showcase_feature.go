@@ -5,8 +5,8 @@ package main
 import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 
-	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
-	webqa "github.com/ClaudioSchirmer/omnicore-example-users/web/qafixtures"
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/qafixtures"
+	webqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/web/qafixtures"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -29,8 +29,10 @@ import (
 // bootstrap.Feature only. KeycloakService and EchoService are constructed over
 // the shared HttpClient registry the framework exposes on bootstrap.Deps.
 type ShowcaseFeature struct {
-	kc   *infraqa.KeycloakService
-	echo *infraqa.EchoService
+	kc        *infraqa.KeycloakService
+	echo      *infraqa.EchoService
+	grpcUsers *infraqa.UsersGRPCService
+	grpcQA    *infraqa.QAGRPCService
 }
 
 // NewShowcaseFeature builds the outbound adapters over the shared HttpClient.
@@ -38,7 +40,27 @@ func NewShowcaseFeature(d bootstrap.Deps) *ShowcaseFeature {
 	return &ShowcaseFeature{
 		kc:   infraqa.NewKeycloakService(d.HttpClient),
 		echo: infraqa.NewEchoService(d.HttpClient),
+		// The grpcclient adapter resolves at composition time; nil when the
+		// grpcClient yaml block is absent — the showcase route answers 503.
+		grpcUsers: newUsersGRPCServiceOrNil(d),
+		grpcQA:    newQAGRPCServiceOrNil(d),
 	}
+}
+
+func newQAGRPCServiceOrNil(d bootstrap.Deps) *infraqa.QAGRPCService {
+	svc, err := infraqa.NewQAGRPCService(d.GRPCClient)
+	if err != nil {
+		return nil
+	}
+	return svc
+}
+
+func newUsersGRPCServiceOrNil(d bootstrap.Deps) *infraqa.UsersGRPCService {
+	svc, err := infraqa.NewUsersGRPCService(d.GRPCClient)
+	if err != nil {
+		return nil
+	}
+	return svc
 }
 
 // Mount satisfies bootstrap.Feature — registers the framework-exercise routes.
@@ -49,4 +71,6 @@ func (f *ShowcaseFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	webqa.MountEcho(app, d)
 	webqa.MountShowcase(app, f.kc, f.echo, d)
 	webqa.MountCacheShowcase(app, d)
+	webqa.MountGrpcClientShowcase(app, f.grpcUsers, f.grpcQA, d)
+	webqa.MountGrpcClientResilience(app, f.grpcQA, d)
 }

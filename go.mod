@@ -3,13 +3,15 @@ module github.com/ClaudioSchirmer/omnicore-example-users
 go 1.26.3
 
 require (
-	github.com/ClaudioSchirmer/omnicore v0.19.0
+	github.com/ClaudioSchirmer/omnicore v0.20.0
 	github.com/gofiber/fiber/v3 v3.3.0
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 )
 
 require (
+	connectrpc.com/connect v1.20.0 // indirect
+	connectrpc.com/grpcreflect v1.3.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/MicahParks/jwkset v0.11.0 // indirect
 	github.com/MicahParks/keyfunc/v3 v3.8.0 // indirect

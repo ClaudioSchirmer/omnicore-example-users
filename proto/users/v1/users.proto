@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+package users.v1;
+
+option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/usersv1";
+
+import "google/protobuf/field_mask.proto";
+import "omnicore/v1/query.proto";
+
+// UsersService is the gRPC surface of the User aggregate — the same
+// application-layer handlers the REST /users routes and the GraphQL fields
+// dispatch to, behind hand-written proto contracts (tasks/grpc.md: contracts
+// are designed, never generated from DTOs).
+service UsersService {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc ArchiveUser(ArchiveUserRequest) returns (ArchiveUserResponse);
+}
+
+// Command fields are `optional` (explicit presence): absent and zero-value
+// are distinct on the wire, mirroring the JSON body semantics.
+message CreateUserRequest {
+  optional string name = 1;
+  optional string email = 2;
+  optional string phone = 3;
+  optional string document = 4;
+  optional string user_name = 5;
+  optional bool email_notification = 6;
+  optional bool sms_notification = 7;
+}
+
+message CreateUserResponse {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  optional string phone = 4;
+  string document = 5;
+  string user_name = 6;
+}
+
+// UserFilters is the view's typed filter surface — each declared field is
+// a filterable Go field path; anything not declared here is not filterable
+// (the message IS the allowlist).
+message UserFilters {
+  omnicore.v1.StringFilter user_name = 1;
+  omnicore.v1.StringFilter name = 2;
+}
+
+message ListUsersRequest {
+  omnicore.v1.PageRequest page = 1;
+  repeated omnicore.v1.SortField sort = 2;
+  google.protobuf.FieldMask read_mask = 3;
+  UserFilters filters = 4;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  string document = 4;
+  string user_name = 5;
+  // Restricted leaf: projected only for users:admin (the query type's
+  // ToCriteria Restrict) — also the read_mask/sort path the authz suites
+  // probe. optional: absent and empty are distinct.
+  optional string phone = 6;
+}
+
+message ListUsersResponse {
+  repeated User items = 1;
+  omnicore.v1.PageInfo page_info = 2;
+}
+
+message GetUserRequest {
+  optional string id = 1;
+  bool include_archived = 2;
+}
+
+message GetUserResponse {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  string document = 4;
+  string user_name = 5;
+}
+
+message ArchiveUserRequest {
+  optional string id = 1;
+}
+
+message ArchiveUserResponse {}
+
+// AddressInput mirrors the REST AddressRequest — the update replaces the
+// person's address collection atomically, so the full list rides the call.
+message AddressInput {
+  optional string label = 1;
+  optional string street = 2;
+  optional string number = 3;
+  optional string complement = 4;
+  optional string neighborhood = 5;
+  optional string city = 6;
+  optional string state = 7;
+  optional string zip_code = 8;
+}
+
+// UpdateUserRequest is the WithBodyID sibling of PUT /users/:id — the id
+// plus the FULL body (the handler embeds FullBody: the strict set below is
+// enforced by fwgrpc.Strict on the mount).
+message UpdateUserRequest {
+  optional string id = 1;
+  optional string name = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  optional string user_name = 5;
+  optional bool email_notification = 6;
+  optional bool sms_notification = 7;
+  repeated AddressInput addresses = 8;
+}
+
+message UpdateUserResponse {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  optional string phone = 4;
+  string user_name = 5;
+}

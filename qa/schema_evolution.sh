@@ -31,7 +31,7 @@
 # Companion to qa/e2e.sh (endpoint coverage under auth disabled) and the rest
 # of the suite. The script manages the server lifecycle itself (build binary,
 # start, kill_port-guarded boot, cleanup trap) and ALWAYS restores
-# infra/views.go on any exit path so a failed run never leaves the developer
+# internal/infra/views.go on any exit path so a failed run never leaves the developer
 # tree in a patched state.
 #
 # Prerequisites:
@@ -53,7 +53,7 @@ SERVER_BIN_V2_ARTIFACT="/tmp/omnicore-example-users-qa-schema-v2-artifact"
 SERVER_LOG="/tmp/omnicore-example-users-qa-schema.log"
 CDC_WAIT_SEC="${CDC_WAIT_SEC:-60}"
 
-VIEWS_SRC="$REPO_ROOT/infra/views.go"
+VIEWS_SRC="$REPO_ROOT/internal/infra/views.go"
 VIEWS_BAK="/tmp/omnicore-example-qa-views.go.bak"
 
 YAML_ALLOW_DOWNGRADE="/tmp/omnicore-example-qa-schema-allowdowngrade.yaml"
@@ -501,7 +501,7 @@ echo "Server stopped cleanly"
 
 sec "Phase 6 — DriftRebuildRequired via Version(1)→Version(2) bump"
 
-title "Patch infra/views.go to .Version(2), build v2 binary, restore source"
+title "Patch internal/infra/views.go to .Version(2), build v2 binary, restore source"
 patch_views_to_version 2 || exit 1
 build_binary "$SERVER_BIN_V2" || { echo "ERROR: v2 build failed" >&2; restore_views_source; exit 1; }
 restore_views_source
@@ -541,7 +541,7 @@ stop_server
 
 sec "Phase 7 — DriftArtifactOnly via extra Index(\"phone\")"
 
-title "Patch infra/views.go to .Version(2) + Index(\"phone\"), build, restore source"
+title "Patch internal/infra/views.go to .Version(2) + Index(\"phone\"), build, restore source"
 patch_views_v2_with_phone_index || exit 1
 build_binary "$SERVER_BIN_V2_ARTIFACT" || { echo "ERROR: v2+phone build failed" >&2; restore_views_source; exit 1; }
 restore_views_source

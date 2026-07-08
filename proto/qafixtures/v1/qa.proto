@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package qafixtures.v1;
+
+option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1";
+
+import "google/protobuf/field_mask.proto";
+import "omnicore/v1/query.proto";
+
+// QAService is the qa-only gRPC fixture surface (//go:build qa consumers
+// only — invisible to the canonical binary): Provoke drives the FULL
+// Semantic→code table through a real dispatch; ListGadgets exercises the
+// COMPLETE StringOp vocabulary over the shared omnicore.v1 components
+// against the qa Gadget view; FlakyEcho and Boom are transport fixtures
+// (raw-mounted) feeding the grpcclient's deterministic retry, idempotency
+// and circuit-breaker e2e checks.
+service QAService {
+  rpc Provoke(ProvokeRequest) returns (ProvokeResponse);
+  rpc ListGadgets(ListGadgetsRequest) returns (ListGadgetsResponse);
+  rpc FlakyEcho(FlakyEchoRequest) returns (FlakyEchoResponse);
+  rpc Boom(BoomRequest) returns (BoomResponse);
+}
+
+// ProvokeRequest names the NotificationSemantic to emit: validation,
+// schema, not_found, conflict, state_conflict, forbidden, unauthorized,
+// unavailable, method_not_allowed, payload_too_large, gateway_timeout —
+// or "internal" (a plain error through the exception path).
+message ProvokeRequest {
+  optional string semantic = 1;
+}
+
+message ProvokeResponse {}
+
+message GadgetFilters {
+  omnicore.v1.StringFilter name = 1;
+  omnicore.v1.StringFilter code = 2;
+  omnicore.v1.StringFilter category = 3;
+  omnicore.v1.StringFilter status = 4;
+}
+
+message ListGadgetsRequest {
+  omnicore.v1.PageRequest page = 1;
+  repeated omnicore.v1.SortField sort = 2;
+  google.protobuf.FieldMask read_mask = 3;
+  GadgetFilters filters = 4;
+}
+
+message Gadget {
+  string id = 1;
+  string code = 2;
+  string name = 3;
+  string category = 4;
+  string status = 5;
+}
+
+message ListGadgetsResponse {
+  repeated Gadget items = 1;
+  omnicore.v1.PageInfo page_info = 2;
+}
+
+message FlakyEchoRequest {
+  optional string key = 1;
+  optional int32 fail_times = 2;
+}
+
+message FlakyEchoResponse {
+  int32 attempts = 1;
+  int32 distinct_keys = 2;
+}
+
+message BoomRequest {}
+
+message BoomResponse {}

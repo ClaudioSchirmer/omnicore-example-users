@@ -728,7 +728,7 @@ curl -sS -X DELETE "$BASE/users/$GOLD_ID" -o /dev/null -w "9.7.5 cleanup golden:
 ####################################
 sec "10. Query allowlist (filter tags + reserved by-id param)"
 ####################################
-# Exercises the HandleQueryWithParams / HandleQueryByID surface introduced by
+# Exercises the QueryWithParams / QueryByID surface introduced by
 # the queries refactor: the Request DTO declares the allowlist via
 # `query:"X" filter:"ops"` tags, the framework rejects unknown fields and
 # operators with 400, and the ?includeArchived=true reserved param flows through to

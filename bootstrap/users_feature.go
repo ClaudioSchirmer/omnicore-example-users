@@ -4,9 +4,10 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
+	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 
-	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/infra"
-	appweb "github.com/ClaudioSchirmer/omnicore-example-users/web"
+	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra"
+	appweb "github.com/ClaudioSchirmer/omnicore-example-users/internal/web"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -65,4 +66,11 @@ func (f *UsersFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 // construction). web owns the field attachment (appweb.MountUsersGraphQL).
 func (f *UsersFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) {
 	appweb.MountUsersGraphQL(reg, f.repo, nil, f.view, d)
+}
+
+// MountGRPC contributes the UsersService to the service's single gRPC
+// registry — the gRPC twin of Mount/MountGraphQL. Same repo and view, same
+// application handlers; web owns the RPC attachment (appweb.MountUsersGRPC).
+func (f *UsersFeature) MountGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
+	appweb.MountUsersGRPC(reg, f.repo, f.view, d)
 }

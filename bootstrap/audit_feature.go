@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 
-	appweb "github.com/ClaudioSchirmer/omnicore-example-users/web"
+	appweb "github.com/ClaudioSchirmer/omnicore-example-users/internal/web"
 
 	"github.com/gofiber/fiber/v3"
 )

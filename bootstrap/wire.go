@@ -4,9 +4,10 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
+	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 	"github.com/ClaudioSchirmer/omnicore/web/openapi"
 
-	apptrans "github.com/ClaudioSchirmer/omnicore-example-users/application/translations"
+	apptrans "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/translations"
 )
 
 // Wire concentrates translations + features that the service exposes. Called
@@ -35,6 +36,16 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	// build-tag seam qaFeatures uses, applied to the shared registry.
 	qaMountGraphQL(gql, d)
 
+	// gRPC is ONE surface (its own listener, yaml `grpc:` block) backed by ONE
+	// registry, mirroring the GraphQL pattern. Registration is cumulative; the
+	// UsersService is the showcase: the SAME handlers as REST/GraphQL behind a
+	// hand-written proto contract (proto/users/v1/users.proto).
+	grpcReg := fwgrpc.New(d.Pipeline)
+	users.MountGRPC(grpcReg, d)
+	// QA-only gRPC fixtures (no-op in the canonical build) — same build-tag
+	// seam qaFeatures/qaMountGraphQL use.
+	qaMountGRPC(grpcReg, d)
+
 	return bootstrap.Wiring{
 		Translations: []translation.Module{
 			apptrans.PTBR(), apptrans.ENG(), apptrans.ESP(), apptrans.FRA(),
@@ -58,5 +69,6 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 			LanguageSelector: true,
 		},
 		GraphQL: gql,
+		GRPC:    grpcReg,
 	}
 }

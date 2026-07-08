@@ -9,9 +9,9 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	"github.com/ClaudioSchirmer/omnicore/infra/integration"
 
-	appqa "github.com/ClaudioSchirmer/omnicore-example-users/application/qafixtures"
-	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/infra/qafixtures"
-	webqa "github.com/ClaudioSchirmer/omnicore-example-users/web/qafixtures"
+	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
+	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/qafixtures"
+	webqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/web/qafixtures"
 
 	"github.com/gofiber/fiber/v3"
 )
