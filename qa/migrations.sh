@@ -25,7 +25,7 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-migrations"
+SERVER_BIN="/tmp/omnicore-example-users-qa-migrations-${BACKEND:-postgres}"
 DEV_YAML="$REPO_ROOT/microservice.dev.yaml"
 TMP_MIG_DIR="/tmp/omnicore-qa-migrations-$BACKEND"
 PROBE_TABLE="qa_migration_probe"
@@ -48,7 +48,7 @@ reset_baseline() {
 }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   reset_baseline
   rm -rf "$TMP_MIG_DIR"
 }
@@ -67,18 +67,18 @@ mk_autorun_yaml() {  # <mode> → prints path to a dev.yaml copy with migrations
 
 # boot_healthy <yaml> <log> → boots, waits for /health, leaves it running (SERVER_PID set)
 boot_healthy() {
-  local yaml="$1" log="$2"; : > "$log"; kill_port 8080
+  local yaml="$1" log="$2"; : > "$log"; kill_port "${HTTP_PORT:-8080}"
   ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$yaml" MIGRATIONS_DIR="$TMP_MIG_DIR" exec "$SERVER_BIN" >>"$log" 2>&1 ) &
   SERVER_PID=$!
   local deadline=$(( $(date +%s) + 30 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && return 0; kill -0 "$SERVER_PID" 2>/dev/null || return 1; sleep 0.5; done
   return 1
 }
-stop_server() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=""; fi; kill_port 8080; }
+stop_server() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=""; fi; kill_port "${HTTP_PORT:-8080}"; }
 
 # boot_expect_abort <yaml> <log> → boots expecting a non-zero exit; sets LAST_CODE
 boot_expect_abort() {
-  local yaml="$1" log="$2"; : > "$log"; kill_port 8080
+  local yaml="$1" log="$2"; : > "$log"; kill_port "${HTTP_PORT:-8080}"
   ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$yaml" MIGRATIONS_DIR="$TMP_MIG_DIR" exec "$SERVER_BIN" >>"$log" 2>&1 ) &
   local pid=$! deadline=$(( $(date +%s) + 20 )); LAST_CODE=-1
   while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -102,7 +102,7 @@ db_version() { qa_db_query "SELECT version FROM omnicore_migrations ORDER BY ver
 sec "0. Build + baseline + synthesize a pending version 0003"
 ##############################################################################
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 reset_baseline
 V=$(db_version); [ "$V" = "2" ] && ok "baseline omnicore_migrations at version 2" || bad "baseline version=$V (want 2)"
 

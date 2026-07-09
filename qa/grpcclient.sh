@@ -19,8 +19,8 @@ BASE="${BASE:-http://localhost:8080}"
 GRPC_BASE="${GRPC_BASE:-http://localhost:9090}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-grpcclient"
-SERVER_LOG="/tmp/omnicore-example-users-qa-grpcclient.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-grpcclient-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-grpcclient-${BACKEND:-postgres}.log"
 
 PASS=0; FAIL=0; SERVER_PID=""
 hr()    { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
@@ -31,7 +31,7 @@ bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080; kill_port 9090
+  kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 }
 trap cleanup EXIT INT TERM
 
@@ -40,7 +40,7 @@ sec "0. Build qa binary + boot"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080; kill_port 9090
+kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 
 title "0.2 Reset bench"
 qa_db_reset_domain

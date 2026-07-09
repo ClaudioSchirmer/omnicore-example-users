@@ -23,8 +23,8 @@ BASE="${BASE:-http://localhost:8080}"
 GRPC_BASE="${GRPC_BASE:-http://localhost:9090}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-grpc"
-SERVER_LOG="/tmp/omnicore-example-users-qa-grpc.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-grpc-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-grpc-${BACKEND:-postgres}.log"
 POSTURE_YAML="/tmp/omnicore-qa-grpc-internal.yaml"
 POSTURE_KEY="/tmp/omnicore-qa-grpc-posture.key"
 
@@ -37,7 +37,7 @@ bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080; kill_port 9090
+  kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
   rm -f "$POSTURE_YAML" "$POSTURE_KEY" "$POSTURE_KEY.pub"
 }
 trap cleanup EXIT INT TERM
@@ -57,7 +57,7 @@ sec "0. Build qa binary + boot"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080; kill_port 9090
+kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 
 title "0.2 Reset bench (relational domain tables + Mongo users view)"
 qa_db_reset_domain
@@ -422,7 +422,7 @@ sec "7. Internal-plane posture — side-by-side with the main door"
 # (401 at the main door) while tokenless gRPC passes (trusted plane).
 title "7.1 Reboot with auth=jwt + grpc.auth.mode=internal"
 kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true
-kill_port 8080; kill_port 9090
+kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$POSTURE_KEY" >/dev/null 2>&1
 openssl pkey -in "$POSTURE_KEY" -pubout -out "$POSTURE_KEY.pub" >/dev/null 2>&1
 python3 - "$REPO_ROOT/microservice.qa.yaml" "$POSTURE_YAML" "$POSTURE_KEY.pub" <<'PYEOF2'

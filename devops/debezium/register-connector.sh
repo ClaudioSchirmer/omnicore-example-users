@@ -1,81 +1,113 @@
 #!/usr/bin/env bash
-# Registers the Debezium outbox connector against the running Kafka Connect
-# instance. Run this once after `docker compose up` is healthy.
+# Brings up the CDC relay for a QA lane. The two lanes use DIFFERENT relays:
+#
+#   postgres → Debezium CONNECT (Kafka). Registered via REST (:8083): the outbox
+#              connector + the qa-integration connector, both EventRouter-routed.
+#   mysql    → Debezium SERVER (NATS). Static mounted config (conf-mysql-nats),
+#              no REST API; "registering" = (re)creating the container and waiting
+#              for it to reach streaming.
 #
 # Usage: register-connector.sh [postgres|mysql]   (default: postgres)
-#   postgres -> users-outbox-connector.json       (tails public.outbox via pgoutput)
-#   mysql    -> users-outbox-connector-mysql.json  (tails users_db.outbox via binlog)
 #
-# Both connectors route by the outbox `aggregate_type` field via the EventRouter
-# (route.topic.replacement = ${routedByValue}.events), so each aggregate gets its
-# own topic: the users role -> users.events, and the shared Person base ->
-# persons.events (a base write emits an extra aggregate_type=persons outbox row,
-# which the SyncEngine subscribes to and fans out to recompose the user docs). The
-# SyncEngine creates the topics it subscribes to, so persons.events appears on its
-# own. Register only the connector matching the backend you are running; the QA model
-# runs one backend at a time. The connectors carry distinct names + topic
-# prefixes, so registering one never disturbs the other.
-#
-# Idempotent: if a connector with the same name already exists, it is updated
-# in place via PUT /config rather than POST /connectors.
+# Run after `docker compose up` AND after the lane's app has booted once
+# (migrations create the outbox/integration_events tables; the app creates the
+# JetStream stream the NATS relay publishes into, and the Connect connector needs
+# the tables to exist or its task lands FAILED). Idempotent for both relays.
 
 set -euo pipefail
 
 DIALECT="${1:-postgres}"
 case "$DIALECT" in
-  postgres) CONFIG_BASENAME="users-outbox-connector.json" ;;
-  mysql)    CONFIG_BASENAME="users-outbox-connector-mysql.json" ;;
+  postgres|mysql) ;;
   *) echo "unknown dialect '$DIALECT' (want postgres|mysql)" >&2; exit 2 ;;
 esac
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+# ── Lane B (MySQL → NATS): static Debezium Server ────────────────────────────
+if [ "$DIALECT" = "mysql" ]; then
+  COMPOSE_FILE="$(cd "$HERE/.." && pwd)/docker-compose.yml"
+  CONTAINER="omnicore-qa-debezium"
+
+  echo "Recreating Debezium Server (mysql → NATS) ..."
+  docker compose -f "$COMPOSE_FILE" up -d --force-recreate debezium-server
+
+  echo "Waiting for Debezium Server to start streaming ..."
+  DEADLINE=$(( $(date +%s) + 120 ))
+  until docker logs "$CONTAINER" 2>&1 | grep -q "Starting streaming"; do
+    if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+      echo "ERROR: Debezium Server did not reach streaming in 120s — boot the mysql app once (so the outbox table + JetStream stream exist), then re-run." >&2
+      docker logs "$CONTAINER" 2>&1 | tail -25 >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  echo "Debezium Server streaming (mysql → NATS)."
+  exit 0
+fi
+
+# ── Lane A (Postgres → Kafka): Debezium Connect via REST ─────────────────────
 CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
-CONFIG_FILE="$(dirname "$0")/$CONFIG_BASENAME"
-CONNECTOR_NAME=$(jq -r '.name' "$CONFIG_FILE")
+DB_CONTAINER="omnicore-qa-postgres"
+CONNECTORS="users-outbox-connector.json qa-integration-connector.json"
+
+command -v jq >/dev/null || { echo "jq is required (brew install jq)" >&2; exit 2; }
 
 echo "Waiting for Kafka Connect at $CONNECT_URL ..."
-until curl -sf "$CONNECT_URL/" >/dev/null; do
-  sleep 1
+DEADLINE=$(( $(date +%s) + 120 ))
+until curl -sf "$CONNECT_URL/" >/dev/null 2>&1; do
+  [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "ERROR: Kafka Connect not up after 120s" >&2; exit 1; }
+  sleep 2
 done
 echo "Kafka Connect is up."
 
-# On a VIRGIN volume the outbox table only exists after the app's first boot
-# (migrations run at boot). Registering before that leaves the connector task
-# FAILED ("No table filters found for filtered publication" on PG), with an
-# empty read side and zero errors on the app — so wait for the table first.
-echo "Waiting for the outbox table in the $DIALECT backend (boot the app once if this hangs) ..."
-outbox_exists() {
-  case "$DIALECT" in
-    postgres) docker exec omnicore-example-postgres psql -U omnicore -d users_db -tA                 -c "SELECT 1 FROM information_schema.tables WHERE table_name='outbox' LIMIT 1" 2>/dev/null | grep -q 1 ;;
-    mysql)    docker exec omnicore-example-mysql mysql -uomnicore -pomnicore -D users_db -N -B                 -e "SELECT 1 FROM information_schema.tables WHERE table_schema='users_db' AND table_name='outbox' LIMIT 1" 2>/dev/null | grep -q 1 ;;
-  esac
+# On a virgin volume the outbox + integration_events tables only exist after the
+# app's first boot (migrations). Registering before that leaves the task FAILED
+# ("No table filters found for filtered publication"), so wait for the tables.
+echo "Waiting for the outbox + integration_events tables (boot the postgres app once if this hangs) ..."
+tables_exist() {
+  docker exec "$DB_CONTAINER" psql -U omnicore -d users_db -tA \
+    -c "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('outbox','integration_events')" \
+    2>/dev/null | grep -q 2
 }
 DEADLINE=$(( $(date +%s) + 120 ))
-until outbox_exists; do
+until tables_exist; do
   if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-    echo "ERROR: outbox table not found in $DIALECT after 120s — start the app once (APP_PROFILE=dev go run -tags $DIALECT ./bootstrap) so migrations create it, then re-run this script." >&2
+    echo "ERROR: outbox/integration_events tables not found after 120s — boot the postgres app once (so migrations create them), then re-run." >&2
     exit 1
   fi
   sleep 2
 done
-echo "Outbox table present."
+echo "Tables present."
 
-if curl -sf "$CONNECT_URL/connectors/$CONNECTOR_NAME" >/dev/null 2>&1; then
-  echo "Connector '$CONNECTOR_NAME' exists — updating config..."
-  jq '.config' "$CONFIG_FILE" \
-    | curl -sf -X PUT \
-        -H "Content-Type: application/json" \
-        -d @- \
-        "$CONNECT_URL/connectors/$CONNECTOR_NAME/config" \
-    | jq .
-else
-  echo "Registering connector '$CONNECTOR_NAME'..."
-  curl -sf -X POST \
-      -H "Content-Type: application/json" \
-      -d @"$CONFIG_FILE" \
-      "$CONNECT_URL/connectors" \
-    | jq .
-fi
+for cfg in $CONNECTORS; do
+  file="$HERE/$cfg"
+  name=$(jq -r '.name' "$file")
+  if curl -sf "$CONNECT_URL/connectors/$name" >/dev/null 2>&1; then
+    echo "Connector '$name' exists — updating config ..."
+    jq '.config' "$file" | curl -sf -X PUT -H "Content-Type: application/json" -d @- \
+      "$CONNECT_URL/connectors/$name/config" >/dev/null
+  else
+    echo "Registering connector '$name' ..."
+    curl -sf -X POST -H "Content-Type: application/json" -d @"$file" \
+      "$CONNECT_URL/connectors" >/dev/null
+  fi
+done
 
-echo
-echo "Status:"
-curl -sf "$CONNECT_URL/connectors/$CONNECTOR_NAME/status" | jq .
+# Wait for every connector + its task to reach RUNNING — a registered-but-FAILED
+# task would silently starve the read side.
+echo "Waiting for connectors to reach RUNNING ..."
+DEADLINE=$(( $(date +%s) + 90 ))
+for cfg in $CONNECTORS; do
+  name=$(jq -r '.name' "$HERE/$cfg")
+  until [ "$(curl -sf "$CONNECT_URL/connectors/$name/status" 2>/dev/null | jq -r '[.connector.state, (.tasks[]?.state)] | all(. == "RUNNING")' 2>/dev/null)" = "true" ]; do
+    if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+      echo "ERROR: connector '$name' not RUNNING in time:" >&2
+      curl -sf "$CONNECT_URL/connectors/$name/status" 2>/dev/null | jq . >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+  echo "  $name: RUNNING"
+done
+echo "Debezium Connect streaming (postgres → Kafka)."

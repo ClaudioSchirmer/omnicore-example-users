@@ -8,7 +8,7 @@ service: omnicore-example-users
 # a Postgres run's materialized views or consumer offsets. Everything below the
 # data plane (auth, audit, query ceilings, openapi, graphql, httpClient,
 # integration, shutdown) is identical — the service code is dialect-agnostic, so
-# the same binary (built with -tags 'postgres mysql') serves both profiles.
+# the same binary (built with -tags 'postgres mysql nats') serves both profiles.
 
 http:
   addr: "${HTTP_ADDR::8080}"
@@ -29,12 +29,12 @@ mongo:
     autoRun: true
     allowDowngrade: false
 
-kafka:
-  brokers:
-    - "${KAFKA_BROKERS:localhost:9094}"
+transport:
+  endpoints:
+    - "${TRANSPORT_ENDPOINTS:localhost:4222}"
   # Distinct sync consumer group so the MySQL SyncEngine tracks its own offsets
   # on users.events (latest), independent of the Postgres profile's group.
-  syncGroupId: "${SYNC_GROUP_ID_MYSQL:omnicore-example-users-sync-mysql}"
+  syncGroup: "${SYNC_GROUP_ID_MYSQL:omnicore-example-users-sync-mysql}"
 
 migrations:
   dir: ./migrations/mysql

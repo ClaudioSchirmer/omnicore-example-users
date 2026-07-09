@@ -51,7 +51,7 @@ die() { printf '\033[1;31mperf-all: %s\033[0m\n' "$1" >&2; exit 1; }
 # ── Preflight ───────────────────────────────────────────────────────────────
 command -v vegeta >/dev/null || [ -x "$(go env GOPATH)/bin/vegeta" ] || die "vegeta not found — go install github.com/tsenart/vegeta/v12@latest"
 docker ps >/dev/null 2>&1 || die "docker not available"
-docker ps --format '{{.Names}}' | grep -q omnicore-example-postgres || die "docker compose stack not up — run: docker compose -f devops/docker-compose.yml up -d"
+docker ps --format '{{.Names}}' | grep -q omnicore-qa-postgres || die "docker compose stack not up — run: docker compose -f devops/docker-compose.yml up -d"
 
 SRV_PID=""
 stop_server() {
@@ -68,7 +68,7 @@ trap 'stop_server; rm -rf "$LOGDIR"' EXIT
 
 # ── Build once (dual engine) ────────────────────────────────────────────────
 hr; info "Building dual-engine binary → $BIN"
-go build -tags 'postgres mysql' -o "$BIN" ./bootstrap || die "build failed"
+go build -tags 'postgres mysql kafka' -o "$BIN" ./bootstrap || die "build failed"
 
 # ── Per-backend cycle ───────────────────────────────────────────────────────
 first=1

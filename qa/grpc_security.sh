@@ -23,8 +23,8 @@ BASE="${BASE:-http://localhost:8080}"
 GRPC_BASE="${GRPC_BASE:-http://localhost:9090}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-grpcsec"
-SERVER_LOG="/tmp/omnicore-example-users-qa-grpcsec.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-grpcsec-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-grpcsec-${BACKEND:-postgres}.log"
 WORK="/tmp/omnicore-qa-grpcsec"
 
 PASS=0; FAIL=0; SERVER_PID=""
@@ -36,7 +36,7 @@ bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 stop_server() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080; kill_port 9090
+  kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 }
 cleanup() { stop_server; rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
@@ -79,7 +79,7 @@ sec "0. Build + key material"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080; kill_port 9090
+kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 qa_db_reset_domain; qa_mongo_reset; sleep 2
 
 title "0.2 JWT keypair + variant yamls"
@@ -179,7 +179,7 @@ grpc_call "$GRPC_BASE" ListUsers '{"readMask":"phone","page":{"onlyTotal":true}}
 ##############################################################################
 sec "C. mTLS — the certificate IS the caller"
 ##############################################################################
-GRPC_TLS="https://localhost:9090"
+GRPC_TLS="https://localhost:${GRPC_PORT:-9090}"
 boot "$WORK/mtls.yaml"; ok "booted mtls"
 
 title "C.1 certless client cannot even connect"

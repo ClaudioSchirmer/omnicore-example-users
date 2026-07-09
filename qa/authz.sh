@@ -41,7 +41,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Backend selector (postgres|mysql via BACKEND); default = postgres.
 source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
-SERVER_BIN="/tmp/omnicore-example-users-qa-authz"
+SERVER_BIN="/tmp/omnicore-example-users-qa-authz-${BACKEND:-postgres}"
 
 PASS=0; FAIL=0
 SERVER_PID=""
@@ -71,7 +71,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
 }
 trap cleanup EXIT INT TERM
 
@@ -89,9 +89,9 @@ wait_for_health() {
 
 start_server() {
   local profile="$1"
-  SERVER_LOG="/tmp/authz-server-${profile}.log"
+  SERVER_LOG="/tmp/authz-server-${profile}-${BACKEND:-postgres}.log"
   : > "$SERVER_LOG"
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   (
     cd "$REPO_ROOT"
     APP_PROFILE="$profile" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1
@@ -332,7 +332,7 @@ title "0.2 Build server binary"
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if lingering"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 echo "Port 8080 clear"
 
 title "0.4 Mint tokens (alice, bob, noperm)"

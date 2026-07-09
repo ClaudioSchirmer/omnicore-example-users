@@ -35,7 +35,7 @@
 # `vegeta` on PATH (go install github.com/tsenart/vegeta/v12@latest).
 #
 # Run (per backend):
-#   go build -tags 'postgres mysql' -o /tmp/srv ./bootstrap
+#   go build -tags 'postgres mysql kafka' -o /tmp/srv ./bootstrap
 #   export BACKEND=postgres; source qa/_backend.sh; APP_PROFILE=dev /tmp/srv &   # in another shell
 #   bash qa/perf.sh                                # postgres, fresh report
 #   # then reboot the server for mysql and:

@@ -20,7 +20,7 @@ set -u
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-config-validation"
+SERVER_BIN="/tmp/omnicore-example-users-qa-config-validation-${BACKEND:-postgres}"
 DEV_YAML="$REPO_ROOT/microservice.dev.yaml"
 
 PASS=0; FAIL=0
@@ -42,7 +42,7 @@ kill_port() {
 expect_boot_abort() {
   local name="$1" profile="$2" cfg="$3" needle="$4"
   title "$name"
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   local log; log=$(mktemp)
   ( cd "$REPO_ROOT" && APP_PROFILE="$profile" OMNICORE_CONFIG_PATH="$cfg" \
       exec "$SERVER_BIN" >"$log" 2>&1 ) &
@@ -55,7 +55,7 @@ expect_boot_abort() {
   if [ "$exited" != ok ]; then
     kill -9 "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
     bad "$name — server did NOT abort (still running after 15s)"; echo "--- log ---"; tail -n 20 "$log"
-    rm -f "$log"; kill_port 8080; return
+    rm -f "$log"; kill_port "${HTTP_PORT:-8080}"; return
   fi
   echo "exit code: $code"
   if [ "$code" -eq 0 ]; then
@@ -116,5 +116,5 @@ rm -f "$CFG_SHARED_MEM"
 sec "Summary"
 ##############################################################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

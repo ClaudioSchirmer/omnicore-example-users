@@ -1,16 +1,29 @@
-name: omnicore-example-users
+# QA bench — the automated test bench for qa/run.sh, running the TWO transport
+# lanes in parallel so every framework leg is exercised each run:
+#   • Lane A — Postgres + Kafka + Mongo, relay = Debezium CONNECT → Kafka
+#   • Lane B — MySQL   + NATS  + Mongo, relay = Debezium SERVER  → NATS
+# Both lanes share one Mongo (distinct DBs), Keycloak, Redis, Jaeger and the ELK
+# stack. This is the "messy" bench the QA suites own and reset at will; the
+# separate docker-compose.dev.yml (project omnicore-dev) is the developer's
+# exclusive env and is NEVER touched here.
+#
+# Shared infra host ports are SHIFTED off the dev-bench defaults so both benches
+# can run at once: mysql :3317, mongo :27028, nats :4232. Lane-only infra keeps
+# its usual ports (pg :5433, kafka :9094, keycloak :8088, redis :6380,
+# jaeger :16686) since the dev bench has none of them.
+name: omnicore-qa
 
 services:
+  # ── Lane A relational — Postgres (wal_level=logical for Debezium pgoutput) ──
   postgres:
     image: postgres:16-alpine
-    container_name: omnicore-example-postgres
+    container_name: omnicore-qa-postgres
     ports:
       - "5433:5432"
     environment:
       POSTGRES_USER: omnicore
       POSTGRES_PASSWORD: omnicore
       POSTGRES_DB: users_db
-    # wal_level=logical is required by Debezium's logical decoding (pgoutput plugin).
     command:
       - "postgres"
       - "-c"
@@ -27,17 +40,12 @@ services:
       timeout: 5s
       retries: 10
 
-  # MySQL is the framework's second relational backend (engine seam). The example
-  # is configured for Postgres (database.dialect), so its app + integration tests
-  # run on Postgres; the integration harness is dialect-driven, so a build
-  # reconfigured for MySQL (database.dialect: mysql + the mysql engine tag/driver)
-  # would point its tests here instead. Host port 3307 avoids a clash with a local
-  # MySQL on 3306.
+  # ── Lane B relational — MySQL (binlog defaults on 8.4 satisfy Debezium) ─────
   mysql:
     image: mysql:8.4
-    container_name: omnicore-example-mysql
+    container_name: omnicore-qa-mysql
     ports:
-      - "3307:3306"
+      - "3317:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_USER: omnicore
@@ -51,11 +59,12 @@ services:
       timeout: 5s
       retries: 15
 
+  # ── Shared read side — one Mongo, one DB per lane (users_views / _mysql) ────
   mongo:
     image: mongo:7
-    container_name: omnicore-example-mongo
+    container_name: omnicore-qa-mongo
     ports:
-      - "27018:27017"
+      - "27028:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -64,12 +73,12 @@ services:
       timeout: 5s
       retries: 10
 
-  # Single-broker Kafka in KRaft mode (no Zookeeper).
-  # Two listeners: PLAINTEXT (kafka:9092) for in-network services (Debezium),
-  # EXTERNAL (localhost:9094) for the Go app on the host.
+  # ── Lane A broker — single-broker Kafka in KRaft mode (no Zookeeper) ────────
+  # Two listeners: PLAINTEXT (kafka:9092) for in-network services (Debezium
+  # Connect), EXTERNAL (localhost:9094) for the Go app on the host.
   kafka:
     image: confluentinc/cp-kafka:7.6.1
-    container_name: omnicore-example-kafka
+    container_name: omnicore-qa-kafka
     ports:
       - "9094:9094"
     environment:
@@ -95,47 +104,12 @@ services:
       timeout: 5s
       retries: 10
 
-  # Keycloak IdP used by the JWT auth profiles (microservice.prd*.yaml) and by
-  # qa/auth.sh. Realm omnicore-test, client omnicore-users-client (confidential),
-  # users alice/bob. RS256 keys pinned in realm-export.json so the PEM profile
-  # matches the JWKS profile across container restarts. In-memory storage:
-  # every container start re-imports the realm.
-  keycloak:
-    image: quay.io/keycloak/keycloak:25.0
-    container_name: omnicore-example-keycloak
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
-      KC_HOSTNAME_STRICT: "false"
-      KC_HTTP_ENABLED: "true"
-    ports:
-      - "8088:8080"
-    volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-
-  # Redis backend exercised by qa/httpclient-redis.sh and the canonical
-  # `dev-redis-cache` profile (microservice.dev-redis-cache.yaml). Optional —
-  # not required by qa/e2e.sh, qa/auth.sh, qa/audit.sh, qa/httpclient.sh,
-  # qa/openapi.sh, qa/authz.sh, qa/schema_evolution.sh. No persistent
-  # volume: the cache is throwaway by design (process-local memory is the
-  # default; redis is just a shared-state demonstration).
-  redis:
-    image: redis:7-alpine
-    container_name: omnicore-example-redis
-    ports:
-      - "6380:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  # Kafka Connect runtime with Debezium plugins. The connector itself (outbox
-  # source) is registered post-boot via REST — see debezium/users-outbox-connector.json.
-  debezium:
-    image: debezium/connect:3.0.0.Final
-    container_name: omnicore-example-debezium
+  # ── Lane A relay — Kafka Connect runtime with Debezium plugins. The outbox +
+  # qa-integration connectors are registered post-boot via REST (:8083) by
+  # devops/debezium/register-connector.sh postgres — see the *-connector.json.
+  connect:
+    image: quay.io/debezium/connect:3.0.0.Final
+    container_name: omnicore-qa-connect
     depends_on:
       kafka:
         condition: service_healthy
@@ -160,17 +134,83 @@ services:
       timeout: 5s
       retries: 10
 
-  # Jaeger all-in-one — OpenTelemetry trace collector + web UI. The dev profile's
-  # observability.tracing (exporter=otlp) ships spans here over OTLP/gRPC (4317);
-  # the Go app runs on the host and exports to localhost:4317. Open the UI at
-  # http://localhost:16686, pick service "omnicore-example-users", and see the
-  # trace tree (server -> dispatch -> pgx/mongo/httpclient). In-memory storage:
-  # traces are throwaway, cleared on container restart — a dev-bench visualization,
-  # not retention. Optional — no other service depends on it; a request never
-  # blocks on Jaeger (spans export async and drop if it is down).
+  # ── Lane B broker — NATS with JetStream (file-backed, survives a restart) ───
+  # App on the host connects at localhost:4232; in-network services (Debezium
+  # Server relay) use nats:4222.
+  nats:
+    image: nats:2.10-alpine
+    container_name: omnicore-qa-nats
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4232:4222"
+      - "8232:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8222/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Lane B relay — Debezium Server (Quarkus). ONE instance tails BOTH MySQL
+  # outbox tables (users_db.outbox + users_db.integration_events) via two
+  # predicate-gated EventRouter transforms and sinks to NATS JetStream. Static
+  # config, no REST API; the framework owns the JetStream stream (created
+  # file-backed at app boot), so this relay publishes into it.
+  debezium-server:
+    image: quay.io/debezium/server:3.6.0.Final
+    container_name: omnicore-qa-debezium
+    depends_on:
+      nats:
+        condition: service_healthy
+    volumes:
+      - ./debezium/conf-mysql-nats:/debezium/config:ro
+      - debezium_data:/debezium/data
+
+  # ── Shared — Keycloak IdP for the JWT auth profiles + qa/auth.sh/authz.sh ───
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: omnicore-qa-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  # ── Per-lane Redis for qa/cache.sh — one per lane (:6380 lane A, :6381 lane B)
+  # so cache.sh can stop/start ITS broker to exercise failOpen without knocking
+  # out the other lane running the same suite in parallel. ──────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: omnicore-qa-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-mysql:
+    image: redis:7-alpine
+    container_name: omnicore-qa-redis-mysql
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Shared — Jaeger all-in-one for qa/tracing.sh (OTLP gRPC 4317) ──────────
   jaeger:
     image: jaegertracing/all-in-one:1.57
-    container_name: omnicore-example-jaeger
+    container_name: omnicore-qa-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
@@ -178,14 +218,11 @@ services:
       - "4317:4317"     # OTLP gRPC — the app on the host exports here
       - "4318:4318"     # OTLP HTTP
 
-  # --- Logging stack (ELK) ---------------------------------------------------
-  # Logs are the OTHER pillar (Jaeger holds traces). The service writes JSON to
-  # stdout; run-dev.sh mirrors it into devops/elk/logs/, Filebeat ships it
-  # to Elasticsearch, and Kibana (http://localhost:5601) searches it. Heavy
-  # containers (~2GB combined) — security disabled, single-node: dev bench only.
+  # ── Shared — Logging stack (ELK). Optional: no suite depends on it; a dev
+  # convenience for browsing the mirrored app logs in Kibana (:5601). ─────────
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
-    container_name: omnicore-example-elasticsearch
+    container_name: omnicore-qa-elasticsearch
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -200,7 +237,7 @@ services:
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
-    container_name: omnicore-example-kibana
+    container_name: omnicore-qa-kibana
     depends_on:
       - elasticsearch
     environment:
@@ -210,7 +247,7 @@ services:
 
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.13.4
-    container_name: omnicore-example-filebeat
+    container_name: omnicore-qa-filebeat
     user: root
     depends_on:
       - elasticsearch
@@ -224,3 +261,5 @@ volumes:
   mysql_data:
   mongo_data:
   kafka_data:
+  nats_data:
+  debezium_data:
