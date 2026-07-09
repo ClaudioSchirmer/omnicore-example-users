@@ -65,13 +65,13 @@ mk_autorun_yaml() {  # <mode> → prints path to a dev.yaml copy with migrations
   echo "$out"
 }
 
-# boot_healthy <yaml> <log> → boots, waits for /health, leaves it running (SERVER_PID set)
+# boot_healthy <yaml> <log> → boots, waits for /livez, leaves it running (SERVER_PID set)
 boot_healthy() {
   local yaml="$1" log="$2"; : > "$log"; kill_port "${HTTP_PORT:-8080}"
   ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$yaml" MIGRATIONS_DIR="$TMP_MIG_DIR" exec "$SERVER_BIN" >>"$log" 2>&1 ) &
   SERVER_PID=$!
   local deadline=$(( $(date +%s) + 30 ))
-  while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && return 0; kill -0 "$SERVER_PID" 2>/dev/null || return 1; sleep 0.5; done
+  while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" && return 0; kill -0 "$SERVER_PID" 2>/dev/null || return 1; sleep 0.5; done
   return 1
 }
 stop_server() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=""; fi; kill_port "${HTTP_PORT:-8080}"; }

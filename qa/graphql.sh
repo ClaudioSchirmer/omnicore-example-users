@@ -103,7 +103,7 @@ assert_jq_true() {
 
 # ── 1. Health sanity ────────────────────────────────────────────────────────
 echo "${WHITE}--- health ---${RESET}"
-hs=$(curl -s -o /dev/null -w "%{http_code}" "${BASE}/health")
+hs=$(curl -s -o /dev/null -w "%{http_code}" "${BASE}/livez")
 if [ "${hs}" = "200" ]; then echo "${GREEN}PASS${RESET}"; PASS=$((PASS+1)); else echo "${RED}FAIL${RESET} ($hs)"; FAIL=$((FAIL+1)); fi
 
 # ── 2. Introspection: __schema.queryType ────────────────────────────────────

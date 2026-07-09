@@ -48,7 +48,8 @@ auth:
       7wIDAQAB
       -----END PUBLIC KEY-----
   publicRoutes:
-    - GET /health
+    - GET /livez
+    - GET /readyz
   auditClaims:
     - preferred_username
     - email

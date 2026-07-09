@@ -32,7 +32,7 @@ import (
 // falls back to a thin Fiber-only passthrough, so this code works
 // identically whether the spec is being generated or not.
 //
-// /health is not registered here — it comes from the framework.
+// The /livez + /readyz probes are not registered here — they come from the framework.
 //
 // The PUT vs PATCH distinction still lives in the handler:
 //   - UpdateCommandHandler embeds pipeline.FullBody → wrapper requires a

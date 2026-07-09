@@ -49,7 +49,8 @@ auth:
     leewaySeconds: 5
     jwksUrl: "${JWT_JWKS_URL:http://localhost:8088/realms/omnicore-test/protocol/openid-connect/certs}"
   publicRoutes:
-    - GET /health
+    - GET /livez
+    - GET /readyz
   auditClaims:
     - preferred_username
     - email

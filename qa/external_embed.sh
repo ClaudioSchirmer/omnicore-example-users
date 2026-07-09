@@ -142,7 +142,7 @@ title "0.3 Start server (APP_PROFILE=dev, config=microservice.qa.yaml)"
 ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
 SERVER_PID=$!
 deadline=$(( $(date +%s) + 30 )); healthy=fail
-while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
+while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready" || { bad "server not ready"; tail -n 40 "$SERVER_LOG"; exit 1; }
 
 # Prove the CDC pipeline is hot before per-step deadlines start counting.

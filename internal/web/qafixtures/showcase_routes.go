@@ -45,7 +45,7 @@ func MountShowcase(app *fiber.App, kc *infraqa.KeycloakService, echo *infraqa.Ec
 	// reports). They register on Fiber so the runtime stays exercisable
 	// but ship as Hidden: true so the rendered spec only advertises the
 	// canonical (Auto), the manual showcase, and the framework-injected
-	// surface (/health, /openapi.json, /docs). Operators that want to
+	// surface (/livez, /readyz, /openapi.json, /docs). Operators that want to
 	// surface the demos override the registration in their own service
 	// rather than carry framework demos in the production spec by default.
 	// Public: true is paired with Hidden so the under-the-hood routing

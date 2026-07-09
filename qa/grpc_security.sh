@@ -49,7 +49,7 @@ boot() { # boot <yaml>
   SERVER_PID=$!
   local deadline=$(( $(date +%s) + 30 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    curl -skf -o /dev/null "$BASE/health" && return 0
+    curl -skf -o /dev/null "$BASE/livez" && return 0
     sleep 0.5
   done
   bad "server not ready ($1)"; tail -n 30 "$SERVER_LOG"; exit 1
@@ -90,7 +90,7 @@ import sys
 src, work = sys.argv[1], sys.argv[2]
 base = open(src).read()
 pem = "".join("      " + l + "\n" for l in open(work + "/jwt.pub").read().splitlines())
-jwt_block = ("auth:\n  mode: jwt\n  publicRoutes: [\"GET /health\"]\n"
+jwt_block = ("auth:\n  mode: jwt\n  publicRoutes: [\"GET /livez\"]\n"
              "  authorization:\n    enabled: true\n"
              "  jwt:\n    issuer: \"qa-sec\"\n    audience: \"qa-sec\"\n    publicKeyPem: |\n" + pem)
 a = base.replace("auth:\n  mode: disabled", jwt_block, 1)

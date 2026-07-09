@@ -92,7 +92,7 @@ title "0.2 Boot the qa server (creates outbox + integration_events + the JetStre
 ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
 SERVER_PID=$!
 deadline=$(( $(date +%s) + 30 )); healthy=fail
-while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
+while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready (config=microservice.qa.yaml)" || { bad "server not ready"; tail -n 40 "$SERVER_LOG"; exit 1; }
 
 title "0.3 (Re)start the Debezium Server relay for $BACKEND (tails outbox + integration_events → $QA_INTEGRATION_TOPIC)"

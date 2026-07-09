@@ -133,7 +133,7 @@ stop_requested() { [ -f "$LOG_DIR/failfast" ]; }
 # ── Lane-scoped pipeline helpers (read the lane env sourced from _backend.sh) ──
 wait_health() {
   local deadline=$(( $(date +%s) + 90 ))
-  until curl -sf "$BASE/health" >/dev/null 2>&1; do
+  until curl -sf "$BASE/livez" >/dev/null 2>&1; do
     [ "$(date +%s)" -ge "$deadline" ] && return 1
     sleep 1
   done

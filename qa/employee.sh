@@ -80,8 +80,8 @@ wait_view_total() {
 ####################################
 sec "0. Health + clean slate"
 ####################################
-req GET /health
-expect_status "GET /health" 200
+req GET /livez
+expect_status "GET /livez" 200
 qa_db_reset_domain
 qa_mongo_reset
 qa_db_exec "DELETE FROM audit_events;" 2>/dev/null || true
