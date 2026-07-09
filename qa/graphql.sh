@@ -54,13 +54,26 @@ fi
 EMAIL="gql-$(date +%s)@omnicore.test"
 USER_ID=""
 
+# Response-cache paths MUST be lane-scoped. qa/run.sh runs the two lanes
+# (postgres :8081 / mysql :8082) in PARALLEL, and every fixture id here is a
+# deterministic UUIDv5 of a fixed natural key (e.g. document 10000000050 →
+# 7819058f…, identical on both lanes). With a hardcoded ${GQL_TMP}.body the
+# two lanes clobber each other's cached response between the write and the read:
+# a value captured with `jq … ${GQL_TMP}.body` (e.g. USER_ID at the main
+# createUser) could be the OTHER lane's later GOP-fixture createUser id, so the
+# write verbs then target an id that exists only in the sibling lane's DB →
+# intermittent RecordNotFound. Keying the temp files on ${BACKEND} (exported by
+# run.sh per lane) gives each lane its own cache — no cross-lane races. Matches
+# the ${BACKEND}-scoped temp convention every self-managed suite already uses.
+GQL_TMP="/tmp/qa-graphql-${BACKEND:-postgres}"
+
 # gql posts a GraphQL query/mutation, caching the JSON response in
-# /tmp/qa-graphql.body and echoing the HTTP status.
+# ${GQL_TMP}.body and echoing the HTTP status.
 gql() {
     local query="$1"
     local payload
     payload=$(jq -nc --arg q "${query}" '{query:$q}')
-    curl -s -o /tmp/qa-graphql.body -w "%{http_code}" \
+    curl -s -o "${GQL_TMP}.body" -w "%{http_code}" \
         -H "Content-Type: application/json" \
         -X POST "${BASE}/graphql" -d "${payload}"
 }
@@ -70,14 +83,14 @@ assert_jq() {
     local desc="$1" filter="$2" expected="$3"
     echo "${WHITE}--- ${desc} ---${RESET}"
     local got
-    got=$(jq -r "${filter}" /tmp/qa-graphql.body 2>/dev/null)
+    got=$(jq -r "${filter}" ${GQL_TMP}.body 2>/dev/null)
     echo "QUERY   : ${filter}"
     echo "GOT     : ${got}"
     if [ "${got}" = "${expected}" ]; then
         echo "${GREEN}PASS${RESET}"; PASS=$((PASS + 1))
     else
         echo "${RED}FAIL${RESET} (expected ${expected})"
-        echo "BODY: $(head -c 300 /tmp/qa-graphql.body)"
+        echo "BODY: $(head -c 300 ${GQL_TMP}.body)"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -106,9 +119,9 @@ assert_jq_true "__type User has id/name/email fields" \
 
 # ── 4. Playground served at /graphql/ui ─────────────────────────────────────
 echo "${WHITE}--- playground GET /graphql/ui ---${RESET}"
-ui_status=$(curl -s -o /tmp/qa-graphql.ui -w "%{http_code}" "${BASE}/graphql/ui")
+ui_status=$(curl -s -o ${GQL_TMP}.ui -w "%{http_code}" "${BASE}/graphql/ui")
 echo "STATUS  : ${ui_status}"
-if [ "${ui_status}" = "200" ] && grep -q "GraphiQL" /tmp/qa-graphql.ui; then
+if [ "${ui_status}" = "200" ] && grep -q "GraphiQL" ${GQL_TMP}.ui; then
     echo "${GREEN}PASS${RESET}"; PASS=$((PASS+1))
 else
     echo "${RED}FAIL${RESET} (status ${ui_status} / GraphiQL marker)"; FAIL=$((FAIL+1))
@@ -116,8 +129,8 @@ fi
 
 # ── 5. GraphQL route is ABSENT from the Swagger document ────────────────────
 echo "${WHITE}--- /graphql absent from /openapi.json ---${RESET}"
-curl -s -o /tmp/qa-graphql.spec "${BASE}/openapi.json"
-if jq -e '.paths | keys | any(test("graphql"))' /tmp/qa-graphql.spec >/dev/null 2>&1; then
+curl -s -o ${GQL_TMP}.spec "${BASE}/openapi.json"
+if jq -e '.paths | keys | any(test("graphql"))' ${GQL_TMP}.spec >/dev/null 2>&1; then
     echo "${RED}FAIL${RESET} (GraphQL leaked into the OpenAPI spec)"; FAIL=$((FAIL+1))
 else
     echo "${GREEN}PASS${RESET}"; PASS=$((PASS+1))
@@ -136,7 +149,7 @@ gql "mutation { createUser(input: {
      }) { id name email document userName } }" >/dev/null
 assert_jq "createUser returns the email" '.data.createUser.email' "${EMAIL}"
 assert_jq "createUser returns the document (natural key)" '.data.createUser.document' "10000000050"
-USER_ID=$(jq -r '.data.createUser.id' /tmp/qa-graphql.body 2>/dev/null)
+USER_ID=$(jq -r '.data.createUser.id' ${GQL_TMP}.body 2>/dev/null)
 echo "USER_ID : ${USER_ID}"
 
 # ── 7. Read side materializes (CDC) and the where filter folds like REST ────
@@ -163,10 +176,10 @@ assert_jq_true "users(first:1) returns a well-formed connection" \
 echo "${WHITE}--- undeclared operator rejected by validation ---${RESET}"
 vstatus=$(gql 'query { users(where: { email: { contains: "x" } }) { totalCount } }')
 echo "STATUS  : ${vstatus}"
-if [ "${vstatus}" = "200" ] && jq -e '.errors | length > 0' /tmp/qa-graphql.body >/dev/null 2>&1; then
+if [ "${vstatus}" = "200" ] && jq -e '.errors | length > 0' ${GQL_TMP}.body >/dev/null 2>&1; then
     echo "${GREEN}PASS${RESET}"; PASS=$((PASS+1))
 else
-    echo "${RED}FAIL${RESET} (expected 200 + errors[])"; echo "BODY: $(head -c 300 /tmp/qa-graphql.body)"; FAIL=$((FAIL+1))
+    echo "${RED}FAIL${RESET} (expected 200 + errors[])"; echo "BODY: $(head -c 300 ${GQL_TMP}.body)"; FAIL=$((FAIL+1))
 fi
 
 # ── 10. Validation: unknown root field → errors[] (200) ─────────────────────
@@ -326,7 +339,7 @@ seed_gop() {
                           neighborhood: \"X\", city: \"Cupertino\", state: \"CA\",
                           zipCode: \"95014\", country: \"US\" }]
          }) { id } }" >/dev/null
-    jq -r '.data.createUser.id' /tmp/qa-graphql.body 2>/dev/null
+    jq -r '.data.createUser.id' ${GQL_TMP}.body 2>/dev/null
 }
 GOP_ID_A=$(seed_gop "$GOP_A" 39000009001 gopa "Gqlop Alpha")
 GOP_ID_B=$(seed_gop "$GOP_B" 39000009002 gopb "Gqlop Bravo")
@@ -338,7 +351,7 @@ echo "Waiting for the three GOP fixtures to materialize…"
 gop_ready=fail
 for _ in $(seq 1 40); do
     gql "query { users(where: { name: { icontains: \"Gqlop\" } }) { totalCount } }" >/dev/null
-    tc=$(jq -r '.data.users.totalCount' /tmp/qa-graphql.body 2>/dev/null)
+    tc=$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)
     [ "$tc" = "3" ] && { gop_ready=ok; break; }
     sleep 0.5
 done

@@ -30,6 +30,27 @@ source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
 SERVER_BIN="/tmp/omnicore-example-users-qa-auth-${BACKEND:-postgres}"
 
+# ── Mongo isolation — the definitive fix for the registry-guard boot abort ──
+# This suite exercises ONLY the JWT middleware; it never asserts on a read-side
+# view or the CDC pipeline. But it boots the STRICT prd* profiles, and the
+# framework's Mongo registry guard (infra/db/query/engine/mongo/mongo_registry.go)
+# aborts boot under any non-"dev" profile when the database holds a collection
+# the profile does not declare. In the matrix, auth runs LATE in its lane —
+# after the qa-mirror suites (upstream_composition, external_embed, composed_view,
+# filter_operators, view_options, …) have left their view collections
+# (gadgets*, gadget_notes, gadgets_embedded, upstream_gadgets, qa_accounts_view,
+# qa_catalog_view) in the shared lane DB (users_views / users_views_mysql). To a
+# prd boot those are foreign, so every profile aborted with a guard error and the
+# suite scored 0/4. Ordering-dependent by nature — which is why patching the test
+# never held.
+#
+# Fix: point auth's server boots at their OWN Mongo DB, dropped clean in the
+# preconditions below, so the guard always sees an empty database no matter what
+# the other suites leave behind or the order they run in. The override flows into
+# the prd yamls through `database: "${MONGO_DB:...}"`. This suite owns this DB
+# exclusively, so dropping it has zero blast radius.
+export MONGO_DB="users_views_auth_${BACKEND:-postgres}"
+
 PASS=0; FAIL=0
 SERVER_PID=""
 SERVER_LOG=""
@@ -255,6 +276,13 @@ echo "Binary: $SERVER_BIN"
 title "0.1c Free port 8080 if anything is lingering from a previous run"
 kill_port "${HTTP_PORT:-8080}"
 echo "Port 8080 clear"
+
+title "0.1d Isolate on a dedicated Mongo DB (drop residue from a prior run)"
+# Drop the auth-owned DB so every prd* boot below meets the registry guard with
+# an empty database — immune to whatever the other lane suites left in the shared
+# users_views DB, and to the order they ran in. See the MONGO_DB override above.
+docker exec "$QA_MONGO_CONTAINER" mongosh "$MONGO_DB" --quiet --eval "db.dropDatabase()" >/dev/null 2>&1 || true
+echo "Mongo DB for auth boots: $MONGO_DB (clean)"
 
 title "0.2 Resolve alice subject UUID (decoded from her own JWT — avoids admin API)"
 PRIMER=$("$SCRIPTS/mint-token.sh" alice)
