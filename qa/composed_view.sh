@@ -53,8 +53,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-composed-view"
-SERVER_LOG="/tmp/omnicore-example-users-qa-composed-view.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-composed-view-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-composed-view-${BACKEND:-postgres}.log"
 QA_YAML="$REPO_ROOT/microservice.qa.yaml"
 
 PASS=0; FAIL=0; SERVER_PID=""
@@ -64,10 +64,10 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
-mongoq() { docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null | tail -1 | tr -d ' '; }
+mongoq() { docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null | tail -1 | tr -d ' '; }
 
 jget() {  # $1 = python expression over parsed json `d`, $2 = json file
   python3 -c '
@@ -89,7 +89,7 @@ sec "0. Build qa binary + boot with qa.yaml + seed"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 title "0.2 Ensure the outbox Debezium connector is registered"
 "$REPO_ROOT/devops/debezium/register-connector.sh" "$QA_CONNECTOR_DIALECT" >/dev/null 2>&1 && ok "outbox connector registered" || bad "outbox connector registration failed"
@@ -111,7 +111,7 @@ title "0.4 Clean baseline"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.deleteMany({}); db.gadget_notes.deleteMany({}); db.upstream_gadgets.deleteMany({})" >/dev/null 2>&1 || true
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.deleteMany({}); db.gadget_notes.deleteMany({}); db.upstream_gadgets.deleteMany({})" >/dev/null 2>&1 || true
 sleep 1
 ok "clean baseline"
 
@@ -253,7 +253,7 @@ MB=$(jget 'd["data"]["upstreamMirror"]["code"]' /tmp/qa-cv.json)
 [ "$MB" = "CV-002" ] && ok "the mirror leg has no soft-delete — the knob is a no-op there" || bad "mirror broken under includeArchived ('$MB')"
 
 title "5.2 Remove B's upstream doc → mirror is LEFT-null; the row survives"
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.upstream_gadgets.deleteOne({code:'CV-002'})" >/dev/null 2>&1
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.upstream_gadgets.deleteOne({code:'CV-002'})" >/dev/null 2>&1
 curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB"
 ST=$(curl -sS -o /tmp/qa-cv.json -w "%{http_code}" "$BASE/qa/gadgets-full/$GB")
 HASMIRROR=$(jget '"upstreamMirror" in d["data"] and d["data"]["upstreamMirror"] is not None' /tmp/qa-cv.json)

@@ -12,11 +12,14 @@ service: omnicore-example-users
 # behavior verified by qa/httpclient.sh under `dev` keeps applying under
 # `dev-redis-cache` — only the cache backend swaps underneath.
 #
-# Boot with: APP_PROFILE=dev-redis-cache go run -tags postgres ./bootstrap
+# Boot with: APP_PROFILE=dev-redis-cache go run -tags 'postgres nats' ./bootstrap
 # Prereq:    docker compose -f devops/docker-compose.yml up -d redis
 
 http:
   addr: "${HTTP_ADDR::8080}"
+
+grpc:
+  addr: "${GRPC_ADDR::9090}"
 
 relational:
   dialect: "${REL_DIALECT:postgres}"
@@ -29,10 +32,10 @@ mongo:
     autoRun: true
     allowDowngrade: false
 
-kafka:
-  brokers:
-    - "${KAFKA_BROKERS:localhost:9094}"
-  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+transport:
+  endpoints:
+    - "${TRANSPORT_ENDPOINTS:localhost:4222}"
+  syncGroup: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
 
 migrations:
   dir: "${MIGRATIONS_DIR:./migrations/postgres}"

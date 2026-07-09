@@ -30,8 +30,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-external-embed"
-SERVER_LOG="/tmp/omnicore-example-users-qa-external-embed.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-external-embed-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-external-embed-${BACKEND:-postgres}.log"
 QA_YAML="$REPO_ROOT/microservice.qa.yaml"
 GET_TMP="/tmp/qa-ee-get.json"
 
@@ -43,7 +43,7 @@ ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 drop_collections() {
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
     "db.qa_accounts_view.drop(); db.qa_catalog_view.drop(); db.upstream_items.drop()" >/dev/null 2>&1 || true
 }
 reset_domain() {
@@ -55,7 +55,7 @@ reset_domain() {
 }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   reset_domain
   rm -f "$GET_TMP"
 }
@@ -132,7 +132,7 @@ sec "0. Build qa binary + ensure outbox connector + boot with qa.yaml"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 title "0.2 Ensure the outbox Debezium connector is registered (routes qa_items.events)"
 "$REPO_ROOT/devops/debezium/register-connector.sh" "$QA_CONNECTOR_DIALECT" >/dev/null 2>&1 && ok "outbox connector registered" || bad "outbox connector registration failed"

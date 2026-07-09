@@ -21,8 +21,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-filter-operators"
-SERVER_LOG="/tmp/omnicore-example-users-qa-filter-operators.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-filter-operators-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-filter-operators-${BACKEND:-postgres}.log"
 
 PASS=0; FAIL=0; SERVER_PID=""
 hr()    { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
@@ -33,8 +33,8 @@ bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
+  kill_port "${HTTP_PORT:-8080}"
+  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -69,7 +69,7 @@ sec "0. Build qa binary + ensure connector + boot + seed"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 title "0.2 Ensure the outbox Debezium connector is registered ($QA_CONNECTOR_DIALECT)"
 # Idempotent — in the full run.sh matrix a long sequence of prior self-managed
@@ -93,7 +93,7 @@ qa_cdc_warmup_gadget
 title "0.4 Reset + seed four ordered fixtures + wait for CDC"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.deleteMany({})' >/dev/null 2>&1 || true
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.deleteMany({})' >/dev/null 2>&1 || true
 sleep 1
 seed_g() {
   curl -sS -o /dev/null -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \

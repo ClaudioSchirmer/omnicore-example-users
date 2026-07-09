@@ -7,7 +7,7 @@ http:
 grpc:
   # The gRPC surface (Wiring.GRPC) — its own listener, never the Fiber one.
   # No TLS here: the listener serves h2c, so the gRPC protocol works in dev.
-  addr: ":9090"
+  addr: "${GRPC_ADDR::9090}"
   reflection: false
 
 grpcClient:
@@ -15,7 +15,7 @@ grpcClient:
   # the grpcclient showcase/QA; a real service points this at its upstreams.
   services:
     self-qa-flaky:
-      baseURL: "http://localhost:9090"
+      baseURL: "http://localhost:${GRPC_PORT:9090}"
       timeoutSeconds: 5
       retry:
         maxAttempts: 3
@@ -26,7 +26,7 @@ grpcClient:
       idempotency:
         enabled: true
     self-qa-boom:
-      baseURL: "http://localhost:9090"
+      baseURL: "http://localhost:${GRPC_PORT:9090}"
       timeoutSeconds: 5
       circuitBreaker:
         enabled: true
@@ -34,7 +34,7 @@ grpcClient:
         successThreshold: 1
         openForMS: 60000
     self-users:
-      baseURL: "http://localhost:9090"
+      baseURL: "http://localhost:${GRPC_PORT:9090}"
       timeoutSeconds: 10
       retry:
         maxAttempts: 3
@@ -63,10 +63,10 @@ mongo:
     autoRun: true            # dev default; sandbox iteration without boot abort
     allowDowngrade: false    # default; opt-in for canary / blue-green rollback
 
-kafka:
-  brokers:
-    - "${KAFKA_BROKERS:localhost:9094}"
-  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+transport:
+  endpoints:
+    - "${TRANSPORT_ENDPOINTS:localhost:4222}"
+  syncGroup: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
 
 migrations:
   dir: "${MIGRATIONS_DIR:./migrations/postgres}"

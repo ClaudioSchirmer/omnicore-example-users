@@ -1,0 +1,79 @@
+# Dedicated DEV / demo bench — exclusively for manual testing via run-dev.sh,
+# NEVER touched by the QA suites (which live in docker-compose.yml under the
+# separate `omnicore-qa` project). Minimal by design: just the data plane the app
+# needs to function — MySQL + NATS JetStream + Mongo + a Debezium Server relay
+# (MySQL → NATS). No keycloak/redis/jaeger/elk (the httpclient/cache/tracing
+# showcase routes won't work here — that's intentional; use the QA bench for those).
+#
+#   docker compose -f devops/docker-compose.dev.yml up -d
+#   ./run-dev.sh
+#
+# Standard host ports (:3307 / :27018 / :4222) so run-dev.sh needs no port env.
+# The QA bench shifts its shared ports (:3317 / :27028 / :4232) so both benches
+# can be up at the same time without colliding.
+name: omnicore-dev
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: omnicore-dev-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: omnicore
+      MYSQL_PASSWORD: omnicore
+      MYSQL_DATABASE: users_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uomnicore -pomnicore --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  mongo:
+    image: mongo:7
+    container_name: omnicore-dev-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: omnicore-dev-nats
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8222/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Debezium Server relay: MySQL outbox → NATS JetStream (same config the QA
+  # lane B uses; each resolves `mysql`/`nats` within its own compose network).
+  debezium-server:
+    image: quay.io/debezium/server:3.6.0.Final
+    container_name: omnicore-dev-debezium
+    depends_on:
+      nats:
+        condition: service_healthy
+    volumes:
+      - ./debezium/conf-mysql-nats:/debezium/config:ro
+      - debezium_data:/debezium/data
+
+volumes:
+  mysql_data:
+  mongo_data:
+  nats_data:
+  debezium_data:

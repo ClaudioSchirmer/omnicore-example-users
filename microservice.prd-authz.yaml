@@ -3,6 +3,9 @@ service: omnicore-example-users
 http:
   addr: "${HTTP_ADDR::8080}"
 
+grpc:
+  addr: "${GRPC_ADDR::9090}"
+
 relational:
   dialect: "${REL_DIALECT:postgres}"
   dsn: "${DATABASE_URL:postgres://omnicore:omnicore@localhost:5433/users_db?sslmode=disable}"
@@ -13,10 +16,10 @@ mongo:
   rebuild:
     autoRun: true     # sandbox posture; QA boots under prd-authz without strict-mode abort
 
-kafka:
-  brokers:
-    - "${KAFKA_BROKERS:localhost:9094}"
-  syncGroupId: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
+transport:
+  endpoints:
+    - "${TRANSPORT_ENDPOINTS:localhost:4222}"
+  syncGroup: "${SYNC_GROUP_ID:omnicore-example-users-sync}"
 
 migrations:
   dir: "${MIGRATIONS_DIR:./migrations/postgres}"

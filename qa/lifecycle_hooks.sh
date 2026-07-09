@@ -20,8 +20,8 @@ set -u
 BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-lifecycle-hooks"
-SERVER_LOG="/tmp/omnicore-example-users-qa-lifecycle-hooks.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-lifecycle-hooks-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-lifecycle-hooks-${BACKEND:-postgres}.log"
 
 PASS=0; FAIL=0; SERVER_PID=""
 hr()    { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
@@ -32,11 +32,11 @@ bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   # A qa-binary boot creates the gadget Mongo collections via view registration;
   # drop them so a later non-qa prd suite (audit/authz) does not abort on foreign
   # collections.
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
+  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -45,7 +45,7 @@ sec "0. Build qa binary + boot + reset gadget state"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 title "0.2 Start server (APP_PROFILE=dev, config=microservice.qa.yaml)"
 # microservice.qa.yaml is dev.yaml + the qa integration/upstream wiring the

@@ -469,7 +469,7 @@ expect_status "missing employeeNumber" 422
 ####################################
 
 # memp <js> — evaluate js against this backend's Mongo view DB.
-memp() { docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1"; }
+memp() { docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1"; }
 
 # wait_memp <js> <expected> [timeout] — poll a Mongo eval until it matches.
 wait_memp() {

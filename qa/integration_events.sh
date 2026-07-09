@@ -24,20 +24,18 @@
 set -u
 
 BASE="${BASE:-http://localhost:8080}"
-CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-integration"
-SERVER_LOG="/tmp/omnicore-example-users-qa-integration.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-integration-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-integration-${BACKEND:-postgres}.log"
 QA_YAML="$REPO_ROOT/microservice.qa.yaml"
-# The qa integration connector tails the integration_events table into the fixed
-# topic qa.integration.events — one per engine (pgoutput vs binlog).
+# The Debezium Server relay tails integration_events into subject
+# omnicore.qa.integration.events (the framework's nats adapter maps the topic
+# below to that subject). A .mysql suffix keeps the engines' events separate in
+# the shared, persisted JetStream stream.
 if [ "$BACKEND" = "mysql" ]; then
-  QA_CONNECTOR="$REPO_ROOT/devops/debezium/qa-integration-connector-mysql.json"
-  # Backend-specific topic so the mysql consumer never replays postgres events.
   export QA_INTEGRATION_TOPIC="qa.integration.events.mysql"
 else
-  QA_CONNECTOR="$REPO_ROOT/devops/debezium/qa-integration-connector.json"
   export QA_INTEGRATION_TOPIC="qa.integration.events"
 fi
 
@@ -48,27 +46,33 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop(); db.qa_accounts_view.drop(); db.qa_catalog_view.drop(); db.upstream_items.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop(); db.qa_accounts_view.drop(); db.qa_catalog_view.drop(); db.upstream_items.drop()" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
-# Create-if-absent only: a config PUT restarts the Debezium task (re-snapshot +
-# stream resume), and an event produced during that window is missed. A stable,
-# already-RUNNING connector + a fresh consumer group (deleted on cleanup) is the
-# deterministic combination.
-register_qa_connector() {
-  local name; name=$(jq -r '.name' "$QA_CONNECTOR")
-  if curl -sf "$CONNECT_URL/connectors/$name/status" >/dev/null 2>&1; then
-    return 0
-  fi
-  curl -sf -X POST -H "Content-Type: application/json" -d @"$QA_CONNECTOR" "$CONNECT_URL/connectors" >/dev/null
-}
-
-# Delete the integration consumer group so the next run rejoins fresh at the
-# topic's latest offset (only sees the event THIS run produces). Safe only while
-# the group has no active members — call it after the server is stopped.
-delete_consumer_group() {
-  docker exec omnicore-example-kafka bash -c \
-    "kafka-consumer-groups --bootstrap-server localhost:9092 --delete --group '$INTEGRATION_GROUP_ID'" >/dev/null 2>&1 || true
+# reset_integration_consumer drops the integration consumer's saved position so
+# the next run rejoins fresh at the broker's latest offset (startFrom: latest →
+# only sees the event THIS run produces). Transport-aware: on NATS it removes the
+# durable consumer (named after the group) from the stream; on Kafka it deletes
+# the consumer group. A no-op when nothing exists. Safe only while no member is
+# active — call it while no server is running.
+reset_integration_consumer() {
+  case "${QA_TRANSPORT_TAG:-nats}" in
+    nats)
+      docker run --rm --network omnicore-qa_default natsio/nats-box:latest \
+        nats -s nats://nats:4222 consumer rm OMNICORE_EVENTS "$INTEGRATION_GROUP_ID" -f >/dev/null 2>&1 || true
+      ;;
+    kafka)
+      # Pre-create the topic so the consumer (startFrom: latest) attaches to an
+      # EXISTING topic at boot. Otherwise the connector auto-creates it only when
+      # it publishes the first event — after the consumer subscribed — and the
+      # `latest` reset lands past offset 0, silently skipping that first event.
+      docker exec omnicore-qa-kafka \
+        kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists \
+        --topic "$QA_INTEGRATION_TOPIC" --partitions 1 --replication-factor 1 >/dev/null 2>&1 || true
+      docker exec omnicore-qa-kafka \
+        kafka-consumer-groups --bootstrap-server localhost:9092 --delete --group "$INTEGRATION_GROUP_ID" >/dev/null 2>&1 || true
+      ;;
+  esac
 }
 
 ##############################################################################
@@ -76,41 +80,27 @@ sec "0. Build qa binary + boot (creates integration_events) + register connector
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
-# No server is running yet → the consumer group is inactive → delete it so this
-# run rejoins fresh at the topic's latest offset (deterministic: it only ever
+kill_port "${HTTP_PORT:-8080}"
+# No server is running yet → the durable consumer is inactive → delete it so this
+# run rejoins fresh at the stream's latest position (deterministic: it only ever
 # processes the event THIS run produces).
-delete_consumer_group
+reset_integration_consumer
 
-title "0.2 Register the outbox connector (gadgets table must exist — boot creates it)"
-# Boot once so migrations + the qa-table provisioning create outbox + integration_events.
+title "0.2 Boot the qa server (creates outbox + integration_events + the JetStream stream)"
+# Boot once so migrations + the qa-table provisioning create outbox +
+# integration_events, and the framework creates the file-backed JetStream stream.
 ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
 SERVER_PID=$!
 deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "server ready (config=microservice.qa.yaml)" || { bad "server not ready"; tail -n 40 "$SERVER_LOG"; exit 1; }
-"$REPO_ROOT/devops/debezium/register-connector.sh" "$QA_CONNECTOR_DIALECT" >/dev/null 2>&1 && ok "outbox connector registered" || bad "outbox connector registration failed"
 
-title "0.3 Register the qa integration_events connector (→ $QA_INTEGRATION_TOPIC)"
-if register_qa_connector; then ok "qa-integration connector registered"; else bad "qa-integration connector registration failed"; fi
-# Wait for the task to actually reach RUNNING before producing events. A config
-# UPDATE (re-run) restarts the task; the mysql binlog connector in particular
-# needs a moment to re-snapshot + resume streaming, and an event produced during
-# that window would be missed by the consumer.
-QA_CONN_NAME=$(jq -r '.name' "$QA_CONNECTOR")
-deadline=$(( $(date +%s) + 90 )); crun=fail
-while [ "$(date +%s)" -lt "$deadline" ]; do
-  st=$(curl -sf "$CONNECT_URL/connectors/$QA_CONN_NAME/status" 2>/dev/null \
-    | python3 -c 'import sys,json
-try:
-  d=json.load(sys.stdin); tasks=d.get("tasks") or []
-  print(tasks[0]["state"] if tasks else d.get("connector",{}).get("state",""))
-except Exception: print("")' 2>/dev/null)
-  [ "$st" = "RUNNING" ] && { crun=ok; break; }
-  sleep 1
-done
-[ "$crun" = ok ] && ok "qa-integration connector task RUNNING" || bad "qa-integration connector never reached RUNNING"
-sleep 5   # binlog/pgoutput settle before the first produced event
+title "0.3 (Re)start the Debezium Server relay for $BACKEND (tails outbox + integration_events → $QA_INTEGRATION_TOPIC)"
+# One Debezium Server instance tails BOTH outbox tables via predicate-gated
+# EventRouters — no separate integration connector to register.
+"$REPO_ROOT/devops/debezium/register-connector.sh" "$QA_CONNECTOR_DIALECT" >/dev/null 2>&1 \
+  && ok "Debezium Server streaming" || bad "Debezium Server failed to start streaming"
+sleep 5   # settle before the first produced event
 
 title "0.4 Reset gadget + integration control tables"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
@@ -119,7 +109,7 @@ qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM integration_events;" 2>/dev/null || true
 qa_db_exec "DELETE FROM omnicore_integration_processed;" 2>/dev/null || true
 qa_db_exec "DELETE FROM omnicore_integration_failures;" 2>/dev/null || true
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.deleteMany({})' >/dev/null 2>&1 || true
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.deleteMany({})' >/dev/null 2>&1 || true
 sleep 1
 ok "clean baseline"
 
@@ -193,6 +183,6 @@ qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM integration_events;" 2>/dev/null || true
 # DROP the qa collection so a later non-qa suite's boot registry guard does not
 # abort on a foreign collection.
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop()' >/dev/null 2>&1 || true
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop()' >/dev/null 2>&1 || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

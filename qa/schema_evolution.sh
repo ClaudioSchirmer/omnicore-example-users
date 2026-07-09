@@ -47,10 +47,10 @@ BASE="${BASE:-http://localhost:8080}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Backend selector (postgres|mysql via BACKEND); default = postgres.
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-schema"
+SERVER_BIN="/tmp/omnicore-example-users-qa-schema-${BACKEND:-postgres}"
 SERVER_BIN_V2="/tmp/omnicore-example-users-qa-schema-v2"
 SERVER_BIN_V2_ARTIFACT="/tmp/omnicore-example-users-qa-schema-v2-artifact"
-SERVER_LOG="/tmp/omnicore-example-users-qa-schema.log"
+SERVER_LOG="/tmp/omnicore-example-users-qa-schema-${BACKEND:-postgres}.log"
 CDC_WAIT_SEC="${CDC_WAIT_SEC:-60}"
 
 VIEWS_SRC="$REPO_ROOT/internal/infra/views.go"
@@ -95,7 +95,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   restore_views_source
 }
 trap cleanup EXIT INT TERM
@@ -123,7 +123,7 @@ start_server_with() {
   local binary="${1:-$SERVER_BIN}"
   local yaml="${2:-}"
   : > "$SERVER_LOG"
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   if [ -n "$yaml" ]; then
     (
       cd "$REPO_ROOT"
@@ -154,7 +154,7 @@ start_expecting_abort() {
   local binary="${1:-$SERVER_BIN}"
   local yaml="${2:-}"
   : > "$SERVER_LOG"
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   if [ -n "$yaml" ]; then
     (
       cd "$REPO_ROOT"
@@ -192,7 +192,7 @@ stop_server() {
     wait "$SERVER_PID" 2>/dev/null || true
     SERVER_PID=""
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
 }
 
 # reset_state truncates Postgres + Mongo (and the omnicore_mongo_views
@@ -289,7 +289,7 @@ pg_registry_field() {
 }
 
 mongo_users_count() {
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
     "print(db.users.countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
 }
 
@@ -448,7 +448,7 @@ assert_eq "Mongo users count (post-CDC)" "3" "$mongo_total"
 
 sec "Phase 3 — operator wipes Mongo (db.users.drop())"
 stop_server
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.drop();" >/dev/null
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.users.drop();" >/dev/null
 echo "OK — Mongo 'users' collection dropped"
 
 mongo_total=$(mongo_users_count)
@@ -691,7 +691,7 @@ echo "Pre-boot version=$pre_version_p10 combined_hash=$pre_combined_hash_p10"
 title "Start v3 binary under autoRun: false"
 SERVER_LOG_P10="${SERVER_LOG}.p10"
 : > "$SERVER_LOG_P10"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 (
   cd "$REPO_ROOT"
   APP_PROFILE="dev" OMNICORE_CONFIG_PATH="$YAML_FALSE_MODE" \
@@ -745,7 +745,7 @@ sec "Phase 11 — DriftDowngrade under allowDowngrade=false (default) aborts boo
 title "Bump registry to v2 first so v1 is a downgrade target"
 SERVER_LOG_P11_PREP="${SERVER_LOG}.p11.prep"
 : > "$SERVER_LOG_P11_PREP"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 (
   cd "$REPO_ROOT"
   APP_PROFILE="dev" exec "$SERVER_BIN_V2" >>"$SERVER_LOG_P11_PREP" 2>&1
@@ -765,7 +765,7 @@ stop_server
 title "Attempt to boot v1 binary against v2 registry — expect §14.6 abort"
 SERVER_LOG_P11="${SERVER_LOG_BASE:-/tmp/omnicore-example-users-qa-schema.log}.p11"
 : > "$SERVER_LOG_P11"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 (
   cd "$REPO_ROOT"
   APP_PROFILE="dev" exec "$SERVER_BIN" >>"$SERVER_LOG_P11" 2>&1
@@ -798,7 +798,7 @@ else
   assert_eq "Phase 11 registry.version unchanged after abort" "2" "$p11_version"
 fi
 # The aborted server may still be in the PID; force-kill.
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 sec "Phase 12a — DriftAlienData: populated Mongo + NO registry row → abort (autoRun cannot escape)"
 ###############################################################################
@@ -917,7 +917,7 @@ qa_mongo_reset
 title "Start v1 with OMNICORE_CODE_VERSION=qa-test-deploy-abc set"
 SERVER_LOG_P12="${SERVER_LOG_BASE:-/tmp/omnicore-example-users-qa-schema.log}.p12"
 : > "$SERVER_LOG_P12"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 (
   cd "$REPO_ROOT"
   APP_PROFILE="dev" OMNICORE_CODE_VERSION="qa-test-deploy-abc" \

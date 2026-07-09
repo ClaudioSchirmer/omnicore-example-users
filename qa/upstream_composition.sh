@@ -28,8 +28,8 @@ BASE="${BASE:-http://localhost:8080}"
 CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-upstream-comp"
-SERVER_LOG="/tmp/omnicore-example-users-qa-upstream-comp.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-upstream-comp-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-upstream-comp-${BACKEND:-postgres}.log"
 QA_YAML="$REPO_ROOT/microservice.qa.yaml"
 UP_COLL="upstream_gadgets"
 
@@ -40,11 +40,11 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port 8080; docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
 trap cleanup EXIT INT TERM
 
 mongo_up() {  # eval a mongosh expression against the upstream collection
-  docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null | tail -1 | tr -d ' '
+  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null | tail -1 | tr -d ' '
 }
 
 ##############################################################################
@@ -52,7 +52,7 @@ sec "0. Build qa binary + ensure outbox connector + boot with qa.yaml"
 ##############################################################################
 title "0.1 Build with -tags '$QA_BUILD_TAGS qa'"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS qa" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 title "0.2 Ensure the outbox Debezium connector is registered (routes gadgets.events)"
 "$REPO_ROOT/devops/debezium/register-connector.sh" "$QA_CONNECTOR_DIALECT" >/dev/null 2>&1 && ok "outbox connector registered" || bad "outbox connector registration failed"
@@ -74,7 +74,7 @@ title "0.4 Reset gadgets + upstream_gadgets + gadgets view collection"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM omnicore_upstream_failures;" 2>/dev/null || true
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.deleteMany({}); db.$UP_COLL.deleteMany({})" >/dev/null 2>&1 || true
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.deleteMany({}); db.$UP_COLL.deleteMany({})" >/dev/null 2>&1 || true
 sleep 1
 ok "clean baseline"
 
@@ -192,6 +192,6 @@ sec "Cleanup + Summary"
 qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 # DROP the qa collections so the canonical (non-qa) binary's boot registry
 # guard does not later abort on foreign collections it cannot map to a view.
-docker exec omnicore-example-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_embedded.drop(); db.$UP_COLL.drop()" >/dev/null 2>&1 || true
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_embedded.drop(); db.$UP_COLL.drop()" >/dev/null 2>&1 || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

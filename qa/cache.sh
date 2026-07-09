@@ -39,12 +39,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
 COMPOSE="docker compose -f $REPO_ROOT/devops/docker-compose.yml"
 BASE="${BASE:-http://localhost:8080}"
-SERVER_BIN="${SERVER_BIN:-/tmp/omnicore-example-users-qa-cache-bin}"
+SERVER_BIN="${SERVER_BIN:-/tmp/omnicore-example-users-qa-cache-bin}-${BACKEND:-postgres}"
 PRIVATE_PREFIX="${REDIS_KEY_PREFIX:-omnicore-example-users-cache}"
 SHARED_PREFIX="${SHARED_REDIS_KEY_PREFIX:-omnicore-example-users-shared}"
 REDIS_STOPPED=0
 SERVER_PID=""
-SERVER_LOG="/tmp/omnicore-example-users-qa-cache.log"
+SERVER_LOG="/tmp/omnicore-example-users-qa-cache-${BACKEND:-postgres}.log"
 
 RED=$'\e[1;31m'
 GREEN=$'\e[1;32m'
@@ -86,9 +86,9 @@ cleanup() {
         kill "$SERVER_PID" 2>/dev/null || true
         wait "$SERVER_PID" 2>/dev/null || true
     fi
-    kill_port 8080
+    kill_port "${HTTP_PORT:-8080}"
     if [ "$REDIS_STOPPED" = "1" ]; then
-        $COMPOSE start redis >/dev/null 2>&1 || true
+        $COMPOSE start "$QA_REDIS_SERVICE" >/dev/null 2>&1 || true
     fi
 }
 trap cleanup EXIT INT TERM
@@ -110,7 +110,7 @@ wait_for_health() {
 # infrastructure. Append (not truncate) the log so case 8's second boot
 # joins the first boot's lines.
 start_server() {
-    kill_port 8080
+    kill_port "${HTTP_PORT:-8080}"
     (
         cd "$REPO_ROOT"
         APP_PROFILE=dev OMNICORE_CONFIG_PATH="$REPO_ROOT/microservice.dev-redis-cache.yaml" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1
@@ -130,13 +130,13 @@ stop_server() {
         wait "$SERVER_PID" 2>/dev/null || true
         SERVER_PID=""
     fi
-    kill_port 8080
+    kill_port "${HTTP_PORT:-8080}"
 }
 
 # redis_cli wraps docker compose exec so the host doesn't need redis-cli
 # installed.
 redis_cli() {
-    $COMPOSE exec -T redis redis-cli "$@"
+    $COMPOSE exec -T "$QA_REDIS_SERVICE" redis-cli "$@"
 }
 
 # json_get pipes stdin through python's json.tool to pretty-print or
@@ -150,12 +150,12 @@ sec "qa/cache.sh"
 # ------------------------------------------------------------------
 
 title "0. Preconditions"
-if ! $COMPOSE ps --status running --format '{{.Name}}' | grep -q omnicore-example-redis; then
+if ! $COMPOSE ps --status running --format '{{.Name}}' | grep -q "omnicore-qa-$QA_REDIS_SERVICE"; then
     echo "Redis container not running. Bring it up first:"
     echo "  $COMPOSE up -d redis"
     exit 1
 fi
-if ! $COMPOSE ps --status running --format '{{.Name}}' | grep -q omnicore-example-keycloak; then
+if ! $COMPOSE ps --status running --format '{{.Name}}' | grep -q omnicore-qa-keycloak; then
     echo "Keycloak container not running (case 7 needs it). Bring it up first:"
     echo "  $COMPOSE up -d keycloak"
     exit 1
@@ -171,7 +171,7 @@ redis_cli FLUSHDB >/dev/null
 echo "Redis flushed; log $SERVER_LOG truncated"
 
 title "0.3 Free port 8080 + start server"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 if ! start_server; then
     echo "Cannot start server — aborting"
     exit 1
@@ -386,7 +386,7 @@ fi
 
 title "9. failOpen — stop Redis, requests still respond 200 + slog records the transport error"
 echo "Stopping Redis container..."
-$COMPOSE stop redis >/dev/null 2>&1
+$COMPOSE stop "$QA_REDIS_SERVICE" >/dev/null 2>&1
 REDIS_STOPPED=1
 LOG_LINES_BEFORE=$(wc -l < "$SERVER_LOG" | tr -d '[:space:]')
 
@@ -413,7 +413,7 @@ else
 fi
 
 echo "Restarting Redis..."
-$COMPOSE start redis >/dev/null 2>&1
+$COMPOSE start "$QA_REDIS_SERVICE" >/dev/null 2>&1
 # Wait for Redis to become healthy again before the cleanup trap fires.
 for _ in 1 2 3 4 5; do
     if redis_cli PING 2>/dev/null | grep -q PONG; then

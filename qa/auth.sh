@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # backend; QA_BUILD_TAGS drives the dual-engine build. Default = postgres.
 source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
-SERVER_BIN="/tmp/omnicore-example-users-qa-auth"
+SERVER_BIN="/tmp/omnicore-example-users-qa-auth-${BACKEND:-postgres}"
 
 PASS=0; FAIL=0
 SERVER_PID=""
@@ -61,7 +61,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
 }
 trap cleanup EXIT INT TERM
 
@@ -88,9 +88,9 @@ wait_for_health() {
 # spawns a child binary that survives `kill $!` and would leak across profiles.
 start_server() {
   local profile="$1"
-  SERVER_LOG="/tmp/auth-server-${profile}.log"
+  SERVER_LOG="/tmp/auth-server-${profile}-${BACKEND:-postgres}.log"
   : > "$SERVER_LOG"
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   (
     cd "$REPO_ROOT"
     APP_PROFILE="$profile" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1
@@ -111,7 +111,7 @@ stop_server() {
     wait "$SERVER_PID" 2>/dev/null || true
     SERVER_PID=""
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
 }
 
 # show_case <name> <method> <path> <bearer_token_or_empty> <expected_status> [expected_subject_or_empty]
@@ -253,7 +253,7 @@ title "0.1b Build server binary (once, reused across all profiles)"
 echo "Binary: $SERVER_BIN"
 
 title "0.1c Free port 8080 if anything is lingering from a previous run"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 echo "Port 8080 clear"
 
 title "0.2 Resolve alice subject UUID (decoded from her own JWT — avoids admin API)"

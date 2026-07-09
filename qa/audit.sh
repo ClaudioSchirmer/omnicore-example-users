@@ -37,8 +37,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Backend selector (postgres|mysql via BACKEND); default = postgres.
 source "$REPO_ROOT/qa/_backend.sh"
 SCRIPTS="${REPO_ROOT}/devops/keycloak"
-SERVER_BIN="/tmp/omnicore-example-users-qa-audit"
-SERVER_LOG="/tmp/omnicore-example-users-qa-audit.log"
+SERVER_BIN="/tmp/omnicore-example-users-qa-audit-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-audit-${BACKEND:-postgres}.log"
 
 # Issuer URL pinned in microservice.prd.yaml. Used to assert that the audit
 # line carries the JWT's iss verbatim — proves the middleware → AppContext →
@@ -71,7 +71,7 @@ cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
 }
 trap cleanup EXIT INT TERM
 
@@ -94,7 +94,7 @@ wait_for_health() {
 # would leak across runs.
 start_server() {
   : > "$SERVER_LOG"
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
   (
     cd "$REPO_ROOT"
     APP_PROFILE="prd" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1
@@ -258,7 +258,7 @@ title "0.2 Build server binary"
 echo "Binary: $SERVER_BIN"
 
 title "0.3 Free port 8080 if anything is lingering"
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 echo "Port 8080 clear"
 
 title "0.4 Resolve alice's sub from her JWT"

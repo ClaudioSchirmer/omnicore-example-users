@@ -18,10 +18,10 @@ jobs:
           check-latest: true
 
       - name: Build
-        run: go build -tags postgres ./...
+        run: go build -tags 'postgres kafka' ./...
 
       - name: Vet
-        run: go vet -tags postgres ./...
+        run: go vet -tags 'postgres kafka' ./...
 
       - name: Test
-        run: go test -tags postgres ./... -count=1
+        run: go test -tags 'postgres kafka' ./... -count=1

@@ -1,31 +1,27 @@
 #!/usr/bin/env bash
-# Bring up the local bench and run the service in dev mode (auth off).
-# Logs stream to stdout AND are mirrored to devops/elk/logs/ so Filebeat ships
-# them to Elasticsearch / Kibana (:5601). Run devops/elk/setup-kibana.sh once to
-# create the Kibana views. Ctrl+C stops the Go process; containers stay up.
+# Bring up the dedicated DEV bench and run the service in dev mode (auth off) on
+# MySQL + NATS JetStream. This bench (devops/docker-compose.dev.yml, project
+# `omnicore-dev`, standard ports) is EXCLUSIVELY yours — the QA suites run in the
+# separate `omnicore-qa` bench and never touch your data. Ctrl+C stops the Go
+# process; the containers stay up.
 
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-echo "==> Bringing up local bench (relational backend + Mongo + Kafka + Debezium)"
-docker compose -f devops/docker-compose.yml up -d
+echo "==> Bringing up the dev bench (MySQL + NATS JetStream + Mongo + Debezium Server)"
+docker compose -f devops/docker-compose.dev.yml up -d
 
-echo "==> Waiting for Debezium Connect to be ready"
-until curl -sf http://localhost:8083/ >/dev/null 2>&1; do
-  sleep 1
-done
-
-echo "==> Registering Debezium outbox connector (idempotent)"
-./devops/debezium/register-connector.sh || true
-
-echo "==> Starting omnicore-example-users (APP_PROFILE=dev)"
+echo "==> Starting omnicore-example-users (dev · MySQL · NATS)"
 mkdir -p devops/elk/logs
-# The `tee` must ignore INT/TERM. On Ctrl+C the terminal signals the whole
-# foreground process group at once; a plain `tee` dies immediately, the
-# server's stdout becomes a broken pipe, and every graceful-shutdown log line
-# is lost (Go even raises SIGPIPE on the first shutdown write). Trapping the
-# signals keeps `tee` alive until the server closes stdout on a clean exit, so
-# the drain output is captured both on screen and in the mirrored log.
-env APP_PROFILE=dev go run -work -tags postgres ./bootstrap 2>&1 \
+# The Debezium Server relay streams as soon as the outbox tables exist — the app
+# creates them (migrations) on first boot and creates the JetStream stream, so a
+# cold start's first writes land in Mongo a moment after boot.
+#
+# The `tee` traps INT/TERM: on Ctrl+C the terminal signals the whole foreground
+# group at once; a plain `tee` would die immediately, the server's stdout becomes
+# a broken pipe, and every graceful-shutdown log line is lost. Trapping keeps
+# `tee` alive until the server closes stdout on a clean exit.
+env APP_PROFILE=dev OMNICORE_CONFIG_PATH=./microservice.dev-mysql.yaml \
+  go run -work -tags 'mysql nats' ./bootstrap 2>&1 \
   | { trap '' INT TERM; tee -a devops/elk/logs/omnicore-example-users.log; }

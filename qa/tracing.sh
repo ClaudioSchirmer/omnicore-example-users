@@ -29,9 +29,9 @@ BASE="${BASE:-http://localhost:8080}"
 JAEGER="${JAEGER:-http://localhost:16686}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
-SERVER_BIN="/tmp/omnicore-example-users-qa-tracing"
-SERVER_LOG="/tmp/omnicore-example-users-qa-tracing.log"
-SERVICE_NAME="omnicore-example-users"
+SERVER_BIN="/tmp/omnicore-example-users-qa-tracing-${BACKEND:-postgres}"
+SERVER_LOG="/tmp/omnicore-example-users-qa-tracing-${BACKEND:-postgres}.log"
+SERVICE_NAME="${OTEL_SERVICE_NAME:-omnicore-example-users}"
 
 PASS=0; FAIL=0
 SERVER_PID=""
@@ -53,7 +53,7 @@ cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true
   fi
-  kill_port 8080
+  kill_port "${HTTP_PORT:-8080}"
 }
 trap cleanup EXIT INT TERM
 
@@ -80,7 +80,7 @@ done
 
 title "0.2 Build server binary (dev profile has tracing enabled)"
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
-kill_port 8080
+kill_port "${HTTP_PORT:-8080}"
 
 title "0.3 Start server (APP_PROFILE=dev → otlp exporter to localhost:4317)"
 : > "$SERVER_LOG"
