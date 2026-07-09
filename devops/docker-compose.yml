@@ -177,6 +177,15 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+      # Pin the JVM heap. Without this, Keycloak sizes the heap by
+      # MaxRAMPercentage; with no container memory limit that percentage is taken
+      # against the WHOLE Docker VM (~8 GB here), so under the two-lane matrix's
+      # peak load Keycloak was host-OOM-killed (Exited 137) and `auth` went RED
+      # for a non-code reason. A fixed heap + the mem_limit below bound it
+      # deterministically (heap 640m max, well under the 1g cap for metaspace/
+      # threads/direct buffers).
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx640m"
+    mem_limit: 1g
     ports:
       - "8088:8080"
     volumes:
