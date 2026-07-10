@@ -418,11 +418,11 @@ sec "6. Layer-2 — owner-check on Archive runs after Layer-1 passes"
 # email alice@omnicore.test → alice IS the owner → archive succeeds. Then
 # unarchive to keep state clean for the negative test.
 if [ -n "$CREATED_USER_ID" ]; then
-  show_case "PATCH /users/:id/archive with alice (owner) → 200" \
-    PATCH "/users/$CREATED_USER_ID/archive" "$TOK_ALICE" "" 200
+  show_case "PATCH /users/:id/archive with alice (owner) → 204" \
+    PATCH "/users/$CREATED_USER_ID/archive" "$TOK_ALICE" "" 204
 
-  show_case "PATCH /users/:id/unarchive with alice (owner) → 200" \
-    PATCH "/users/$CREATED_USER_ID/unarchive" "$TOK_ALICE" "" 200
+  show_case "PATCH /users/:id/unarchive with alice (owner) → 204" \
+    PATCH "/users/$CREATED_USER_ID/unarchive" "$TOK_ALICE" "" 204
 
   # Now create a SECOND target whose email differs from alice's, then alice
   # tries to archive — Layer-1 passes (users:archive) but Layer-2 rejects
@@ -437,8 +437,8 @@ if [ -n "$CREATED_USER_ID" ]; then
       PATCH "/users/$STRANGER_ID/archive" "$TOK_ALICE" "" \
       403 ArchiveNotAllowedNotification
 
-    show_case "PATCH /users/:id/archive with bob (super admin *:*) → 200 (Layer-2 bypass)" \
-      PATCH "/users/$STRANGER_ID/archive" "$TOK_BOB" "" 200
+    show_case "PATCH /users/:id/archive with bob (super admin *:*) → 204 (Layer-2 bypass)" \
+      PATCH "/users/$STRANGER_ID/archive" "$TOK_BOB" "" 204
 
     # No DELETE on $STRANGER_ID after archive — the framework's FindByID filters
     # archived records, so DELETE would return 404 (RecordNotFound). Section 7
@@ -569,11 +569,11 @@ if capture_post "$TOK_BOB" "bob-target@authz.test" "10000000303"; then
     PATCH "/users/$BOB_TARGET_ID" "$TOK_BOB" \
     '{"name":"bob-patched"}' 200
 
-  show_case "PATCH /users/:id/archive with bob → 200 (no owner constraint via *:*)" \
-    PATCH "/users/$BOB_TARGET_ID/archive" "$TOK_BOB" "" 200
+  show_case "PATCH /users/:id/archive with bob → 204 (no owner constraint via *:*)" \
+    PATCH "/users/$BOB_TARGET_ID/archive" "$TOK_BOB" "" 204
 
-  show_case "PATCH /users/:id/unarchive with bob → 200" \
-    PATCH "/users/$BOB_TARGET_ID/unarchive" "$TOK_BOB" "" 200
+  show_case "PATCH /users/:id/unarchive with bob → 204" \
+    PATCH "/users/$BOB_TARGET_ID/unarchive" "$TOK_BOB" "" 204
 
   # Final delete keeps the test data clean.
   show_case "DELETE /users/:id with bob → 204" \
@@ -713,11 +713,11 @@ else
   printf '\033[1;31mFAIL\033[0m alice POST /employees expected 201, got %s\n' "$EMP_STATUS"; FAIL=$((FAIL+1))
 fi
 
-show_case "PATCH /employees/:id/archive with alice -> 200 (employees:archive)" \
-  PATCH "/employees/$EMP_ID/archive" "$TOK_ALICE" "" 200
+show_case "PATCH /employees/:id/archive with alice -> 204 (employees:archive)" \
+  PATCH "/employees/$EMP_ID/archive" "$TOK_ALICE" "" 204
 
-show_case "PATCH /employees/:id/unarchive with alice -> 200 (employees:archive)" \
-  PATCH "/employees/$EMP_ID/unarchive" "$TOK_ALICE" "" 200
+show_case "PATCH /employees/:id/unarchive with alice -> 204 (employees:archive)" \
+  PATCH "/employees/$EMP_ID/unarchive" "$TOK_ALICE" "" 204
 
 show_case "DELETE /employees/:id with alice -> 403 (alice lacks employees:delete)" \
   DELETE "/employees/$EMP_ID" "$TOK_ALICE" "" 403 MissingPermissionNotification

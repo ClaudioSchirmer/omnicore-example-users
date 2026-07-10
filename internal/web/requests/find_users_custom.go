@@ -34,7 +34,7 @@ type FindUsersCustomRequest struct {
 // AppContext-derived overlays (tenant scope, owner-only filter) layer onto
 // the criteria inside Query.ToCriteria(ctx) consumed by the handler — the
 // manual surface's reason to exist on the read side. The seam is
-// documented in find_users_custom_handler.go.
+// documented in find_users_custom_query_handler.go.
 func (r FindUsersCustomRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindUsersCustomQuery {
 	return &queries.FindUsersCustomQuery{Criteria: criteria}
 }

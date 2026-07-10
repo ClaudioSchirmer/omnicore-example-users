@@ -6,6 +6,7 @@ import (
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 
 	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra"
+	appviews "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/views"
 	appweb "github.com/ClaudioSchirmer/omnicore-example-users/internal/web"
 
 	"github.com/gofiber/fiber/v3"
@@ -26,7 +27,7 @@ type EmployeesFeature struct {
 func NewEmployeesFeature(d bootstrap.Deps) *EmployeesFeature {
 	return &EmployeesFeature{
 		repo: appinfra.NewEmployeeRepository(d.DB),
-		view: appinfra.EmployeeView(),
+		view: appviews.EmployeeView(),
 	}
 }
 

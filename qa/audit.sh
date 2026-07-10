@@ -444,7 +444,7 @@ if inserted:
 sec "4. Archive — PATCH /users/:id/archive (cascade addresses)"
 ##############################################################################
 
-capture_audit PATCH "/users/$USER_ID/archive" "" "$VALID" 200
+capture_audit PATCH "/users/$USER_ID/archive" "" "$VALID" 204
 
 assert_audit "4.1 Archive audit — kind=transition + Address archived cascade" '
 eq(a.get("verb"),       "archive",       "verb")
@@ -464,7 +464,7 @@ for e in addrs:
 sec "5. Unarchive — PATCH /users/:id/unarchive (cascade addresses)"
 ##############################################################################
 
-capture_audit PATCH "/users/$USER_ID/unarchive" "" "$VALID" 200
+capture_audit PATCH "/users/$USER_ID/unarchive" "" "$VALID" 204
 
 assert_audit "5.1 Unarchive audit — Address unarchived cascade (restores ALL archived children)" '
 eq(a.get("verb"),       "unarchive",       "verb")
@@ -878,7 +878,7 @@ if changes:
 '
 
 # Custom Archive
-capture_audit PATCH /showcase/users-custom/10000000407/archive "" "$VALID" 200
+capture_audit PATCH /showcase/users-custom/10000000407/archive "" "$VALID" 204
 
 assert_audit "14.3 Custom Archive → verb=archive kind=transition + child cascade" '
 eq(a.get("verb"),       "archive",       "verb")
@@ -891,7 +891,7 @@ if addrs:
 '
 
 # Custom Unarchive
-capture_audit PATCH /showcase/users-custom/10000000407/unarchive "" "$VALID" 200
+capture_audit PATCH /showcase/users-custom/10000000407/unarchive "" "$VALID" 204
 
 assert_audit "14.4 Custom Unarchive → verb=unarchive kind=transition + child restore" '
 eq(a.get("verb"),       "unarchive",       "verb")

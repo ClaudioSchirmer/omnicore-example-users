@@ -7,6 +7,7 @@ import (
 	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 
 	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra"
+	appviews "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/views"
 	appweb "github.com/ClaudioSchirmer/omnicore-example-users/internal/web"
 
 	"github.com/gofiber/fiber/v3"
@@ -42,7 +43,7 @@ func NewUsersFeature(d bootstrap.Deps) *UsersFeature {
 	// edit here.
 	return &UsersFeature{
 		repo: appinfra.NewUserRepository(d.DB),
-		view: appinfra.UserView(),
+		view: appviews.UserView(),
 	}
 }
 

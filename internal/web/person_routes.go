@@ -6,6 +6,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	"github.com/ClaudioSchirmer/omnicore/web/export"
+	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
@@ -94,4 +95,26 @@ func MountPersons(
 			Tags:        []string{"Persons"},
 		},
 		fwopenapi.RequirePermission("persons:read"))
+}
+
+// MountPersonsGraphQL contributes the person view's read field to the
+// service's single GraphQL registry — the GraphQL twin of MountPersons.
+// Query-only, like the REST surface: a person is written through its roles.
+// The `persons` connection reuses the same application handler and Request
+// DTO the REST list mounts; the role sub-objects (`user`, `employee`) reflect
+// into the schema from the Response DTO like any nested shape.
+func MountPersonsGraphQL(
+	reg *fwgraphql.Registry,
+	view *query.ViewDefinition,
+	d bootstrap.Deps,
+) {
+	reg.Register(fwgraphql.QueryWithParams[
+		requests.FindPersonsByParamsRequest,
+		requests.FindPersonsByParamsResponse,
+	](
+		"persons", "Person",
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonByParamsQuery]{
+			Reader: d.ViewReader, View: view.Name(),
+		},
+		fwgraphql.RequirePermission("persons:read")))
 }

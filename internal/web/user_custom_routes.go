@@ -212,11 +212,11 @@ func MountUsersCustom(
 	// Archive / Unarchive align with the canonical: handler returns
 	// fwresults.None, route emits envelope without `data` field via
 	// RespondWithStatus on success. fwresponses.None is the spec-side
-	// sentinel the OpenAPI assembler picks up to render "200 with no body"
+	// sentinel the OpenAPI assembler picks up to render "204 no body"
 	// — same shape used by DELETE below.
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:document/archive",
 		customArchiveUser(d.Pipeline, repo, svc),
-		fwopenapi.RouteSpecOf[requests.UserCustomKeyRequest, fwresponses.None](fiber.StatusOK),
+		fwopenapi.RouteSpecOf[requests.UserCustomKeyRequest, fwresponses.None](fiber.StatusNoContent),
 		fwopenapi.Doc{
 			Summary:     "Archive a user by document (manual showcase)",
 			Description: "Manual variant of /users/:id/archive keyed by document. Aggregate-aware soft delete; the same TX archives every active address. Symmetric inverse of `/unarchive`.",
@@ -226,7 +226,7 @@ func MountUsersCustom(
 
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:document/unarchive",
 		customUnarchiveUser(d.Pipeline, repo, svc),
-		fwopenapi.RouteSpecOf[requests.UserCustomKeyRequest, fwresponses.None](fiber.StatusOK),
+		fwopenapi.RouteSpecOf[requests.UserCustomKeyRequest, fwresponses.None](fiber.StatusNoContent),
 		fwopenapi.Doc{
 			Summary:     "Unarchive a user by document (manual showcase)",
 			Description: "Manual variant of /users/:id/unarchive keyed by document. Restores every archived child of the root — same cascade semantic as the canonical surface (also restores children archived by earlier Update operations, not only those touched by the matching Archive).",
@@ -435,7 +435,7 @@ func customArchiveUser(
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
-			return fwweb.RespondWithStatus(c, fiber.StatusOK)
+			return fwweb.RespondWithStatus(c, fiber.StatusNoContent)
 		}
 		return fwweb.RespondFromResult(c, result, fiber.StatusOK)
 	}
@@ -462,7 +462,7 @@ func customUnarchiveUser(
 
 		result := pipeline.Dispatch(pipe, appCtx, cmd, h)
 		if result.IsSuccess() {
-			return fwweb.RespondWithStatus(c, fiber.StatusOK)
+			return fwweb.RespondWithStatus(c, fiber.StatusNoContent)
 		}
 		return fwweb.RespondFromResult(c, result, fiber.StatusOK)
 	}
@@ -500,7 +500,7 @@ func customDeleteUser(
 //
 // By-document lookup. Translates to a single-item ReadPage with
 // Filter[Document]=<value>; the application handler holds the canonical seam
-// for row-level access control (see find_user_by_document_custom_handler.go).
+// for row-level access control (see find_user_by_document_custom_query_handler.go).
 // Returns the reduced wire shape (id + name + email) declared by
 // requests.FindUserByDocumentCustomResponse — phone and addresses are
 // intentionally stripped at the projection step.

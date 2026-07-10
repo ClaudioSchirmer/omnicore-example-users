@@ -8,6 +8,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/schemas"
 )
 
 // UserRepository is the role repository for the User aggregate, which is backed
@@ -44,7 +45,7 @@ func NewUserRepository(eng core.RelationalEngine) *UserRepository {
 		"users_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		"PRIMARY":    {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 	}
-	r.WithSchema(UserSchema())
+	r.WithSchema(schemas.UserSchema())
 	return r
 }
 
