@@ -69,6 +69,115 @@ else
 fi
 REPORT_MD="$STACK_ROOT/qa-report.md"
 
+# ── Report safety net ────────────────────────────────────────────────────────
+# The report is merged+written exactly once, near the end. Anything that exits
+# BEFORE that (a preflight `exit 2`, Ctrl-C/kill, a lane that hangs) would leave
+# a STALE qa-report.md from a prior run — silently reading as the last outcome.
+# This trap guarantees qa-report.md always reflects THIS run: FINALIZED is set to
+# 1 the instant the real report is written, so normal green/RED exits keep it and
+# the handler only fires on an abnormal abort.
+FINALIZED=0
+ABORT_REASON=""
+
+# render_report <status-md> — regenerate the WHOLE qa-report.md from the current
+# per-lane fragments, then stamp <status-md> as the footer. Called after EVERY
+# suite (so the file fills in LIVE, the way it did before the two-lane split) and
+# once at the end with the final verdict. A mkdir lock serializes the two parallel
+# lanes so they never write the report at the same instant; each call is a full
+# overwrite rebuilt from every lane's rows-*.tsv, so the file is always a consistent
+# snapshot of whatever has finished so far. The row appends (record/abort_lane →
+# $LANE_ROWS) stay lock-free — each lane owns its own rows file.
+render_report() {
+  # NOTE: B is declared local — render_report is called from record(), which runs
+  # inside run_lane's `local B` scope. Bash is dynamically scoped, so an unqualified
+  # `for B` here would CLOBBER the lane's B (leaving it "mysql"), mislabeling every
+  # subsequent row and colliding log paths. Keep B (and any loop var) local.
+  local status="$1" lock="$LOG_DIR/report.lock" tries=0 B
+  # Best-effort lock: if the sibling lane is mid-render, skip — the next suite's
+  # render catches up. A lane is never blocked on the report.
+  until mkdir "$lock" 2>/dev/null; do
+    tries=$((tries+1)); [ "$tries" -ge 100 ] && return 0; sleep 0.02
+  done
+  local hdr="| Suite |" sep="|---|"
+  {
+    echo "# QA Matrix Report"
+    echo
+    echo "- **Updated:** $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "- **Lanes:** $BACKEND_LIST (parallel)"
+    echo "- **Suites:** $SUITES"
+    echo "- **Scheduled runs:** $EXPECTED_RUNS"
+    echo
+    # Lane legend + build one SIDE-BY-SIDE header: each lane repeats today's
+    # Backend/Pass/Fail/Verdict/Time columns, so the suite name is written once and
+    # the matrix grows DOWN (one row per suite) AND ACROSS (a column group per lane).
+    for B in $BACKEND_LIST; do
+      case "$B" in
+        postgres) echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
+        mysql)    echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
+        *)        echo "- **Lane** — $B" ;;
+      esac
+      hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
+      sep="$sep---|---:|---:|:---:|---:|"
+    done
+    echo
+    echo "$hdr"
+    echo "$sep"
+    # Body from every lane's rows-*.tsv, keyed by suite. awk keeps us off bash-4
+    # associative arrays (macOS ships bash 3.2). A suite prints once it has at least
+    # one lane result; a lane missing that suite (fail-fast/abort) gets a dash cell.
+    # Rows not in the declared suite order (e.g. "(abort)") print after the rest.
+    awk -F'\t' -v suites="$SUITES" -v backends="$BACKEND_LIST" '
+      function emit(s,   line,any,j,b) {
+        line = "| " s " |"; any = 0
+        for (j=1;j<=nb;j++) {
+          b = B[j]
+          if ((s SUBSEP b) in cell) { line = line cell[s,b]; any = 1 }
+          else                      { line = line " — | — | — | — | — |" }
+        }
+        if (any) print line
+      }
+      { seen[$1]=1
+        mark = ($5=="OK") ? "✅ OK" : "❌ " $5
+        secstr = ($6=="-") ? "-" : $6 "s"
+        cell[$1,$2] = " " $2 " | " $3 " | " $4 " | " mark " | " secstr " |" }
+      END {
+        ns=split(suites,S," "); nb=split(backends,B," ")
+        for (i=1;i<=ns;i++) { inlist[S[i]]=1; emit(S[i]) }
+        for (k in seen) if (!(k in inlist)) emit(k)
+      }
+    ' "$LOG_DIR"/rows-*.tsv 2>/dev/null
+    echo
+    echo "$status"
+  } > "$REPORT_MD"
+  rmdir "$lock" 2>/dev/null
+}
+
+# progress_footer — the live status line stamped after each suite completes.
+progress_footer() {
+  local done; done=$(cat "$LOG_DIR"/rows-*.tsv 2>/dev/null | grep -c .)
+  echo "_🔄 Running… ${done}/${EXPECTED_RUNS} runs completed (refreshes after each suite)._"
+}
+
+# write_aborted_report — the trap safety net. The report is rendered LIVE during
+# the run, so on an abnormal exit either (a) partial results are already on disk —
+# re-stamp them ABORTED (fragments exist), or (b) nothing ran yet — write a bare
+# preflight-abort notice. FINALIZED=1 disarms this once the final verdict is on
+# disk, so a normal green/RED exit keeps the real report.
+write_aborted_report() {
+  [ "$FINALIZED" = 1 ] && return
+  if ls "$LOG_DIR"/frag-*.md >/dev/null 2>&1; then
+    render_report "**❌ RUN ABORTED — ${ABORT_REASON:-terminated before the matrix completed}. Partial results above. Logs: \`$LOG_DIR\`**"
+  else
+    { echo "# QA Matrix Report"; echo
+      echo "- **Aborted:** $(date '+%Y-%m-%d %H:%M:%S')"
+      echo
+      echo "**❌ RUN ABORTED — ${ABORT_REASON:-terminated before the matrix completed}."
+      echo "This report does NOT reflect a completed matrix. Logs: \`${LOG_DIR:-n/a}\`**"
+    } > "$REPORT_MD"
+  fi
+}
+trap write_aborted_report EXIT INT TERM
+
 bold()  { printf '\033[1;37m%s\033[0m\n' "$1"; }
 green() { printf '\033[1;32m%s\033[0m' "$1"; }
 red()   { printf '\033[1;31m%s\033[0m' "$1"; }
@@ -110,6 +219,7 @@ record() {
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$suite" "$backend" "$p" "$f" "$word" "$secs" >> "$LANE_ROWS"
   printf '| %s | %s | %s | %s | %s | %ss |\n' "$suite" "$backend" "$p" "$f" "$mark" "$secs" >> "$LANE_FRAG"
   printf '%-18s %-9s %6s pass %5s fail   %s  %4ss  %s\n' "$suite" "$backend" "$p" "$f" "$verdict" "$secs" "$log"
+  render_report "$(progress_footer)"   # refresh qa-report.md live, as each suite lands
   [ "$word" = "OK" ]
 }
 
@@ -117,6 +227,7 @@ abort_lane() { # abort_lane <backend> <reason>
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "(abort)" "$1" "-" "-" "ABORT" "-" >> "$LANE_ROWS"
   printf '| (abort: %s) | %s | - | - | ❌ ABORT | - |\n' "$2" "$1" >> "$LANE_FRAG"
   printf '%-18s %-9s %6s pass %5s fail   %s  %4ss  %s\n' "(abort)" "$1" "-" "-" "$(red "RED")" "-" "$2"
+  render_report "$(progress_footer)"   # a lane abort shows up live too
 }
 
 # fail_fast <suite> <backend> — trip the shared sentinel (unless --keep-going) so
@@ -247,9 +358,9 @@ run_lane() {
 }
 
 # ── Preflight ────────────────────────────────────────────────────────────────
-command -v jq >/dev/null || { echo "jq is required (brew install jq)" >&2; exit 2; }
+command -v jq >/dev/null || { ABORT_REASON="jq not installed"; echo "jq is required (brew install jq)" >&2; exit 2; }
 docker compose -f devops/docker-compose.yml ps --format '{{.Name}}' 2>/dev/null | grep -q omnicore-qa-postgres \
-  || { echo "QA bench is not up — run: docker compose -f devops/docker-compose.yml up -d" >&2; exit 2; }
+  || { ABORT_REASON="QA bench is not up"; echo "QA bench is not up — run: docker compose -f devops/docker-compose.yml up -d" >&2; exit 2; }
 if grep -qE 'auth|authz' <<<"$SUITES"; then
   bold "waiting for Keycloak (auth/authz suites requested) ..."
   ./devops/keycloak/wait-ready.sh >/dev/null 2>&1 || true
@@ -294,25 +405,8 @@ fi
 
 elapsed=$(( $(date +%s) - overall_start ))
 
-# ── Merge the per-lane fragments into the report ─────────────────────────────
-{
-  echo "# QA Matrix Report"
-  echo
-  echo "- **Finished:** $(date '+%Y-%m-%d %H:%M:%S')"
-  echo "- **Lanes:** $BACKEND_LIST (parallel)"
-  echo "- **Suites:** $SUITES"
-  echo "- **Scheduled runs:** $EXPECTED_RUNS"
-  for B in $BACKEND_LIST; do
-    case "$B" in
-      postgres) echo; echo "## Lane A — Postgres + Kafka (Debezium Connect)" ;;
-      mysql)    echo; echo "## Lane B — MySQL + NATS (Debezium Server)" ;;
-    esac
-    echo
-    echo "| Suite | Backend | Pass | Fail | Verdict | Time |"
-    echo "|---|---|---:|---:|:---:|---:|"
-    [ -f "$LOG_DIR/frag-$B.md" ] && cat "$LOG_DIR/frag-$B.md"
-  done
-} > "$REPORT_MD"
+# The report has been rendered LIVE after every suite (render_report); the final
+# verdict is stamped onto that same file by the branches below.
 
 # ── Accounting from the per-lane rows ────────────────────────────────────────
 cat "$LOG_DIR"/rows-*.tsv > "$LOG_DIR/rows.tsv" 2>/dev/null || : > "$LOG_DIR/rows.tsv"
@@ -327,7 +421,8 @@ bold "════════════════════════�
 
 if [ "$RED_RUNS" = "0" ] && [ "$MISSING_RUNS" = "0" ] && [ "$COMPLETED_RUNS" != "0" ]; then
   logs_note="$LOG_DIR"
-  { echo; echo "**✅ ALL GREEN — $COMPLETED_RUNS/$EXPECTED_RUNS runs — ${elapsed}s total.**"; } >> "$REPORT_MD"
+  render_report "**✅ ALL GREEN — $COMPLETED_RUNS/$EXPECTED_RUNS runs — ${elapsed}s total.**"
+  FINALIZED=1   # real verdict on disk — disarm the aborted-report safety net
   if [ "$LOG_DIR_EPHEMERAL" = "1" ]; then rm -rf "$LOG_DIR"; logs_note="removed (all green)"; fi
   printf '%s — %s/%s runs, %ss, report: %s, logs: %s\n' \
     "$(green "ALL GREEN")" "$COMPLETED_RUNS" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$logs_note"
@@ -336,7 +431,8 @@ else
   detail="$RED_RUNS red"
   [ "$MISSING_RUNS" != "0" ] && detail="$detail, $MISSING_RUNS never ran"
   [ -f "$LOG_DIR/failfast" ] && detail="$detail (fail-fast — pass --keep-going for the full sweep)"
-  { echo; echo "**❌ RED — $detail of $EXPECTED_RUNS scheduled runs — ${elapsed}s total. Logs: \`$LOG_DIR\`**"; } >> "$REPORT_MD"
+  render_report "**❌ RED — $detail of $EXPECTED_RUNS scheduled runs — ${elapsed}s total. Logs: \`$LOG_DIR\`**"
+  FINALIZED=1   # real verdict on disk — disarm the aborted-report safety net
   printf '%s — %s of %s scheduled runs, %ss, report: %s, logs: %s\n' \
     "$(red "RED")" "$detail" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$LOG_DIR"
   exit 1
