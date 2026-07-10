@@ -5,7 +5,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 
-	appinfra "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra"
+	appviews "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/views"
 	appweb "github.com/ClaudioSchirmer/omnicore-example-users/internal/web"
 
 	"github.com/gofiber/fiber/v3"
@@ -23,7 +23,7 @@ type PersonsFeature struct {
 // NewPersonsFeature builds the feature's singleton view exactly once.
 // PersonView() is called here — its single call site.
 func NewPersonsFeature(_ bootstrap.Deps) *PersonsFeature {
-	return &PersonsFeature{view: appinfra.PersonView()}
+	return &PersonsFeature{view: appviews.PersonView()}
 }
 
 // Views satisfies bootstrap.ReadableFeature — contributes the persons view to

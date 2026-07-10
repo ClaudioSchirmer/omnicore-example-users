@@ -337,7 +337,7 @@ EID5=$(jsonq "d['data']['id']")
 
 title "5.2 Archive the employee → role + ITS children archive; person stays ACTIVE (user role alive)"
 req PATCH "/employees/$EID5/archive"
-expect_status "archive employee" 200
+expect_status "archive employee" 204
 EDEL=$(qa_db_query "SELECT count(*) FROM employees WHERE id = $(qa_uuid_lit "$EID5") AND deleted_at IS NOT NULL;")
 DDEL=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id = $(qa_uuid_lit "$EID5") AND deleted_at IS NOT NULL;")
 HDEL=$(qa_db_query "SELECT count(*) FROM employee_job_histories WHERE employee_id = $(qa_uuid_lit "$EID5") AND deleted_at IS NOT NULL;")
@@ -358,13 +358,13 @@ title "5.4 Archive the USER too → the LAST active role goes, the base converge
 req GET "/users/$EID5"
 UARCH=$(jsonq "d['data']['id']")
 req PATCH "/users/$UARCH/archive"
-expect_status "archive user (last active role)" 200
+expect_status "archive user (last active role)" 204
 PARCH=$(qa_db_query "SELECT count(*) FROM persons WHERE id = $(qa_uuid_lit "$EID5") AND deleted_at IS NOT NULL;")
 [ "$PARCH" = "1" ] && ok "base archived once the last active role went" || bad "person archived rows = $PARCH"
 
 title "5.5 Unarchive the employee → role + children restore; base revives with its first active role"
 req PATCH "/employees/$EID5/unarchive"
-expect_status "unarchive employee" 200
+expect_status "unarchive employee" 204
 EACT=$(qa_db_query "SELECT count(*) FROM employees WHERE id = $(qa_uuid_lit "$EID5") AND deleted_at IS NULL;")
 DACT=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id = $(qa_uuid_lit "$EID5") AND deleted_at IS NULL;")
 PACT=$(qa_db_query "SELECT count(*) FROM persons WHERE id = $(qa_uuid_lit "$EID5") AND deleted_at IS NULL;")
@@ -580,14 +580,14 @@ expect_status "fixture: employee role (with a dependent)" 201
 
 title "11.1 Archive the USER first → base and employee stay ACTIVE (reverse of 5.x)"
 req PATCH "/users/$ID11/archive"
-expect_status "archive user" 200
+expect_status "archive user" 204
 ROW=$(qa_db_query "SELECT (SELECT count(*) FROM users u WHERE u.id=$(qa_uuid_lit "$ID11") AND u.deleted_at IS NOT NULL), (SELECT count(*) FROM persons p WHERE p.id=$(qa_uuid_lit "$ID11") AND p.deleted_at IS NULL), (SELECT count(*) FROM employees e WHERE e.id=$(qa_uuid_lit "$ID11") AND e.deleted_at IS NULL);")
 ROW=$(printf %s "$ROW" | tr "\t|" "//")
 if [ "$ROW" = "1/1/1" ]; then ok "user archived; person + employee still active"; else bad "state: $ROW (want 1/1/1)"; fi
 
 title "11.2 Archive the EMPLOYEE too (last active role) → base converges to archived, dependent cascades"
 req PATCH "/employees/$ID11/archive"
-expect_status "archive employee" 200
+expect_status "archive employee" 204
 PARCH=$(qa_db_query "SELECT count(*) FROM persons WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NOT NULL;")
 DARCH=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$ID11") AND deleted_at IS NOT NULL;")
 [ "$PARCH" = "1" ] && ok "base archived when its LAST active role went (user-first order)" || bad "persons archived = $PARCH"
@@ -595,7 +595,7 @@ DARCH=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=
 
 title "11.3 Unarchive the USER → base revives; the EMPLOYEE (and its dependent) stay archived"
 req PATCH "/users/$ID11/unarchive"
-expect_status "unarchive user" 200
+expect_status "unarchive user" 204
 ROW=$(qa_db_query "SELECT (SELECT count(*) FROM persons p WHERE p.id=$(qa_uuid_lit "$ID11") AND p.deleted_at IS NULL), (SELECT count(*) FROM employees e WHERE e.id=$(qa_uuid_lit "$ID11") AND e.deleted_at IS NOT NULL), (SELECT count(*) FROM employee_dependents d WHERE d.employee_id=$(qa_uuid_lit "$ID11") AND d.deleted_at IS NOT NULL);")
 ROW=$(printf %s "$ROW" | tr "\t|" "//")
 if [ "$ROW" = "1/1/1" ]; then ok "base revived; employee + dependent remain archived (role lifecycles independent)"; else bad "state: $ROW (want 1/1/1)"; fi
@@ -608,7 +608,7 @@ EARCH=$(qa_db_query "SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID1
 
 title "11.5 The explicit way back: /unarchive restores the role AND its children"
 req PATCH "/employees/$ID11/unarchive"
-expect_status "unarchive the employee" 200
+expect_status "unarchive the employee" 204
 ROW=$(qa_db_query "SELECT (SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NULL), (SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$ID11") AND deleted_at IS NULL);")
 ROW=$(printf %s "$ROW" | tr "\t|" "//")
 if [ "$ROW" = "1/1" ]; then ok "role + dependent restored by the explicit unarchive (the ONLY revival path)"; else bad "state after unarchive: $ROW (want 1/1)"; fi
@@ -654,7 +654,7 @@ ID13=$(jsonq "d['data']['id']")
 req POST /employees "{\"name\":\"Ref Cross\",\"email\":\"ref13@example.com\",\"document\":\"$D13\",\"employeeNumber\":\"EMP-C13\"}"
 expect_status "fixture: employee role" 201
 req PATCH "/employees/$ID13/archive"
-expect_status "archive the employee" 200
+expect_status "archive the employee" 204
 req DELETE "/users/$ID13"
 expect_status "delete the user (only ACTIVE role, archived employee row remains)" 204
 ROW=$(qa_db_query "SELECT (SELECT count(*) FROM persons WHERE id=$(qa_uuid_lit "$ID13")), (SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID13") AND deleted_at IS NOT NULL);")
@@ -663,7 +663,7 @@ if [ "$ROW" = "1/1" ]; then ok "person KEPT — the archived employee row still 
 
 title "12.4 Unarchive + delete the last row → purge finally fires"
 req PATCH "/employees/$ID13/unarchive"
-expect_status "unarchive employee" 200
+expect_status "unarchive employee" 204
 req DELETE "/employees/$ID13"
 expect_status "delete employee (now the LAST row)" 204
 PCOUNT=$(qa_db_query "SELECT count(*) FROM persons WHERE id=$(qa_uuid_lit "$ID13");")

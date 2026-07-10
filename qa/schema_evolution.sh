@@ -31,8 +31,8 @@
 # Companion to qa/e2e.sh (endpoint coverage under auth disabled) and the rest
 # of the suite. The script manages the server lifecycle itself (build binary,
 # start, kill_port-guarded boot, cleanup trap) and ALWAYS restores
-# internal/infra/views.go on any exit path so a failed run never leaves the developer
-# tree in a patched state.
+# internal/infra/views/user_view.go on any exit path so a failed run never leaves
+# the developer tree in a patched state.
 #
 # Prerequisites:
 #   docker compose -f devops/docker-compose.yml up -d
@@ -53,7 +53,12 @@ SERVER_BIN_V2_ARTIFACT="/tmp/omnicore-example-users-qa-schema-v2-artifact"
 SERVER_LOG="/tmp/omnicore-example-users-qa-schema-${BACKEND:-postgres}.log"
 CDC_WAIT_SEC="${CDC_WAIT_SEC:-60}"
 
-VIEWS_SRC="$REPO_ROOT/internal/infra/views.go"
+# The view definitions live one-per-file under internal/infra/views/; this
+# suite drives drift through the USERS view specifically (every registry/API
+# assertion below keys on view_name='users'), and both patched patterns —
+# Version(1) and Index("email") — live in user_view.go, so patching that single
+# file reproduces the exact drift the suite exercises.
+VIEWS_SRC="$REPO_ROOT/internal/infra/views/user_view.go"
 VIEWS_BAK="/tmp/omnicore-example-qa-views.go.bak"
 
 YAML_ALLOW_DOWNGRADE="/tmp/omnicore-example-qa-schema-allowdowngrade.yaml"
@@ -317,7 +322,7 @@ wait_until_mongo_count() {
 }
 
 # ─── Source patching helpers ─────────────────────────────────────────────────
-# Each helper takes the ORIGINAL views.go from the backup, applies a perl
+# Each helper takes the ORIGINAL user_view.go from the backup, applies a perl
 # transform, writes the result to the working file, and verifies the patch
 # landed via grep. The caller builds the binary and the script's cleanup
 # trap restores the source unconditionally on every exit path.
@@ -406,11 +411,11 @@ mk_yaml_check_mode() {
 
 # ─── Build ───────────────────────────────────────────────────────────────────
 
-sec "Build v1 server binary + back up views.go for patching"
+sec "Build v1 server binary + back up user_view.go for patching"
 backup_views_source
 build_binary "$SERVER_BIN" || { echo "ERROR: v1 build failed" >&2; exit 1; }
 echo "OK — v1 binary: $SERVER_BIN"
-echo "OK — views.go backed up to: $VIEWS_BAK"
+echo "OK — user_view.go backed up to: $VIEWS_BAK"
 
 # ─── Phase 1: clean baseline + first boot ────────────────────────────────────
 
@@ -501,7 +506,7 @@ echo "Server stopped cleanly"
 
 sec "Phase 6 — DriftRebuildRequired via Version(1)→Version(2) bump"
 
-title "Patch internal/infra/views.go to .Version(2), build v2 binary, restore source"
+title "Patch internal/infra/views/user_view.go to .Version(2), build v2 binary, restore source"
 patch_views_to_version 2 || exit 1
 build_binary "$SERVER_BIN_V2" || { echo "ERROR: v2 build failed" >&2; restore_views_source; exit 1; }
 restore_views_source
@@ -541,7 +546,7 @@ stop_server
 
 sec "Phase 7 — DriftArtifactOnly via extra Index(\"phone\")"
 
-title "Patch internal/infra/views.go to .Version(2) + Index(\"phone\"), build, restore source"
+title "Patch internal/infra/views/user_view.go to .Version(2) + Index(\"phone\"), build, restore source"
 patch_views_v2_with_phone_index || exit 1
 build_binary "$SERVER_BIN_V2_ARTIFACT" || { echo "ERROR: v2+phone build failed" >&2; restore_views_source; exit 1; }
 restore_views_source
@@ -673,7 +678,7 @@ mk_yaml_false_mode() {
   fi
 }
 
-title "Patch views.go to .Version(3), build v3, restore source"
+title "Patch user_view.go to .Version(3), build v3, restore source"
 backup_views_source
 patch_views_to_version 3 || exit 1
 build_binary "$SERVER_BIN_V3"

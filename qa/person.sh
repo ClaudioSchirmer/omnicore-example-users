@@ -304,7 +304,7 @@ expect_status "5.7.1 reusing a cursor under a DIFFERENT sort → 400" 400
 sec "6. Role lifecycle on the segment (person survives via the other role)"
 ####################################
 req PATCH "/employees/$USER_ID/archive"
-expect_status "6.1 archive the employee role" 200
+expect_status "6.1 archive the employee role" 204
 wait_person "document=$D1" "'employee' not in d['data'][0]" && \
   ok "6.2 archived role hidden on the default read" || bad "6.2 employee segment still visible"
 req GET "/persons?document=$D1&includeArchived=true"
@@ -314,7 +314,7 @@ req GET "/persons?document=$D1&onlyTotal=true"
 [ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "6.4 person stays visible (user role still active)" || bad "6.4 — $RESP"
 
 req PATCH "/employees/$USER_ID/unarchive"
-expect_status "6.5 unarchive the employee role" 200
+expect_status "6.5 unarchive the employee role" 204
 wait_person "document=$D1" "d['data'][0].get('employee', {}).get('employeeNumber') == 'EMP-1'" && \
   ok "6.6 revived segment back on the default read" || bad "6.6 segment did not revive"
 
@@ -322,9 +322,9 @@ wait_person "document=$D1" "d['data'][0].get('employee', {}).get('employeeNumber
 sec "7. Base convergence: last active role archives → person hides at the root"
 ####################################
 req PATCH "/employees/$USER_ID/archive"
-expect_status "7.1 archive employee again" 200
+expect_status "7.1 archive employee again" 204
 req PATCH "/users/$USER_ID/archive"
-expect_status "7.2 archive the LAST active role (user)" 200
+expect_status "7.2 archive the LAST active role (user)" 204
 wait_person "document=$D1&onlyTotal=true" "d['pagination']['total'] == 0" && \
   ok "7.3 person hidden at the root (base converged to archived)" || bad "7.3 person still listed"
 req GET "/persons/$USER_ID"
@@ -335,7 +335,7 @@ req GET "/persons/$USER_ID?includeArchived=true"
 expect_status "7.6 by-id with includeArchived" 200
 
 req PATCH "/users/$USER_ID/unarchive"
-expect_status "7.7 unarchive one role" 200
+expect_status "7.7 unarchive one role" 204
 wait_person "document=$D1&onlyTotal=true" "d['pagination']['total'] == 1" && \
   ok "7.8 person revived with its first active role" || bad "7.8 person did not revive"
 
@@ -345,7 +345,7 @@ sec "8. Hard-delete of ONE role: the segment vanishes (payload-FK recompose)"
 # The employee is still ARCHIVED from 7.1 — and an archived row is invisible
 # to the DELETE's load-first read (soft-delete is delete). Revive it first.
 req PATCH "/employees/$USER_ID/unarchive"
-expect_status "8.0 unarchive the employee (archived rows cannot be hard-deleted)" 200
+expect_status "8.0 unarchive the employee (archived rows cannot be hard-deleted)" 204
 req DELETE "/employees/$USER_ID"
 expect_status "8.1 DELETE /employees (user still references the person)" 204
 wait_person "document=$D1&includeArchived=true" "'employee' not in d['data'][0]" && \

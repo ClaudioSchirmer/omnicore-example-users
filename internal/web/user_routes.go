@@ -9,6 +9,8 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	"github.com/ClaudioSchirmer/omnicore/web/export"
+	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
+	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
@@ -17,6 +19,8 @@ import (
 	appquery "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries/handlers"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/web/requests"
+	"github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/usersv1"
+	"github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/usersv1/usersv1connect"
 
 	"github.com/gofiber/fiber/v3"
 )
@@ -119,7 +123,7 @@ func MountUsers(
 		fwresponses.NoBody,
 		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
-		}, fiber.StatusOK)
+		}, fiber.StatusNoContent)
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
@@ -133,7 +137,7 @@ func MountUsers(
 		fwresponses.NoBody,
 		&handlers.UnarchiveCommandHandler[*appdomain.User, *commands.UnarchiveUserCommand, fwresults.None]{
 			Repo: repo, Service: svc,
-		}, fiber.StatusOK)
+		}, fiber.StatusNoContent)
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodPatch, "/:id/unarchive",
 		unarchiveH, unarchiveSpec,
 		fwopenapi.Doc{
@@ -264,4 +268,163 @@ func MountUsers(
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:read"))
+}
+
+// MountUsersGraphQL registers the User aggregate's GraphQL fields into the
+// service's single GraphQL registry — the GraphQL twin of MountUsers. GraphQL
+// is ONE endpoint (POST /graphql) backed by ONE registry created in bootstrap;
+// registration is cumulative, so each aggregate contributes its fields into the
+// same `reg` (a future MountOrdersGraphQL(reg, …) just adds more). This is the
+// exact parallel of REST's "one app, many MountXxx" — here "one graph, many
+// contributions".
+//
+// It reuses the SAME application handlers MountUsers attaches to REST; the only
+// thing shared between the two surfaces is those handlers. GraphQL never goes
+// through openapi.Mount, never appears in the Swagger document, and is not
+// policed by the REST route scans. The feature owns the repo/service/view it
+// passes in; web owns the field attachment.
+//
+// Each field carries the same Layer-1 permission as its REST twin via
+// fwgraphql.RequirePermission (the GraphQL twin of fwopenapi.RequirePermission):
+// users → users:read; createUser/updateUser/patchUser → users:write;
+// archiveUser/unarchiveUser → users:archive; deleteUser → users:delete. The
+// gate enforces under auth.authorization.enabled (prd-authz) and is inert
+// otherwise, exactly like the REST matrix.
+func MountUsersGraphQL(
+	reg *fwgraphql.Registry,
+	repo persistence.ScopedRepository[*appdomain.User],
+	svc domain.Service,
+	view *query.ViewDefinition,
+	d bootstrap.Deps,
+) {
+	// READ → QueryWithParams `users(where, first, after, orderBy, …)` → Relay connection.
+	reg.Register(fwgraphql.QueryWithParams[
+		requests.FindUsersByParamsRequest,
+		requests.FindUsersByParamsResponse,
+	](
+		"users", "User",
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
+			Reader: d.ViewReader, View: view.Name(),
+		},
+		fwgraphql.RequirePermission("users:read")))
+
+	// WRITE insert → MutationWithBody `createUser(input)` (input object reflected from
+	// the Request DTO; NonNull fields follow the strict/lenient rule). The User is
+	// SharedBase-backed, so the POST is an UPSERT — the same SharedBaseInsertCommandHandler
+	// the REST surface uses (a duplicate active user for a document is a 409; an
+	// archived one is invisible to the insert and its remnant vetoes on the PK — same 409).
+	reg.Register(fwgraphql.MutationWithBody[requests.InsertUserRequest](
+		"createUser", requests.InsertUserResponse{}.FromResult,
+		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
+			Repo: repo, Service: svc,
+		},
+		fwgraphql.RequirePermission("users:write")))
+
+	// WRITE full update → MutationWithBodyID `updateUser(id, input)` (PUT). The
+	// UpdateCommandHandler embeds pipeline.FullBody, so the input object is
+	// strict — every field NonNull.
+	reg.Register(fwgraphql.MutationWithBodyID[requests.UpdateUserRequest](
+		"updateUser", requests.UpdateUserResponse{}.FromResult,
+		&handlers.UpdateCommandHandler[*appdomain.User, *commands.UpdateUserCommand, commands.UpdateUserResult]{
+			Repo: repo, Service: svc,
+		},
+		fwgraphql.RequirePermission("users:write")))
+
+	// WRITE partial update → MutationWithBodyID `patchUser(id, input)` (PATCH). The
+	// PartialUpdateCommandHandler is lenient, so the input fields are nullable
+	// (pointer fields on the Request).
+	reg.Register(fwgraphql.MutationWithBodyID[requests.PatchUserRequest](
+		"patchUser", requests.PatchUserResponse{}.FromResult,
+		&handlers.PartialUpdateCommandHandler[*appdomain.User, *commands.PatchUserCommand, commands.PatchUserResult]{
+			Repo: repo, Service: svc,
+		},
+		fwgraphql.RequirePermission("users:write")))
+
+	// WRITE bodyless → MutationByID → MutationResult{success, id}.
+	reg.Register(fwgraphql.MutationByID(
+		"archiveUser",
+		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
+			Repo: repo, Service: svc,
+		},
+		fwgraphql.RequirePermission("users:archive")))
+
+	reg.Register(fwgraphql.MutationByID(
+		"unarchiveUser",
+		&handlers.UnarchiveCommandHandler[*appdomain.User, *commands.UnarchiveUserCommand, fwresults.None]{
+			Repo: repo, Service: svc,
+		},
+		fwgraphql.RequirePermission("users:archive")))
+
+	reg.Register(fwgraphql.MutationByID(
+		"deleteUser",
+		&handlers.DeleteCommandHandler[*appdomain.User, *commands.DeleteUserCommand, fwresults.None]{
+			Repo: repo, Service: svc,
+		},
+		fwgraphql.RequirePermission("users:delete")))
+}
+
+// MountUsersGRPC registers the User aggregate's RPCs into the service's
+// single gRPC registry — the gRPC twin of MountUsers (REST) and
+// MountUsersGraphQL: one declarative Register per RPC over the SAME
+// ingredients the REST Spec constructors consume (the Request DTOs with
+// their ToCommand/ToQuery, the Response DTOs' FromResult/AutoFromDoc).
+// The framework bridges pb ↔ DTO mechanically at Register time (a
+// contract/DTO mismatch aborts boot), so this file carries no marshalling
+// — semantic transformation lives in the DTO seats, like every surface.
+// Each procedure carries the same Layer-1 permission as its REST/GraphQL
+// twin (enforced under auth.authorization.enabled, inert otherwise).
+func MountUsersGRPC(
+	reg *fwgrpc.Registry,
+	repo persistence.ScopedRepository[*appdomain.User],
+	view *query.ViewDefinition,
+	d bootstrap.Deps,
+) {
+	reg.Register(fwgrpc.CommandWithBody[usersv1.CreateUserRequest, usersv1.CreateUserResponse](
+		usersv1connect.UsersServiceCreateUserProcedure,
+		requests.InsertUserRequest{},
+		requests.InsertUserResponse{}.FromResult,
+		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{
+			Repo: repo,
+		},
+		fwgrpc.RequirePermission("users:write")))
+
+	// WithBodyID: id + full body, strict (the PUT sibling — the handler
+	// embeds FullBody; the Strict set mirrors the REST contract).
+	reg.Register(fwgrpc.CommandWithBodyID[usersv1.UpdateUserRequest, usersv1.UpdateUserResponse](
+		usersv1connect.UsersServiceUpdateUserProcedure,
+		(*usersv1.UpdateUserRequest).GetId,
+		requests.UpdateUserRequest{},
+		requests.UpdateUserResponse{}.FromResult,
+		&handlers.UpdateCommandHandler[*appdomain.User, *commands.UpdateUserCommand, commands.UpdateUserResult]{
+			Repo: repo,
+		},
+		fwgrpc.Strict("id", "name", "email", "user_name"),
+		fwgrpc.RequirePermission("users:write")))
+
+	reg.Register(fwgrpc.QueryWithParams[usersv1.ListUsersRequest, usersv1.ListUsersResponse](
+		usersv1connect.UsersServiceListUsersProcedure,
+		requests.FindUsersByParamsRequest{},
+		fwresponses.AutoFromDoc[requests.FindUsersByParamsResponse],
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUserByParamsQuery]{
+			Reader: d.ViewReader, View: view.Name(),
+		},
+		fwgrpc.RequirePermission("users:read")))
+
+	reg.Register(fwgrpc.QueryByID[usersv1.GetUserRequest, usersv1.GetUserResponse](
+		usersv1connect.UsersServiceGetUserProcedure,
+		(*usersv1.GetUserRequest).GetId,
+		requests.FindUserByIDRequest{},
+		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+			Reader: d.ViewReader, View: view.Name(),
+		},
+		fwgrpc.RequirePermission("users:read")))
+
+	reg.Register(fwgrpc.CommandByID[usersv1.ArchiveUserRequest, usersv1.ArchiveUserResponse, commands.ArchiveUserCommand](
+		usersv1connect.UsersServiceArchiveUserProcedure,
+		(*usersv1.ArchiveUserRequest).GetId,
+		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
+			Repo: repo,
+		},
+		fwgrpc.RequirePermission("users:archive")))
 }

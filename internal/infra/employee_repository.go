@@ -8,6 +8,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/schemas"
 )
 
 // EmployeeRepository is the role repository for the Employee aggregate —
@@ -37,7 +38,7 @@ func NewEmployeeRepository(eng core.RelationalEngine) *EmployeeRepository {
 		"employees_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		"PRIMARY":        {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 	}
-	r.WithSchema(EmployeeSchema())
+	r.WithSchema(schemas.EmployeeSchema())
 	return r
 }
 

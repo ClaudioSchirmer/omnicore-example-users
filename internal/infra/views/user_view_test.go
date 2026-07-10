@@ -1,4 +1,4 @@
-package infra
+package views
 
 import (
 	"testing"

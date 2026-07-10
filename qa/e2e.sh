@@ -333,7 +333,7 @@ show "3.2 POST with the document of archived USER_C — invisible to the probe; 
   "addresses":[{"label":"home","street":"Kurfürstendamm","number":"1","neighborhood":"Charlottenburg","city":"Berlin","state":"Berlin","zipCode":"10719","country":"DE"}]
 }' 409
 
-show "3.2b PATCH /users/USER_C/unarchive — the explicit way back for an archived role" PATCH "/users/$USER_C/unarchive" "" 200
+show "3.2b PATCH /users/USER_C/unarchive — the explicit way back for an archived role" PATCH "/users/$USER_C/unarchive" "" 204
 # USER_C is back ACTIVE with its ORIGINAL fields (Anna Müller, Berlin) — the
 # rejected POST applied nothing. Create a separate Anna III (new document) for
 # the later DELETE case.
@@ -614,14 +614,14 @@ show "6.8 PATCH notification flags — upserts the user_configurations sibling �
 sec "7. PATCH /users/:id/archive  and  /:id/unarchive — aggregate-aware"
 ####################################
 
-show "7.1 Archive (empty body accepted)" PATCH "/users/$USER_A/archive" "" 200
+show "7.1 Archive (empty body accepted)" PATCH "/users/$USER_A/archive" "" 204
 
 title "7.1.b $BACKEND: Jane's addresses cascaded (deleted_at NOT NULL) — addresses are the person's (FK person_id), archived via convergeBase"
 qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NOT NULL AS archived FROM addresses WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
 
 show "7.2 Re-archive already archived (expected 404 — FindByID filters deleted_at NULL)" PATCH "/users/$USER_A/archive" "" 404
 
-show "7.3 Unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 200
+show "7.3 Unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 204
 
 title "7.3.b $BACKEND: addresses are back (deleted_at NULL) — convergeBase reactivated base + base-children"
 qa_db_query "SELECT $(qa_uuid_select id), deleted_at IS NULL AS active FROM addresses WHERE person_id=(SELECT id FROM users WHERE id=$(qa_uuid_lit "$USER_A"));"
@@ -766,7 +766,7 @@ show "10.5b GET /users/USER_C default reader (unarchived → active → 200)" GE
 # USER_C is left archived and its email "anna@example.com" is still held
 # by a sibling active user from the 3.2 soft-delete-aware uniqueness test,
 # so unarchiving USER_C would 409.
-show "10.6 PATCH /users/USER_A/archive (re-archive to exercise the query-side cycle)" PATCH "/users/$USER_A/archive" "" 200
+show "10.6 PATCH /users/USER_A/archive (re-archive to exercise the query-side cycle)" PATCH "/users/$USER_A/archive" "" 204
 
 title "10.7 Polling GET /users/USER_A until 404 (reader-side deleted_at filter after ARCHIVE)"
 deadline=$(( $(date +%s) + 15 ))
@@ -785,7 +785,7 @@ else
 fi
 
 show "10.7b GET /users/USER_A?includeArchived=true while archived (keep-by-default → 200 with archived doc)" GET "/users/$USER_A?includeArchived=true" "" 200
-show "10.8 PATCH /users/USER_A/unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 200
+show "10.8 PATCH /users/USER_A/unarchive (restores root + addresses)" PATCH "/users/$USER_A/unarchive" "" 204
 
 title "10.8b Polling Mongo via GET /users/USER_A until 200 (CDC re-upsert after UNARCHIVE)"
 if wait_for_view "$USER_A" "200" 15; then
@@ -829,8 +829,8 @@ show "11.3 PUT /showcase/users-custom/10000000011 (full replace — no Document 
 
 show "11.4 PATCH /showcase/users-custom/10000000011 (name only)" PATCH /showcase/users-custom/10000000011 '{"name":"Mike Patched"}' 200
 
-show "11.5 PATCH /showcase/users-custom/10000000011/archive (aggregate-aware soft-delete)" PATCH /showcase/users-custom/10000000011/archive "" 200
-show "11.6 PATCH /showcase/users-custom/10000000011/unarchive (FindArchivedByDocument path)" PATCH /showcase/users-custom/10000000011/unarchive "" 200
+show "11.5 PATCH /showcase/users-custom/10000000011/archive (aggregate-aware soft-delete)" PATCH /showcase/users-custom/10000000011/archive "" 204
+show "11.6 PATCH /showcase/users-custom/10000000011/unarchive (FindArchivedByDocument path)" PATCH /showcase/users-custom/10000000011/unarchive "" 204
 show "11.7 DELETE /showcase/users-custom/10000000011 (hard delete — 204 No Content)" DELETE /showcase/users-custom/10000000011 "" 204
 
 show "11.8 PUT on ghost document — RecordNotFound (404)" PUT /showcase/users-custom/99999999999 '{

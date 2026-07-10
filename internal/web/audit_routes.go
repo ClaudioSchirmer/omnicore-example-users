@@ -51,7 +51,7 @@ import (
 //     Request DTO. Malformed segment surfaces the canonical 400 envelope
 //     with SchemaViolationNotification.
 //  3. req.ToQuery() → the body-only web→application boundary mapper.
-//     Hardcodes EntityType="User" (see find_audit_by_aggregate_request.go
+//     Hardcodes EntityType="User" (see find_audit_by_aggregate.go
 //     for the extension story).
 //  4. pipeline.Dispatch → the manual handler calls audit.FindByAggregate
 //     against the relational engine and applies audit.RenderLabels in the

@@ -50,7 +50,7 @@ func (r InsertUserCustomRequest) ToCommand() *commands.InsertUserCustomCommand {
 //
 // No Response DTO is co-located with this Request. The manual showcase
 // emits the full-body responses.UserCustomResponse (via FromUserCustom(*appdomain.User))
-// for every write — see web/responses/user_custom_response.go. The canonical
+// for every write — see web/responses/user_custom.go. The canonical
 // surface's per-endpoint Result/Response pair (InsertUserResult +
 // InsertUserResponse) is intentionally not mirrored here because the
 // custom InsertUserCustomCommandHandler returns *appdomain.User directly, not a

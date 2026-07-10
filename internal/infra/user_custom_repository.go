@@ -12,6 +12,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/infra/db/criteria"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/schemas"
 )
 
 // UserCustomRepository is the manual counterpart to UserRepository, used by
@@ -61,7 +62,7 @@ type UserCustomRepository struct {
 // the raw driver error.
 func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
 	newUser := func() *appdomain.User { return &appdomain.User{} }
-	schema := UserSchema()
+	schema := schemas.UserSchema()
 	loader := read.NewAggregateLoader[*appdomain.User](eng, newUser).WithSchema(schema)
 	return &UserCustomRepository{
 		eng:         eng,
