@@ -69,7 +69,7 @@ title "0.3 Start server (config=microservice.qa.yaml)"
 ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$REPO_ROOT/microservice.qa.yaml" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
 SERVER_PID=$!
 deadline=$(( $(date +%s) + 30 )); healthy=fail
-while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
+while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "http ready" || { bad "server not ready"; tail -n 30 "$SERVER_LOG"; exit 1; }
 grep -q "grpc listening" "$SERVER_LOG" && ok "grpc listener up (:9090)" || { bad "grpc listener missing in log"; tail -n 30 "$SERVER_LOG"; exit 1; }
 
@@ -430,7 +430,7 @@ import sys
 src, dst, pubfile = sys.argv[1], sys.argv[2], sys.argv[3]
 pem = "".join("      " + line + "\n" for line in open(pubfile).read().splitlines())
 s = open(src).read()
-jwt_block = "auth:\n  mode: jwt\n  publicRoutes: [\"GET /health\"]\n  jwt:\n    issuer: \"qa-posture\"\n    audience: \"qa-posture\"\n    publicKeyPem: |\n" + pem
+jwt_block = "auth:\n  mode: jwt\n  publicRoutes: [\"GET /livez\"]\n  jwt:\n    issuer: \"qa-posture\"\n    audience: \"qa-posture\"\n    publicKeyPem: |\n" + pem
 s = s.replace("auth:\n  mode: disabled", jwt_block, 1)
 s = s.replace("grpc:\n", "grpc:\n  auth:\n    mode: internal\n", 1)
 open(dst, "w").write(s)
@@ -439,7 +439,7 @@ PYEOF2
 ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$POSTURE_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
 SERVER_PID=$!
 deadline=$(( $(date +%s) + 30 )); healthy=fail
-while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/health" && { healthy=ok; break; }; sleep 0.5; done
+while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "variant booted" || { bad "variant boot failed"; tail -n 30 "$SERVER_LOG"; exit 1; }
 grep -Eq '"mode":"internal"|mode=internal' "$SERVER_LOG" && ok "posture=internal logged" || bad "posture log missing"
 

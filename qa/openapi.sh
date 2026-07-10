@@ -14,9 +14,9 @@
 #   - The /whoami raw operation appears
 #   - The /showcase/users-custom/* manual chain appears
 #   - The /echo/* upstream routes DO NOT appear (Hidden: true)
-#   - The /health route appears (auto-registered by the framework)
+#   - The /livez route appears (auto-registered by the framework)
 #   - components.schemas.ErrorEnvelope exists (single dedup envelope)
-#   - Auth is NOT advertised on /health, /whoami, /docs, /openapi.json
+#   - Auth is NOT advertised on /livez, /whoami, /docs, /openapi.json
 #     (Public: true / publicRoutes)
 #
 # Prerequisites:
@@ -129,9 +129,9 @@ assert_spec "PUT /showcase/users-custom/{document}" '.paths["/showcase/users-cus
 assert_spec "/echo/upload absent from paths" '(.paths | has("/echo/upload"))' "false"
 assert_spec "/echo/sse absent from paths"    '(.paths | has("/echo/sse"))'    "false"
 
-# ─── /health auto-registered ─────────────────────────────────────────────
-assert_spec "/health declared by framework" '.paths["/health"].get.summary' "Liveness probe"
-assert_spec "/health is public (no security)" '(.paths["/health"].get | has("security"))' "false"
+# ─── /livez auto-registered ─────────────────────────────────────────────
+assert_spec "/livez declared by framework" '.paths["/livez"].get.summary' "Liveness probe"
+assert_spec "/livez is public (no security)" '(.paths["/livez"].get | has("security"))' "false"
 
 # ─── ErrorEnvelope component ────────────────────────────────────────────
 assert_spec "ErrorEnvelope schema declared" '(.components.schemas.ErrorEnvelope.type)' "object"

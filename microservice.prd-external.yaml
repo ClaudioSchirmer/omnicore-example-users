@@ -52,7 +52,8 @@ auth:
     failMode: closed
     cacheTtlSeconds: 0
   publicRoutes:
-    - GET /health
+    - GET /livez
+    - GET /readyz
   auditClaims:
     - preferred_username
     - email

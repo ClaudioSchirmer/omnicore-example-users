@@ -27,7 +27,7 @@
 #   ./devops/debezium/register-connector.sh
 #
 # Self-managed lifecycle — the script builds the binary, starts the
-# server itself, waits /health, kills it on cleanup. The operator does
+# server itself, waits /livez, kills it on cleanup. The operator does
 # NOT keep a server running in another terminal.
 #
 # Each case prints REQUEST/STATUS/PASS|FAIL. Exits non-zero on any failure.
@@ -97,7 +97,7 @@ wait_for_health() {
     local timeout="${1:-30}"
     local deadline=$(( $(date +%s) + timeout ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
-        if curl -sf -o /dev/null "$BASE/health"; then
+        if curl -sf -o /dev/null "$BASE/livez"; then
             return 0
         fi
         sleep 0.5

@@ -87,9 +87,9 @@ show() {
 ####################################
 sec "0. Health"
 ####################################
-title "GET /health"
-echo "REQUEST : GET /health"
-curl -sS -w "\nSTATUS  : %{http_code}\n" "$BASE/health"
+title "GET /livez"
+echo "REQUEST : GET /livez"
+curl -sS -w "\nSTATUS  : %{http_code}\n" "$BASE/livez"
 
 ####################################
 sec "0.3 Whoami — Identity smoke check"
@@ -1691,7 +1691,7 @@ sec "21. X-Request-ID — correlation id echoed / generated / sanitized"
 
 title "21.1 Valid X-Request-ID is echoed back on the response"
 REQ_ID_21="7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"
-GOT_21=$(curl -sS -o /dev/null -D - "$BASE/health" -H "X-Request-ID: $REQ_ID_21" \
+GOT_21=$(curl -sS -o /dev/null -D - "$BASE/livez" -H "X-Request-ID: $REQ_ID_21" \
   | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id"{print $2}')
 echo "sent=$REQ_ID_21  got=$GOT_21"
 if [ "$GOT_21" = "$REQ_ID_21" ]; then
@@ -1701,7 +1701,7 @@ else
 fi
 
 title "21.2 Absent X-Request-ID → response carries a freshly generated UUID"
-GOT_22=$(curl -sS -o /dev/null -D - "$BASE/health" \
+GOT_22=$(curl -sS -o /dev/null -D - "$BASE/livez" \
   | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id"{print $2}')
 echo "got=$GOT_22"
 if python3 -c 'import sys,uuid; uuid.UUID(sys.argv[1])' "$GOT_22" 2>/dev/null; then
@@ -1711,7 +1711,7 @@ else
 fi
 
 title "21.3 Non-UUID X-Request-ID is replaced by a fresh valid UUID (not echoed)"
-GOT_23=$(curl -sS -o /dev/null -D - "$BASE/health" -H "X-Request-ID: not-a-uuid" \
+GOT_23=$(curl -sS -o /dev/null -D - "$BASE/livez" -H "X-Request-ID: not-a-uuid" \
   | tr -d '\r' | awk -F': ' 'tolower($1)=="x-request-id"{print $2}')
 echo "sent=not-a-uuid  got=$GOT_23"
 if [ "$GOT_23" != "not-a-uuid" ] && python3 -c 'import sys,uuid; uuid.UUID(sys.argv[1])' "$GOT_23" 2>/dev/null; then

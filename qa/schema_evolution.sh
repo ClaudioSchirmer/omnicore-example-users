@@ -104,7 +104,7 @@ wait_for_health() {
   local timeout="${1:-30}"
   local deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "$BASE/health"; then
+    if curl -sf -o /dev/null "$BASE/livez"; then
       return 0
     fi
     sleep 0.5
@@ -117,7 +117,7 @@ start_server() {
 }
 
 # start_server_with — launch a specific binary, optionally with a custom yaml
-# config (OMNICORE_CONFIG_PATH). Wait for /health to come up. The Phase 1-5
+# config (OMNICORE_CONFIG_PATH). Wait for /livez to come up. The Phase 1-5
 # canonical start_server() delegates here with the v1 binary + no yaml.
 start_server_with() {
   local binary="${1:-$SERVER_BIN}"
@@ -773,14 +773,14 @@ kill_port "${HTTP_PORT:-8080}"
 SERVER_PID=$!
 SERVER_LOG="$SERVER_LOG_P11"
 
-# Boot should NOT become healthy — wait briefly and assert /health fails.
+# Boot should NOT become healthy — wait briefly and assert /livez fails.
 sleep 4
-if curl -sf -o /dev/null "$BASE/health"; then
-  printf '\033[1;31mFAIL\033[0m Phase 11 — v1 boot under default allowDowngrade=false should have aborted but /health responded 200\n'
+if curl -sf -o /dev/null "$BASE/livez"; then
+  printf '\033[1;31mFAIL\033[0m Phase 11 — v1 boot under default allowDowngrade=false should have aborted but /livez responded 200\n'
   FAIL=$((FAIL+1))
   stop_server
 else
-  printf '\033[1;32mPASS\033[0m Phase 11 — v1 boot under default allowDowngrade=false did NOT serve /health (abort path)\n'
+  printf '\033[1;32mPASS\033[0m Phase 11 — v1 boot under default allowDowngrade=false did NOT serve /livez (abort path)\n'
   PASS=$((PASS+1))
 
   # Slog should carry the downgrade diagnostic.

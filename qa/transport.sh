@@ -86,7 +86,7 @@ trap cleanup EXIT INT TERM
 
 # ── lifecycle helpers ────────────────────────────────────────────────────────
 
-# start_server launches the qa binary and waits for /health. Truncates the log
+# start_server launches the qa binary and waits for /livez. Truncates the log
 # on each (re)start so a restart's log is self-contained.
 start_server() {
   : > "$SERVER_LOG"
@@ -94,7 +94,7 @@ start_server() {
   SERVER_PID=$!
   local deadline; deadline=$(( $(date +%s) + 30 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    curl -sf -o /dev/null "$BASE/health" && return 0
+    curl -sf -o /dev/null "$BASE/livez" && return 0
     sleep 0.5
   done
   return 1

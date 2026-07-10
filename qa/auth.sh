@@ -87,14 +87,14 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # wait_for_health <timeout_seconds>
-# Polls GET /health until 200 or the timeout expires. Used after starting the
+# Polls GET /livez until 200 or the timeout expires. Used after starting the
 # server with a new APP_PROFILE — bootstrap.Run does migrations + Kafka connect
 # before serving, so the readiness window varies.
 wait_for_health() {
   local timeout="${1:-30}"
   local deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "$BASE/health"; then
+    if curl -sf -o /dev/null "$BASE/livez"; then
       return 0
     fi
     sleep 0.5
@@ -104,7 +104,7 @@ wait_for_health() {
 
 # start_server <profile>
 # Starts the pre-built server binary in the background with APP_PROFILE=<profile>,
-# redirecting stdout/stderr to /tmp/auth-server-<profile>.log. Waits for /health.
+# redirecting stdout/stderr to /tmp/auth-server-<profile>.log. Waits for /livez.
 # Direct binary execution (not `go run`) so $! is the actual server PID — `go run`
 # spawns a child binary that survives `kill $!` and would leak across profiles.
 start_server() {
@@ -340,7 +340,7 @@ for PROFILE in "${PROFILES[@]}"; do
   MALFORMED="not.a.valid.jwt"
 
   show_case "Public route accepts anonymous (publicRoutes bypass)" \
-    GET /health "" 200
+    GET /livez "" 200
   show_case "Protected route rejects missing bearer (MissingAuthorizationNotification)" \
     GET /whoami "" 401
   show_case "Protected route rejects malformed JWT (InvalidTokenNotification)" \
@@ -413,9 +413,9 @@ for PROFILE in "${PROFILES[@]}"; do
 
   # Public route still rejects bearer-less when there's a bearer header but
   # it's wrong — the publicRoutes bypass is by route match, not by header
-  # presence. /health stays open even with a malformed token.
-  show_case "GET /health with malformed bearer → 200 (public bypass ignores headers)" \
-    GET /health "$MALFORMED" 200
+  # presence. /livez stays open even with a malformed token.
+  show_case "GET /livez with malformed bearer → 200 (public bypass ignores headers)" \
+    GET /livez "$MALFORMED" 200
 
   case "$PROFILE" in
     prd)

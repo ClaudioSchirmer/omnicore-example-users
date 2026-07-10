@@ -60,7 +60,7 @@ trap cleanup EXIT INT TERM
 wait_for_health() {
   local deadline=$(( $(date +%s) + 30 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    curl -sf -o /dev/null "$BASE/health" && return 0; sleep 0.5
+    curl -sf -o /dev/null "$BASE/livez" && return 0; sleep 0.5
   done
   return 1
 }
@@ -165,7 +165,7 @@ sec "3. Span tree carries server + instrumented-subsystem child spans"
 # child from the instrument list (pgx OR mongo OR kafka).
 title "3.0 Drive a few more requests (GET by id + list → pgx + mongo spans)"
 curl -sS -o /dev/null "$BASE/users?limit=5"
-curl -sS -o /dev/null "$BASE/health"
+curl -sS -o /dev/null "$BASE/livez"
 sleep 3   # async batched span export
 
 title "3.1 Recent traces carry server + a pgx/mongo/kafka child span"

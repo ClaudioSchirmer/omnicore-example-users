@@ -11,8 +11,8 @@ import (
 )
 
 // Wire concentrates translations + features that the service exposes. Called
-// by main.go via bootstrap.Run(Wire). /health comes from the framework
-// automatically — no need to declare it here.
+// by main.go via bootstrap.Run(Wire). The /livez + /readyz probes come from the
+// framework automatically — no need to declare them here.
 //
 // OpenAPI is opt-in via Wiring.OpenAPI: setting the field activates
 // GET /openapi.json + GET /docs and makes d.OpenAPIRegistry non-nil so the

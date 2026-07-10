@@ -79,7 +79,7 @@ wait_for_health() {
   local timeout="${1:-30}"
   local deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "$BASE/health"; then
+    if curl -sf -o /dev/null "$BASE/livez"; then
       return 0
     fi
     sleep 0.5

@@ -86,8 +86,8 @@ D2="70000000002"
 ####################################
 sec "0. Health + clean slate + CDC warm-up"
 ####################################
-req GET /health
-expect_status "GET /health" 200
+req GET /livez
+expect_status "GET /livez" 200
 qa_db_reset_domain
 qa_mongo_reset
 ok "domain tables + view collections reset"

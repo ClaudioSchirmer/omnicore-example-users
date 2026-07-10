@@ -79,7 +79,7 @@ echo ""
 
 # --- Sanity ----------------------------------------------------------------
 
-show "Health" GET /health 200
+show "Health" GET /livez 200
 
 # --- 10.A — anonymous public endpoint + cache ------------------------------
 

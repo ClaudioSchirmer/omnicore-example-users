@@ -11,7 +11,7 @@
 #      email claim does not match the persisted user's email — unless the
 #      principal carries users:admin (super-admin / *:* bypass).
 #   3. Public routes (RawSpec.Public:true + auth.publicRoutes) bypass both
-#      the AuthMiddleware AND the permission gate, so /health stays anonymous.
+#      the AuthMiddleware AND the permission gate, so /livez stays anonymous.
 #
 # Runs under APP_PROFILE=prd-authz, which carries auth.mode=jwt PLUS
 # auth.authorization.enabled=true so the gate enforces (under any other
@@ -79,7 +79,7 @@ wait_for_health() {
   local timeout="${1:-30}"
   local deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "$BASE/health"; then
+    if curl -sf -o /dev/null "$BASE/livez"; then
       return 0
     fi
     sleep 0.5
@@ -366,8 +366,8 @@ start_server prd-authz || exit 1
 # Scenarios
 sec "2. Public routes bypass both AuthMiddleware AND the gate"
 
-show_case "GET /health — public via auth.publicRoutes" \
-  GET /health "" "" 200
+show_case "GET /livez — public via auth.publicRoutes" \
+  GET /livez "" "" 200
 
 show_case "GET /openapi.json — public (added to publicRoutes automatically)" \
   GET /openapi.json "" "" 200
