@@ -5,12 +5,12 @@ import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 )
 
-// FindUserByParamsQuery is the application-side transport for a paged user
+// FindUsersByParamsQuery is the application-side transport for a paged user
 // read. The wrapper QueryWithParams has already parsed the query string
 // into the embedded ReadCriteria; ToCriteria(ctx) then applies identity-derived
 // overlays — the Query is the only layer below the web boundary that may consume
 // ctx, and the criteria is what reaches the ViewReader, so security belongs here.
-type FindUserByParamsQuery struct {
+type FindUsersByParamsQuery struct {
 	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
 }
@@ -21,7 +21,7 @@ type FindUserByParamsQuery struct {
 // CSV/XLSX export for a non-admin; an active reference (?sort=phone /
 // ?fields=phone) returns 403. Dev-safe: under auth-disabled dev the Identity is
 // nil and everyone is trusted, so Phone is not restricted there.
-func (q FindUserByParamsQuery) ToCriteria(ctx *configuration.AppContext) (fwqueries.ReadCriteria, error) {
+func (q FindUsersByParamsQuery) ToCriteria(ctx *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	crit := q.Criteria
 	// Restrict mutates crit in place (scrubbing Phone from projection/sort/filter)
 	// and returns the 403 only on an active reference. Threading its error straight

@@ -57,8 +57,8 @@ type AddressFilterParams struct {
 	ZipCode *string `query:"zipCode" filter:"eq,startswith"`
 }
 
-func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindUserByParamsQuery {
-	return &queries.FindUserByParamsQuery{Criteria: criteria}
+func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindUsersByParamsQuery {
+	return &queries.FindUsersByParamsQuery{Criteria: criteria}
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────

@@ -56,8 +56,8 @@ type PersonEmployeeFilterParams struct {
 	JobHistories JobHistoryFilterParams `query:"jobHistories"`
 }
 
-func (r FindPersonsByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindPersonByParamsQuery {
-	return &queries.FindPersonByParamsQuery{Criteria: criteria}
+func (r FindPersonsByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindPersonsByParamsQuery {
+	return &queries.FindPersonsByParamsQuery{Criteria: criteria}
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────

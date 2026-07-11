@@ -31,7 +31,7 @@ func MountPersons(
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
 		fwresponses.AutoFromDoc[requests.FindPersonsByParamsResponse],
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, persons, fiber.MethodGet, "/",
@@ -65,7 +65,7 @@ func MountPersons(
 		requests.FindPersonsByParamsRequest{},
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithDelimiter(','))
@@ -83,7 +83,7 @@ func MountPersons(
 		requests.FindPersonsByParamsRequest{},
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithSheetName("Persons"))
@@ -113,7 +113,7 @@ func MountPersonsGraphQL(
 		requests.FindPersonsByParamsResponse,
 	](
 		"persons", "Person",
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("persons:read")))
