@@ -270,7 +270,7 @@ var _ appqa.GadgetEventSink = (*GadgetEventSinkAdapter)(nil)
 // ProvisionGadgetTables creates the `gadgets`, `gadget_journal`, and
 // `gadget_events_sink` tables if they do not exist, dialect-aware (postgres
 // UUID/TIMESTAMP, mysql BINARY(16)/DATETIME — mirroring the
-// migrations/{postgres,mysql}/0002 types).
+// migrations/{postgres,mysql}/0001_init types).
 // Idempotent; runs off the engine's neutral side-channel exec at feature Mount
 // so the QA schema stays entirely out of the canonical migration set. The
 // dialect is detected from the placeholder form ($1 ⇒ postgres, else mysql).

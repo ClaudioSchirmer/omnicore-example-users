@@ -40,7 +40,7 @@ Other profiles ship as `microservice.prd.yaml`, `microservice.prd-pem.yaml`, `mi
 - `infra/` — `UserRepository`, `ViewDefinition`, optional outbound HTTP services. Backend-agnostic: repositories take the neutral relational engine (`core.RelationalEngine`), never a concrete driver.
 - `web/` — Fiber routes via `MountUsers`.
 - `bootstrap/` — `package main` (entry point), Wire, UsersFeature.
-- `migrations/` — service schema (versions `0002+`; the framework owns version `0001`).
+- `migrations/` — service schema (an independent sequence from `0001`; the framework's own `0001` is tracked in a separate table).
 - `devops/` — local docker-compose stack, Debezium connector boilerplate, Keycloak realm fixture.
 - `qa/` — bash + curl + python end-to-end suites.
 

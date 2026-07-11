@@ -29,7 +29,7 @@ Standard DDD layers consuming the framework. The four layers live under `interna
 - `internal/web/` — Fiber routes (`MountXxx` per concern), `requests/` (+ co-located Responses), `responses/`. Owner of wire tags.
 - `proto/` — the service-owned protobuf contract (`users/v1/users.proto`, qa `qafixtures/v1/qa.proto`) plus `gen/` (committed generated Go — dependency-free, importable by BOTH `internal/web` and `internal/infra`, which is why it sits outside `internal/web`) and `generate.sh` (the official protoc invocation, incl. the `-I` into the framework checkout for the shared `omnicore/v1/query.proto`). Outside `internal/` on purpose: the contract is the publishable piece another team copies to call this service.
 - `bootstrap/` — `package main`: `main.go` (~10 lines), `wire.go`, one `*_feature.go` per feature.
-- `migrations/{postgres,mysql}/` — domain DDL split by dialect; service migrations start at `0002` (the framework injects `0001`).
+- `migrations/{postgres,mysql}/` — domain DDL split by dialect; the service's own migrations are an INDEPENDENT sequence starting at `0001` (the framework's embedded `0001_framework` is tracked in a separate table, so there is no collision).
 - `devops/` — local bench (`docker-compose.yml`, `debezium/`, `keycloak/`, `elk/`); replaced by real infra in production.
 - `qa/` — end-to-end bash suites (see below).
 - `microservice.*.yaml` — one file per profile (`dev` + `prd*` auth variants), selected by `APP_PROFILE`.
