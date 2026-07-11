@@ -6,14 +6,14 @@ import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 )
 
-func TestFindPersonByParamsQuery_ToCriteria_Passthrough(t *testing.T) {
+func TestFindPersonsByParamsQuery_ToCriteria_Passthrough(t *testing.T) {
 	want := fwqueries.ReadCriteria{
 		Filter:          map[string]any{"Name": "Ana", "User.UserName": "ana"},
 		Limit:           10,
 		Search:          "souza",
 		IncludeArchived: true,
 	}
-	got, err := FindPersonByParamsQuery{Criteria: want}.ToCriteria(nil)
+	got, err := FindPersonsByParamsQuery{Criteria: want}.ToCriteria(nil)
 	if err != nil {
 		t.Fatalf("ToCriteria: %v", err)
 	}

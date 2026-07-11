@@ -53,8 +53,8 @@ type JobHistoryFilterParams struct {
 	Department *string `query:"department" filter:"eq,in"`
 }
 
-func (r FindEmployeesByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindEmployeeByParamsQuery {
-	return &queries.FindEmployeeByParamsQuery{Criteria: criteria}
+func (r FindEmployeesByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindEmployeesByParamsQuery {
+	return &queries.FindEmployeesByParamsQuery{Criteria: criteria}
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
