@@ -68,6 +68,10 @@ func (c UpdateUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.
 		UserName:          u.UserName,
 		EmailNotification: u.EmailNotification,
 		SmsNotification:   u.SmsNotification,
+		// Full aggregate mirror — the PUT replaces the whole address set, so
+		// the response carries the post-write collection with the minted ids
+		// (written back into the aggregate map by the persister).
+		Addresses: currentAddressResults(u),
 	}, nil
 }
 
@@ -83,4 +87,5 @@ type UpdateUserResult struct {
 	UserName          string
 	EmailNotification *bool
 	SmsNotification   *bool
+	Addresses         []AddressResult
 }

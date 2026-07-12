@@ -29,10 +29,10 @@
     "transforms.outbox.route.by.field": "event_type",
     "transforms.outbox.route.topic.replacement": "qa.integration.events",
     "transforms.outbox.table.fields.additional.placement": "event_type:header,aggregate_type:header,traceparent:header:traceparent",
-    "transforms.outbox.table.expand.json.payload": "true",
+    "transforms.outbox.table.expand.json.payload": "false",
 
     "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.storage.StringConverter",
     "value.converter.schemas.enable": "false"
   }
 }

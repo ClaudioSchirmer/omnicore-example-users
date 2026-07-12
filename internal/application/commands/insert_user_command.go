@@ -78,6 +78,11 @@ func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.
 		UserName:          u.UserName,
 		EmailNotification: u.EmailNotification,
 		SmsNotification:   u.SmsNotification,
+		// Full aggregate mirror: the current addresses with their minted ids
+		// (written back into the aggregate map by the persister). On a WARM
+		// upsert this includes the identity's pre-existing addresses — the
+		// truthful post-write state, not an echo of the request.
+		Addresses: currentAddressResults(u),
 	}, nil
 }
 
@@ -94,6 +99,7 @@ type InsertUserResult struct {
 	UserName          string
 	EmailNotification *bool
 	SmsNotification   *bool
+	Addresses         []AddressResult
 }
 
 // ─── LIFECYCLE HOOKS — FICTITIOUS EXAMPLE ───────────────────────────────────
