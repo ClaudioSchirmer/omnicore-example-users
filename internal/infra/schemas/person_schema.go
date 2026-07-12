@@ -50,6 +50,11 @@ import (
 // Addresses are declared HERE as the base's native children (FK person_id), not
 // on the role — that is what makes the address list shared across every role of
 // the person rather than disjoint per role.
+// CreatedAt/UpdatedAt on the base are honored by the framework like on any
+// other table: stamped on the identity's creation, and UpdatedAt on every
+// role-driven change of the shared fields (warm upsert + role update) — so
+// persons.updated_at tells the truth even when the change came in through a
+// role endpoint.
 func PersonBase() *core.TableSchema {
 	return core.NewSharedBase("persons").
 		PK("id").
@@ -59,6 +64,8 @@ func PersonBase() *core.TableSchema {
 		Field("Phone", "phone").
 		NaturalKey("document").
 		SoftDelete("deleted_at").
+		CreatedAt("created_at").
+		UpdatedAt("updated_at").
 		OrphanPolicy(core.DeleteWhenUnreferenced).
 		Child(AddressSchema())
 }

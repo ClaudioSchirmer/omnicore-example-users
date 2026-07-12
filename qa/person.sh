@@ -380,6 +380,28 @@ expect_status "11.1 GraphQL persons query" 200
   ok "11.3 role sub-object through GraphQL" || bad "11.3 — $RESP"
 
 ####################################
+sec "12. Base managed columns: persons.updated_at moves on a role-driven change"
+####################################
+# The framework stamps a base's DECLARED CreatedAt/UpdatedAt like on any other
+# table: on the identity's creation, and UpdatedAt on every role-driven change
+# of the shared fields. Asserted straight on the SoR — the HTTP surface never
+# exposes these columns, and before this behavior persons.updated_at stayed
+# frozen at creation while the row's data changed through a role.
+D3="70000000012"
+req POST /users '{"name":"Carla Souza","email":"carla.basecols@example.com","phone":"14155550123","document":"'"$D3"'","userName":"carlabc","addresses":[{"label":"home","street":"Main","number":"9","neighborhood":"Centro","city":"Sao Paulo","state":"SP","zipCode":"01000-000","country":"BR"}]}'
+expect_status "12.1 create user (identity D3 born — created_at stamped)" 201
+USER3=$(jsonq "d['data']['id']")
+sleep 2  # DATETIME has second resolution — make updated_at distinguishable
+req PATCH "/users/$USER3" '{"name":"Carla S. Renamed"}'
+expect_status "12.2 role-driven change of a shared field (name lives on persons)" 200
+STAMP=$(qa_db_query "SELECT CASE WHEN updated_at > created_at THEN 1 ELSE 0 END FROM persons WHERE document='$D3'")
+if [ "$STAMP" = "1" ]; then
+  ok "12.3 persons.updated_at stamped by the role-driven update"
+else
+  bad "12.3 persons.updated_at did not move (base managed-columns stamping broken) — got '$STAMP'"
+fi
+
+####################################
 hr
 printf '\033[1;37mperson.sh done — PASS=%d FAIL=%d (backend=%s)\033[0m\n' "$PASS" "$FAIL" "$BACKEND"
 [ "$FAIL" -eq 0 ]
