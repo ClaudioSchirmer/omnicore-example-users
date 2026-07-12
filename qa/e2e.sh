@@ -260,6 +260,24 @@ USER_A=$(echo "$JSON_A" | python3 -c 'import sys,json;print(json.load(sys.stdin)
 echo "USER_A_ID = $USER_A"
 if [ "$ST_A" = "201" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 
+title "2.1b POST response mirrors the aggregate — addresses[] carry the persisted ids (child-id write-back)"
+# The write response is the FULL aggregate mirror. The persister mints each
+# child PK in Go (the same newWriteID as the root — no RETURNING, no second
+# query on MySQL) and writes it back into the aggregate map, so FromEntity
+# projects the addresses WITH their ids. Regression guard for the framework's
+# child-id write-back: an empty/missing id here means the write-back broke.
+ADDR_A_ID=$(echo "$JSON_A" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);a=d["data"].get("addresses") or [];print(a[0].get("id","") if a else "")' 2>/dev/null)
+ADDR_A_STREET=$(echo "$JSON_A" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);a=d["data"].get("addresses") or [];print(a[0].get("street","") if a else "")' 2>/dev/null)
+if [ "${#ADDR_A_ID}" = "36" ] && [ "$ADDR_A_STREET" = "1 Infinite Loop" ]; then
+  printf '\033[1;32mPASS\033[0m (addresses[0].id=%s, street=%s)\n' "$ADDR_A_ID" "$ADDR_A_STREET"
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected a 36-char address id + the mirrored street, got id=%q street=%q)\n' "$ADDR_A_ID" "$ADDR_A_STREET"
+  FAIL=$((FAIL+1))
+fi
+
 title "2.2 Create Bob (UK) — will be used in conflict tests"
 BODY_B='{
   "name":"Bob Smith","email":"bob@example.com","phone":"442079460000",
@@ -382,6 +400,21 @@ if [ "$GOT_ZIPCODE" = "$EXP_ZIPCODE" ] && [ "$GOT_NEIGHBORHOOD" = "$EXP_NEIGHBOR
 else
   printf '\033[1;31mFAIL\033[0m (expected zipCode=%s neighborhood=%s, got zipCode=%s neighborhood=%s)\n' \
     "$EXP_ZIPCODE" "$EXP_NEIGHBORHOOD" "$GOT_ZIPCODE" "$GOT_NEIGHBORHOOD"
+  FAIL=$((FAIL+1))
+fi
+
+title "4.4b Write-response address id == persisted view id (child-id write-back, end-to-end)"
+# The id the POST response carried (2.1b) must be the SAME id the Mongo view
+# holds after CDC — proving the mirrored id IS the persisted PK, not a
+# fabrication. Uses the by-id response already fetched in 4.4.
+VIEW_ADDR_ID=$(echo "$RESP_44" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);print(d["data"]["addresses"][0].get("id",""))' 2>/dev/null)
+if [ -n "$ADDR_A_ID" ] && [ "$VIEW_ADDR_ID" = "$ADDR_A_ID" ]; then
+  printf '\033[1;32mPASS\033[0m (write response id == view id: %s)\n' "$VIEW_ADDR_ID"
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (write response id=%q, view id=%q — the mirrored id must be the persisted PK)\n' \
+    "$ADDR_A_ID" "$VIEW_ADDR_ID"
   FAIL=$((FAIL+1))
 fi
 
@@ -550,14 +583,43 @@ show_count "4.6.7 ?orders.city=X rejected — no embed group named orders" \
 sec "5. PUT /users/:id — strict (FullBody)"
 ####################################
 
-show "5.1 PUT happy (all fields)" PUT "/users/$USER_A" '{
+title "5.1 PUT happy (all fields) — response mirrors the REPLACED addresses with their new ids"
+# Same request as always; captured (instead of show) so the response body can
+# be asserted: the PUT replaces the whole address collection, so the mirror
+# must carry the NEW address row with a freshly minted id (child-id
+# write-back on the update path) — and it must differ from the POST-time id.
+BODY_51='{
   "name":"Jane Doe (updated)","email":"jane.updated@example.com","phone":"14155553333",
   "userName":"jane","emailNotification":true,"smsNotification":true,
   "addresses":[{
     "label":"home","street":"New Address","number":"200",
     "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"
   }]
-}' 200
+}'
+echo "REQUEST : PUT /users/$USER_A"
+echo "BODY    :"
+echo "$BODY_51" | python3 -m json.tool
+RESP_51=$(curl -sS -w "\n__STATUS__%{http_code}" -X PUT "$BASE/users/$USER_A" \
+  -H "Content-Type: application/json" -H "Accept-Language: en-US" --data "$BODY_51")
+ST_51=${RESP_51##*__STATUS__}
+JSON_51=${RESP_51%__STATUS__*}
+echo "STATUS  : $ST_51"
+echo "RESPONSE:"
+echo "$JSON_51" | python3 -m json.tool
+ADDR_51_ID=$(echo "$JSON_51" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);a=d["data"].get("addresses") or [];print(a[0].get("id","") if a else "")' 2>/dev/null)
+ADDR_51_STREET=$(echo "$JSON_51" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);a=d["data"].get("addresses") or [];print(a[0].get("street","") if a else "")' 2>/dev/null)
+if [ "$ST_51" = "200" ] && [ "${#ADDR_51_ID}" = "36" ] && \
+   [ "$ADDR_51_STREET" = "New Address" ] && [ "$ADDR_51_ID" != "$ADDR_A_ID" ]; then
+  printf '\033[1;32mPASS\033[0m (200; replaced address id=%s, street=%s, differs from POST-time id)\n' \
+    "$ADDR_51_ID" "$ADDR_51_STREET"
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected 200 + fresh 36-char id != %q + street "New Address"; got status=%s id=%q street=%q)\n' \
+    "$ADDR_A_ID" "$ST_51" "$ADDR_51_ID" "$ADDR_51_STREET"
+  FAIL=$((FAIL+1))
+fi
 
 show "5.2 PUT without phone (Phase 21: RequiredFieldNotification semantic Schema → 400)" PUT "/users/$USER_A" '{
   "name":"Jane","email":"jane@example.com",

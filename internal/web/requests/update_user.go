@@ -50,16 +50,18 @@ func (r UpdateUserRequest) ToCommand() *commands.UpdateUserCommand {
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
 // UpdateUserResponse is the wire shape of PUT /users/:id on success. Carries
-// the post-update root snapshot.
+// the post-update root snapshot + the FULL aggregate mirror (the replaced
+// address collection, with the ids the persister minted).
 type UpdateUserResponse struct {
-	ID                domain.ID `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name              string    `json:"name"                        example:"Alice Pereira"`
-	Email             string    `json:"email"                       example:"alice@example.com"`
-	Phone             *string   `json:"phone,omitempty"             example:"14155552671"`
-	Document          string    `json:"document"                    example:"12345678901"`
-	UserName          string    `json:"userName"                    example:"alice"`
-	EmailNotification *bool     `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool     `json:"smsNotification,omitempty"   example:"false"`
+	ID                domain.ID                   `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name              string                      `json:"name"                        example:"Alice Pereira"`
+	Email             string                      `json:"email"                       example:"alice@example.com"`
+	Phone             *string                     `json:"phone,omitempty"             example:"14155552671"`
+	Document          string                      `json:"document"                    example:"12345678901"`
+	UserName          string                      `json:"userName"                    example:"alice"`
+	EmailNotification *bool                       `json:"emailNotification,omitempty" example:"true"`
+	SmsNotification   *bool                       `json:"smsNotification,omitempty"   example:"false"`
+	Addresses         []InsertUserResponseAddress `json:"addresses"`
 }
 
 func (UpdateUserResponse) FromResult(r commands.UpdateUserResult) UpdateUserResponse {
@@ -72,5 +74,6 @@ func (UpdateUserResponse) FromResult(r commands.UpdateUserResult) UpdateUserResp
 		UserName:          r.UserName,
 		EmailNotification: r.EmailNotification,
 		SmsNotification:   r.SmsNotification,
+		Addresses:         insertUserResponseAddresses(r.Addresses),
 	}
 }

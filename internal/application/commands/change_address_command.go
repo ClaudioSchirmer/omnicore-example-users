@@ -53,18 +53,7 @@ func (c *ChangeAddressCommand) FromEntity(_ *configuration.AppContext, u *appdom
 	out := ChangeAddressResult{UserID: *u.GetID()}
 	for _, addr := range domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot) {
 		if addr.GetID() == c.AddressID {
-			out.Address = AddressResult{
-				ID:           addr.GetID(),
-				Label:        addr.Label,
-				Street:       addr.Street,
-				Number:       addr.Number,
-				Complement:   addr.Complement,
-				Neighborhood: addr.Neighborhood,
-				City:         addr.City,
-				State:        addr.State,
-				ZipCode:      addr.ZipCode,
-				Country:      addr.Country,
-			}
+			out.Address = toAddressResult(addr)
 			break
 		}
 	}
@@ -92,4 +81,34 @@ type AddressResult struct {
 	State        string
 	ZipCode      string
 	Country      string
+}
+
+// toAddressResult maps one domain Address to its application-layer snapshot.
+func toAddressResult(a appdomain.Address) AddressResult {
+	return AddressResult{
+		ID:           a.GetID(),
+		Label:        a.Label,
+		Street:       a.Street,
+		Number:       a.Number,
+		Complement:   a.Complement,
+		Neighborhood: a.Neighborhood,
+		City:         a.City,
+		State:        a.State,
+		ZipCode:      a.ZipCode,
+		Country:      a.Country,
+	}
+}
+
+// currentAddressResults projects the aggregate's current (non-removed)
+// addresses — ids included: the persister writes each minted child PK back
+// into the aggregate map, so a post-write projection carries them populated.
+// Used by the insert/update FromEntity mirrors (the entity has the final
+// word: the response reflects the post-write aggregate, never the input).
+func currentAddressResults(u *appdomain.User) []AddressResult {
+	items := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	out := make([]AddressResult, 0, len(items))
+	for _, a := range items {
+		out = append(out, toAddressResult(a))
+	}
+	return out
 }

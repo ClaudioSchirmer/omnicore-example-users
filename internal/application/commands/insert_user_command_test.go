@@ -42,3 +42,32 @@ func TestInsertUserCommand_FromEntity_NilPhone(t *testing.T) {
 		t.Errorf("expected nil Phone, got %v", got.Phone)
 	}
 }
+
+// The insert Result is the FULL aggregate mirror: every current address rides
+// along, id included. AssignAggregateItemID stands in for the persister's
+// write-back (post-write, the minted child PK is stamped back into the
+// aggregate map — that is what FromEntity reads).
+func TestInsertUserCommand_FromEntity_MirrorsAddressesWithIDs(t *testing.T) {
+	addr := appdomain.Address{
+		Street: "Main", Number: "1", Neighborhood: "Downtown",
+		City: "SF", State: "CA", ZipCode: "94103", Country: "US",
+	}
+	u := &appdomain.User{Name: "Alice", Email: "a@x.com"}
+	u.SetID(domain.NewRandomID())
+	u.AddAddress(addr, nil)
+	if ok := u.AssignAggregateItemID(addr, "addr-1"); !ok {
+		t.Fatal("test setup: the id write-back must find the tracked address")
+	}
+
+	got, _ := InsertUserCommand{}.FromEntity(nil, u)
+
+	if len(got.Addresses) != 1 {
+		t.Fatalf("expected the mirrored address collection, got %+v", got.Addresses)
+	}
+	if got.Addresses[0].ID != "addr-1" {
+		t.Errorf("mirrored address must carry the persisted id, got %q", got.Addresses[0].ID)
+	}
+	if got.Addresses[0].Street != "Main" || got.Addresses[0].Country != "US" {
+		t.Errorf("mirrored address data mismatch: %+v", got.Addresses[0])
+	}
+}
