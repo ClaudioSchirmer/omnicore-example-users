@@ -23,6 +23,7 @@ func (esp) Translations() map[string]string {
 		"InvalidCountryNotification":        "País inválido (use código ISO de 2 letras).",
 		"DocumentCannotChangeNotification":  "El documento no puede modificarse después de crear el usuario.",
 		"DuplicateAddressNotification":      "Dirección duplicada para este usuario.",
+		"ProductCategoryLimitNotification":  "Límite de categorías de producto distintas alcanzado.",
 		"NameMaxLengthExceededNotification": "El nombre supera la longitud máxima permitida de {maxLength} caracteres.",
 		"User":                              "Usuario",
 		// Field labels — see ptbr.go for the per-locale rationale.

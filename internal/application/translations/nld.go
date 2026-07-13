@@ -23,6 +23,7 @@ func (nld) Translations() map[string]string {
 		"InvalidCountryNotification":        "Ongeldig land (gebruik de 2-letterige ISO-code).",
 		"DocumentCannotChangeNotification":  "Het document kan niet worden gewijzigd na het aanmaken van de gebruiker.",
 		"DuplicateAddressNotification":      "Dubbel adres voor deze gebruiker.",
+		"ProductCategoryLimitNotification":  "Limiet van verschillende productcategorieën bereikt.",
 		"NameMaxLengthExceededNotification": "Naam overschrijdt de maximaal toegestane lengte van {maxLength} tekens.",
 		"User":                              "Gebruiker",
 		// Field labels — see ptbr.go for the per-locale rationale.

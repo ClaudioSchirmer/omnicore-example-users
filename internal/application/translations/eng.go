@@ -21,6 +21,7 @@ func (eng) Translations() map[string]string {
 		"InvalidCountryNotification":       "Invalid country (use 2-letter ISO code).",
 		"DocumentCannotChangeNotification": "Document cannot be changed after the user is created.",
 		"DuplicateAddressNotification":     "Duplicate address for this user.",
+		"ProductCategoryLimitNotification": "Distinct product category limit reached.",
 		// Parameterized notification — {maxLength} is substituted at render time
 		// from the tvar:"maxLength" tag on the notification struct.
 		"NameMaxLengthExceededNotification": "Name exceeds the maximum allowed length of {maxLength} characters.",

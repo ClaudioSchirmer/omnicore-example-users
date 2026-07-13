@@ -75,6 +75,7 @@ func TestCatalogs_CarryExpectedKeys(t *testing.T) {
 		"InvalidCountryNotification",
 		"DocumentCannotChangeNotification",
 		"DuplicateAddressNotification",
+		"ProductCategoryLimitNotification",
 		"UserDocumentField",
 		"UserUserNameField",
 		"UserEmailNotificationField",

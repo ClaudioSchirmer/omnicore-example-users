@@ -21,6 +21,7 @@ func qaFeatures(d bootstrap.Deps) []bootstrap.Feature {
 		NewAdminFeature(),
 		NewGadgetFeature(d),
 		NewAccountFeature(d),
+		NewProductFeature(d),
 	}
 }
 
