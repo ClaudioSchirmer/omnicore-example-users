@@ -57,7 +57,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mk_autorun_yaml() {  # <mode> → prints path to a dev.yaml copy with migrations.autoRun=<mode>
-  local mode="$1" out; out=$(mktemp "/tmp/qa-mig-${mode}.XXXXXX.yaml")
+  local mode="$1" out; out=$(mktemp "/tmp/qa-mig-${BACKEND}-${mode}.XXXXXX.yaml")
   awk -v m="$mode" '
     /^migrations:/ { in_m=1; print; next }
     in_m && /^[^ \t]/ { in_m=0 }
@@ -121,7 +121,7 @@ ok "synthesized pending 0002_qa_probe in $TMP_MIG_DIR"
 ##############################################################################
 sec "1. autoRun=check + pending 0002 → boot ABORTS"
 ##############################################################################
-Y_CHECK=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-check.log
+Y_CHECK=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-${BACKEND}-check.log
 if boot_expect_abort "$Y_CHECK" "$LOG"; then
   [ "$LAST_CODE" -ne 0 ] && ok "check-mode boot aborted (exit $LAST_CODE)" || bad "check-mode exited 0 (expected abort)"
   grep -qF "pending migration(s) detected" "$LOG" && ok "diagnostic: 'pending migration(s) detected'" || { bad "pending diagnostic missing"; tail -n 15 "$LOG"; }
@@ -136,7 +136,7 @@ rm -f "$Y_CHECK"
 ##############################################################################
 sec "2. autoRun=false → boot SKIPS (pending stays unapplied)"
 ##############################################################################
-Y_FALSE=$(mk_autorun_yaml false); LOG=/tmp/qa-mig-false.log
+Y_FALSE=$(mk_autorun_yaml false); LOG=/tmp/qa-mig-${BACKEND}-false.log
 if boot_healthy "$Y_FALSE" "$LOG"; then
   ok "false-mode server booted healthy"
   grep -qF "migrations skipped (autoRun=false)" "$LOG" && ok "log: 'migrations skipped (autoRun=false)'" || bad "skip log line missing"
@@ -150,7 +150,7 @@ stop_server; rm -f "$Y_FALSE"
 ##############################################################################
 sec "3. autoRun=true → boot APPLIES 0002"
 ##############################################################################
-Y_TRUE=$(mk_autorun_yaml true); LOG=/tmp/qa-mig-true.log
+Y_TRUE=$(mk_autorun_yaml true); LOG=/tmp/qa-mig-${BACKEND}-true.log
 if boot_healthy "$Y_TRUE" "$LOG"; then
   ok "true-mode server booted healthy"
   grep -qF "migrations applied" "$LOG" && ok "log: 'migrations applied'" || bad "applied log line missing"
@@ -166,7 +166,7 @@ sec "4. Dirty state → boot ABORTS; Force recovers"
 ##############################################################################
 title "4.1 Mark version 2 dirty, boot check → dirty abort"
 qa_db_exec "UPDATE omnicore_migrations SET dirty = true WHERE version = 2;"
-Y_CHECK2=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-dirty.log
+Y_CHECK2=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-${BACKEND}-dirty.log
 if boot_expect_abort "$Y_CHECK2" "$LOG"; then
   [ "$LAST_CODE" -ne 0 ] && ok "dirty boot aborted (exit $LAST_CODE)" || bad "dirty boot exited 0"
   grep -qF "dirty state" "$LOG" && ok "diagnostic: 'dirty state'" || { bad "dirty diagnostic missing"; tail -n 15 "$LOG"; }
@@ -176,7 +176,7 @@ fi
 
 title "4.2 Force clean (dirty=false), boot check → healthy"
 qa_db_exec "UPDATE omnicore_migrations SET dirty = false WHERE version = 2;"
-LOG=/tmp/qa-mig-recovered.log
+LOG=/tmp/qa-mig-${BACKEND}-recovered.log
 if boot_healthy "$Y_CHECK2" "$LOG"; then
   ok "recovered server booted healthy under check"
   grep -qF "migrations up to date" "$LOG" && ok "log: 'migrations up to date (check mode)'" || bad "up-to-date log line missing"
