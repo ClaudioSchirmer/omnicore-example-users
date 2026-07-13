@@ -80,7 +80,7 @@ sec "1. Missing mandatory field → boot abort"
 ##############################################################################
 # Strip the top-level `service:` line — Config.Validate() collects every empty
 # mandatory field and aborts naming them.
-CFG_NO_SERVICE=$(mktemp /tmp/qa-boot-no-service.XXXXXX.yaml)
+CFG_NO_SERVICE=$(mktemp "/tmp/qa-boot-no-service-${BACKEND}.XXXXXX.yaml")
 grep -v '^service:' "$DEV_YAML" > "$CFG_NO_SERVICE"
 expect_boot_abort "1.1 no service: → missing required config" \
   dev "$CFG_NO_SERVICE" "missing required config: service"
@@ -99,7 +99,7 @@ sec "3. cache.shared.store: memory → boot abort"
 ##############################################################################
 # An in-process LRU cannot back a cross-service shared cache; the framework
 # rejects the combination at boot. Append a cache block declaring it.
-CFG_SHARED_MEM=$(mktemp /tmp/qa-boot-shared-mem.XXXXXX.yaml)
+CFG_SHARED_MEM=$(mktemp "/tmp/qa-boot-shared-mem-${BACKEND}.XXXXXX.yaml")
 cat "$DEV_YAML" > "$CFG_SHARED_MEM"
 cat >> "$CFG_SHARED_MEM" <<'YAML'
 
