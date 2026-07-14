@@ -53,7 +53,6 @@ var _ persistence.ScopedRepository[*qadomain.Product] = (*ProductRepository)(nil
 // dialect-aware, mirroring the ProvisionGadgetTables approach so the QA
 // schema stays out of the canonical migration set.
 func ProvisionProductTable(ctx context.Context, eng fwdb.RelationalEngine) error {
-	q := eng.Querier()
 	postgres := eng.Dialect().Placeholder(1) == "$1"
 
 	var products string
@@ -81,5 +80,5 @@ func ProvisionProductTable(ctx context.Context, eng fwdb.RelationalEngine) error
 			PRIMARY KEY (id)
 		)`
 	}
-	return q.Exec(ctx, products)
+	return qaExecDDL(ctx, eng, products)
 }

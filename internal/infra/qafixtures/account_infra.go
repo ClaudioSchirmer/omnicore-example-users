@@ -104,7 +104,6 @@ var _ persistence.ScopedRepository[*qadomain.AccountHolder] = (*AccountHolderRep
 // role tables if absent, dialect-aware (idempotent, engine side-channel, no
 // migration files) — mirroring the persons/employees DDL in miniature.
 func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) error {
-	q := eng.Querier()
 	postgres := eng.Dialect().Placeholder(1) == "$1"
 
 	var base, role string
@@ -149,8 +148,5 @@ func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) erro
 		)`
 	}
 
-	if err := q.Exec(ctx, base); err != nil {
-		return err
-	}
-	return q.Exec(ctx, role)
+	return qaExecDDL(ctx, eng, base, role)
 }

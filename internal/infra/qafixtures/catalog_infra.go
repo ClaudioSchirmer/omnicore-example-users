@@ -77,7 +77,6 @@ var _ persistence.ScopedRepository[*qadomain.Catalog] = (*CatalogRepository)(nil
 // ProvisionCatalogTable creates the `qa_catalogs` table if absent, dialect-aware
 // (idempotent, engine side-channel, no migration files).
 func ProvisionCatalogTable(ctx context.Context, eng fwdb.RelationalEngine) error {
-	q := eng.Querier()
 	postgres := eng.Dialect().Placeholder(1) == "$1"
 
 	var catalogs string
@@ -101,5 +100,5 @@ func ProvisionCatalogTable(ctx context.Context, eng fwdb.RelationalEngine) error
 			PRIMARY KEY (id)
 		)`
 	}
-	return q.Exec(ctx, catalogs)
+	return qaExecDDL(ctx, eng, catalogs)
 }

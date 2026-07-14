@@ -188,9 +188,12 @@ func (GadgetJournalAdapter) Write(
 
 	rowID := domain.NewIDFromUUID(uuid.Must(uuid.NewV7()))
 
-	// gadget_id is nullable: empty on the pre-write phase (no id yet), the
-	// encoded gadget id on the post-write phase.
-	var gid any
+	// gadget_id is nullable: a TYPED null on the pre-write phase (no id yet)
+	// — the dialect codec renders the NULL in the column's native id form
+	// (SQL Server refuses an untyped nil, which the driver sends as an
+	// nvarchar NULL, against a BINARY(16) column) — and the encoded gadget id
+	// on the post-write phase.
+	gid := d.EncodeArg((*domain.ID)(nil))
 	if gadgetID != "" {
 		gid = d.EncodeArg(domain.NewID(gadgetID))
 	}
@@ -275,7 +278,6 @@ var _ appqa.GadgetEventSink = (*GadgetEventSinkAdapter)(nil)
 // so the QA schema stays entirely out of the canonical migration set. The
 // dialect is detected from the placeholder form ($1 ⇒ postgres, else mysql).
 func ProvisionGadgetTables(ctx context.Context, eng fwdb.RelationalEngine) error {
-	q := eng.Querier()
 	postgres := eng.Dialect().Placeholder(1) == "$1"
 
 	var gadgets, journal, sink string
@@ -336,11 +338,5 @@ func ProvisionGadgetTables(ctx context.Context, eng fwdb.RelationalEngine) error
 		)`
 	}
 
-	if err := q.Exec(ctx, gadgets); err != nil {
-		return err
-	}
-	if err := q.Exec(ctx, journal); err != nil {
-		return err
-	}
-	return q.Exec(ctx, sink)
+	return qaExecDDL(ctx, eng, gadgets, journal, sink)
 }

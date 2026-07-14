@@ -38,16 +38,33 @@ BACKENDS="all"
 KEEP_GOING="${KEEP_GOING:-0}"
 for arg in "$@"; do
   case "$arg" in
-    all|postgres|mysql) BACKENDS="$arg" ;;
+    all|postgres|mysql|sqlserver) BACKENDS="$arg" ;;
     --keep-going|-k)    KEEP_GOING=1 ;;
-    *) echo "usage: qa/run.sh [all|postgres|mysql] [--keep-going]" >&2; exit 2 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver] [--keep-going]" >&2; exit 2 ;;
   esac
 done
 case "$BACKENDS" in
-  all)      BACKEND_LIST="postgres mysql" ;;
-  postgres) BACKEND_LIST="postgres" ;;
-  mysql)    BACKEND_LIST="mysql" ;;
+  # Lane C (sqlserver) is OPT-IN until its CDC relay lands: `all` stays the
+  # two always-on lanes, and `./qa/run.sh sqlserver` runs lane C alone. When
+  # the lane's container cannot run on this host the lane SKIPs (not RED).
+  all)       BACKEND_LIST="postgres mysql" ;;
+  postgres)  BACKEND_LIST="postgres" ;;
+  mysql)     BACKEND_LIST="mysql" ;;
+  sqlserver) BACKEND_LIST="sqlserver" ;;
 esac
+
+# Lane C prerequisite: the sqlserver profile services (local by default; a
+# remote docker engine via QA_SQLSERVER_CONTEXT). Reachability failure is a
+# SKIP by design — the other lanes' "clone and run" contract stays intact.
+if [ "$BACKENDS" = "sqlserver" ]; then
+  _ctx="${QA_SQLSERVER_CONTEXT:-default}"
+  if ! docker --context "$_ctx" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-sqlserver$'; then
+    echo "lane sqlserver SKIPPED: container omnicore-qa-sqlserver not running on docker context '$_ctx'." >&2
+    echo "  local:  docker compose -f devops/docker-compose.yml --profile sqlserver up -d" >&2
+    echo "  remote: QA_SQLSERVER_CONTEXT=<ctx> QA_SQLSERVER_DB_HOST=<host> ./qa/run.sh sqlserver" >&2
+    exit 0
+  fi
+fi
 
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).

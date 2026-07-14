@@ -68,7 +68,6 @@ var _ persistence.ScopedRepository[*qadomain.Item] = (*ItemRepository)(nil)
 // dialect-aware, mirroring the other QA self-provisioners (idempotent, engine
 // side-channel, no migration files).
 func ProvisionItemTable(ctx context.Context, eng fwdb.RelationalEngine) error {
-	q := eng.Querier()
 	postgres := eng.Dialect().Placeholder(1) == "$1"
 
 	var items string
@@ -94,5 +93,5 @@ func ProvisionItemTable(ctx context.Context, eng fwdb.RelationalEngine) error {
 			PRIMARY KEY (id)
 		)`
 	}
-	return q.Exec(ctx, items)
+	return qaExecDDL(ctx, eng, items)
 }

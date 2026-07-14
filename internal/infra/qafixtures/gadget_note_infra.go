@@ -98,7 +98,6 @@ var _ persistence.ScopedRepository[*qadomain.GadgetNote] = (*GadgetNoteRepositor
 // exist, dialect-aware, mirroring ProvisionGadgetTables (idempotent, engine
 // side-channel, no migration files).
 func ProvisionGadgetNoteTable(ctx context.Context, eng fwdb.RelationalEngine) error {
-	q := eng.Querier()
 	postgres := eng.Dialect().Placeholder(1) == "$1"
 
 	var notes string
@@ -124,5 +123,5 @@ func ProvisionGadgetNoteTable(ctx context.Context, eng fwdb.RelationalEngine) er
 			PRIMARY KEY (id)
 		)`
 	}
-	return q.Exec(ctx, notes)
+	return qaExecDDL(ctx, eng, notes)
 }

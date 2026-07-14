@@ -41,6 +41,46 @@ services:
       retries: 10
 
   # ── Lane B relational — MySQL (binlog defaults on 8.4 satisfy Debezium) ─────
+  # ── Lane C relational — SQL Server 2022, under the `sqlserver` compose
+  # profile so `up -d` without the profile changes nothing for lanes A/B.
+  # Local by default; the lane can instead point at a REMOTE docker engine via
+  # QA_SQLSERVER_CONTEXT/QA_SQLSERVER_DB_HOST (see qa/_backend.sh) — the same
+  # yaml serves both (compose is evaluated client-side). Agent is enabled
+  # because Debezium's SQL Server connector (phase-5 relay) requires it. The
+  # image is amd64-only: Apple-Silicon hosts run it via Rosetta.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: omnicore-qa-sqlserver
+    profiles: ["sqlserver"]
+    ports:
+      - "14333:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "OmnicoreQA!2026"
+      MSSQL_AGENT_ENABLED: "true"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'OmnicoreQA!2026' -Q 'SELECT 1' -h -1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Lane C Redis (same rationale as redis/redis-mysql: per-lane broker so
+  # cache.sh can stop/start its own without disturbing the parallel lanes).
+  redis-sqlserver:
+    image: redis:7-alpine
+    container_name: omnicore-qa-redis-sqlserver
+    profiles: ["sqlserver"]
+    ports:
+      - "6382:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   mysql:
     image: mysql:8.4
     container_name: omnicore-qa-mysql
@@ -267,6 +307,7 @@ services:
 
 volumes:
   postgres_data:
+  sqlserver_data:
   mysql_data:
   mongo_data:
   kafka_data:

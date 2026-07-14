@@ -8,6 +8,9 @@
 #
 #   BACKEND=postgres  →  Lane A: Postgres + Kafka + Mongo, relay Debezium CONNECT
 #   BACKEND=mysql     →  Lane B: MySQL   + NATS  + Mongo, relay Debezium SERVER
+#   BACKEND=sqlserver →  Lane C: SQL Server + Kafka + Mongo, relay Debezium CONNECT
+#                        (local container by default; QA_SQLSERVER_CONTEXT +
+#                         QA_SQLSERVER_DB_HOST point the lane at a remote engine)
 #
 # Defaults to postgres so a bare invocation runs lane A. It does TWO things:
 #
@@ -85,6 +88,9 @@ case "$BACKEND" in
     qa_uuid_select() { printf '%s' "$1"; }
     # PG compares a uuid column to a quoted literal directly.
     qa_uuid_lit() { printf "'%s'" "$1"; }
+    # Row-cap fragments for hand-written suite SQL: PG caps with a LIMIT tail.
+    export QA_SQL_TOP1=""; export QA_SQL_LIMIT1="LIMIT 1"
+    export QA_SQL_FALSE="false"; export QA_SQL_TRUE="true"
     ;;
 
   mysql)
@@ -133,10 +139,83 @@ case "$BACKEND" in
     qa_uuid_select() { printf 'BIN_TO_UUID(%s, 0)' "$1"; }
     # Compare a BINARY(16) column to a UUID string via UUID_TO_BIN(text, 0).
     qa_uuid_lit() { printf "UUID_TO_BIN('%s', 0)" "$1"; }
+    # Row-cap fragments for hand-written suite SQL: MySQL caps with a LIMIT tail.
+    export QA_SQL_TOP1=""; export QA_SQL_LIMIT1="LIMIT 1"
+    export QA_SQL_FALSE="false"; export QA_SQL_TRUE="true"
+    ;;
+
+  sqlserver)
+    # Lane C: SQL Server + Kafka (lane A's broker + Connect) + Mongo. The
+    # container is LOCAL by default; a remote docker engine (e.g. a Windows
+    # bench) is opt-in via env — the only two knobs that move the lane:
+    #   QA_SQLSERVER_CONTEXT  docker context name (default: the local engine)
+    #   QA_SQLSERVER_DB_HOST  where host port 14333 answers (default 127.0.0.1)
+    export QA_DOCKER_CONTEXT="${QA_SQLSERVER_CONTEXT:-default}"
+    QA_SQLSERVER_DB_HOST="${QA_SQLSERVER_DB_HOST:-127.0.0.1}"
+    QA_SQLSERVER_SA_PASSWORD="${QA_SQLSERVER_SA_PASSWORD:-OmnicoreQA!2026}"
+
+    export REL_DIALECT="sqlserver"
+    export DATABASE_URL="${DATABASE_URL_SQLSERVER:-server=${QA_SQLSERVER_DB_HOST};port=14333;user id=sa;password=${QA_SQLSERVER_SA_PASSWORD};database=users_db;encrypt=true;TrustServerCertificate=true}"
+    export MIGRATIONS_DIR="./migrations/sqlserver"
+    export MONGO_URI="${MONGO_URI:-mongodb://localhost:27028}"
+    export MONGO_DB="users_views_sqlserver"
+    export SYNC_GROUP_ID="omnicore-example-users-sync-sqlserver"
+    export INTEGRATION_GROUP_ID="omnicore-example-users-integration-sqlserver"
+    # Lane C transport = Kafka, sharing lane A's broker (topics are namespaced
+    # with a .sqlserver suffix by the phase-5 relay; the sync group above keeps
+    # the consumers apart either way).
+    export TRANSPORT_ENDPOINTS="${TRANSPORT_ENDPOINTS:-localhost:9094}"
+    # Lane C listener ports.
+    export HTTP_ADDR=":8084"
+    export GRPC_ADDR=":9093"
+    export BASE="http://localhost:8084"
+    export GRPC_BASE="http://localhost:9093"
+    export ECHO_URL="http://localhost:8084"       # httpclient echo self-calls
+    HTTP_PORT="8084"; export GRPC_PORT="9093"      # GRPC_PORT read by the yaml self-call baseURL
+    export OTEL_SERVICE_NAME="omnicore-example-users-sqlserver"
+    export REDIS_ADDR="localhost:6382"; export SHARED_REDIS_ADDR="localhost:6382"
+    export REDIS_KEY_PREFIX="omnicore-example-users-cache-mssql"
+    export SHARED_REDIS_KEY_PREFIX="omnicore-example-users-shared-mssql"
+    QA_REDIS_SERVICE="redis-sqlserver"
+
+    QA_BUILD_TAGS="sqlserver kafka"
+    QA_TRANSPORT_TAG="kafka"
+    QA_RELAY_KIND="connect"
+    QA_DB_CONTAINER="omnicore-qa-sqlserver"
+    QA_MONGO_DB="users_views_sqlserver"
+    QA_CONNECTOR_DIALECT="sqlserver"
+
+    _qa_sqlcmd() { # runs sqlcmd inside the lane's container, honoring the context
+      docker --context "$QA_DOCKER_CONTEXT" exec "$QA_DB_CONTAINER" /opt/mssql-tools18/bin/sqlcmd \
+        -C -S localhost -U sa -P "$QA_SQLSERVER_SA_PASSWORD" "$@"
+    }
+    qa_db_query() { _qa_sqlcmd -d users_db -h -1 -W -s "$(printf '\t')" -Q "SET NOCOUNT ON; $1" | tr -d '\r'; }
+    qa_db_exec()  { _qa_sqlcmd -d users_db -Q "$1" >/dev/null; }
+    qa_db_reset_domain() {
+      # No TRUNCATE ... CASCADE on SQL Server and TRUNCATE refuses FK-referenced
+      # tables — DELETE child-first (identical row-visibility outcome; these
+      # are small QA tables).
+      qa_db_exec "DELETE FROM dependent_health_plans; DELETE FROM employee_job_histories; DELETE FROM employee_dependents; DELETE FROM employee_bank_accounts; DELETE FROM employees; DELETE FROM user_configurations; DELETE FROM addresses; DELETE FROM users; DELETE FROM persons; DELETE FROM outbox;"
+    }
+    # id columns are BINARY(16); render as the lowercase canonical uuid text
+    # (CONVERT style 2 = bare hex; STUFF inserts the dashes).
+    qa_uuid_select() { printf "LOWER(STUFF(STUFF(STUFF(STUFF(CONVERT(CHAR(32), %s, 2),9,0,'-'),14,0,'-'),19,0,'-'),24,0,'-'))" "$1"; }
+    # Compare a BINARY(16) column to a UUID string (strip dashes, hex→binary).
+    qa_uuid_lit() { printf "CONVERT(BINARY(16), REPLACE('%s','-',''), 2)" "$1"; }
+    # Row-cap fragments for hand-written suite SQL: T-SQL caps with a
+    # SELECT-head TOP, not a LIMIT tail.
+    export QA_SQL_TOP1="TOP 1"; export QA_SQL_LIMIT1=""
+    # T-SQL BIT has no true/false literals — 1/0.
+    export QA_SQL_FALSE="0"; export QA_SQL_TRUE="1"
+
+    # SQL Server images create no database on boot (no MYSQL_DATABASE /
+    # POSTGRES_DB equivalent) — ensure users_db exists, idempotently. Harmless
+    # no-op when the container is not up yet (the caller boots it first).
+    _qa_sqlcmd -Q "IF DB_ID('users_db') IS NULL CREATE DATABASE users_db" >/dev/null 2>&1 || true
     ;;
 
   *)
-    echo "qa/_backend.sh: unknown BACKEND='$BACKEND' (want postgres|mysql)" >&2
+    echo "qa/_backend.sh: unknown BACKEND='$BACKEND' (want postgres|mysql|sqlserver)" >&2
     return 1 2>/dev/null || exit 1
     ;;
 esac

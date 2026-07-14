@@ -152,7 +152,13 @@ PURGE_AUDIT=$(qa_db_query "SELECT count(*) FROM audit_events WHERE entity_type='
 [ "$PURGE_AUDIT" = "0" ] && ok "no persons purge audit event yet" || bad "unexpected persons purge audit rows: $PURGE_AUDIT"
 
 title "1.6 FK RESTRICT veto: an UNREGISTERED table referencing the person blocks the purge"
-qa_db_exec "CREATE TABLE qa_external_refs (person_id $( [ "$BACKEND" = mysql ] && echo 'BINARY(16)' || echo 'UUID' ) NOT NULL, CONSTRAINT fk_qa_external_refs_person FOREIGN KEY (person_id) REFERENCES persons (id) ON DELETE RESTRICT);" 2>/dev/null \
+# Per-dialect id type + veto action (T-SQL spells RESTRICT as NO ACTION).
+case "$BACKEND" in
+  postgres) QA_REF_TYPE='UUID';       QA_REF_VETO='RESTRICT' ;;
+  *)        QA_REF_TYPE='BINARY(16)'; QA_REF_VETO='NO ACTION' ;;
+esac
+[ "$BACKEND" = sqlserver ] && QA_REF_VETO='NO ACTION' || true
+qa_db_exec "CREATE TABLE qa_external_refs (person_id $QA_REF_TYPE NOT NULL, CONSTRAINT fk_qa_external_refs_person FOREIGN KEY (person_id) REFERENCES persons (id) ON DELETE $QA_REF_VETO);" 2>/dev/null \
   || qa_db_exec "CREATE TABLE qa_external_refs (person_id UUID NOT NULL REFERENCES persons (id) ON DELETE RESTRICT);"
 qa_db_exec "INSERT INTO qa_external_refs (person_id) SELECT id FROM persons;"
 req DELETE "/employees/$EID1"
