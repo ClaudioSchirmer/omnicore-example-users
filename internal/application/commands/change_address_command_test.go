@@ -24,7 +24,7 @@ func loadedUserWithAddress(addressID string) *appdomain.User {
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
 		appdomain.Address{
-			ID:           addressID,
+			ID:           domain.NewID(addressID),
 			Street:       "1 Audit Way",
 			Number:       "1",
 			Neighborhood: "Downtown",
@@ -62,7 +62,7 @@ func TestChangeAddressCommand_ApplyTo_MutatesMatchingChild(t *testing.T) {
 	if len(changed) != 1 {
 		t.Fatalf("expected 1 CHANGED address, got %d", len(changed))
 	}
-	if changed[0].GetID() != addressID {
+	if changed[0].GetID().Value() != addressID {
 		t.Errorf("expected CHANGED entry to keep same ID, got %q", changed[0].GetID())
 	}
 	if changed[0].Street != "2 Update Lane" {

@@ -16,7 +16,7 @@ func TestChangeAddressCustomCommandHandler_HappyPath(t *testing.T) {
 	var existingAddressID string
 	for _, m := range user.AggregateRoot.AllAggregateItems() {
 		for _, it := range m {
-			existingAddressID = it.Item.GetID()
+			existingAddressID = it.Item.GetID().Value()
 		}
 	}
 	if existingAddressID == "" {

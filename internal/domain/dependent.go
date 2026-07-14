@@ -15,7 +15,7 @@ import (
 // Value type (not pointer) so reflect.DeepEqual inside the framework's typed
 // primitives compares by field equality — same convention as Address.
 type Dependent struct {
-	ID           string
+	ID           domain.ID
 	Name         string    `labelKey:"DependentNameField"`
 	BirthDate    time.Time `labelKey:"DependentBirthDateField"`
 	Relationship string    `labelKey:"DependentRelationshipField"`
@@ -28,7 +28,7 @@ type Dependent struct {
 	HealthPlanExpiry   *time.Time `labelKey:"DependentHealthPlanExpiryField"`
 }
 
-func (d Dependent) GetID() string { return d.ID }
+func (d Dependent) GetID() domain.ID { return d.ID }
 
 // knownRelationships is the closed set the Relationship field accepts — a
 // pure domain rule of this aggregate (lowercase canonical form; the wire

@@ -50,7 +50,7 @@ func TestUpdateUserCommand_ApplyTo_ReplacesRootAndAddresses(t *testing.T) {
 	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		appdomain.Address{ID: "a1", Street: "Old", Number: "1", Neighborhood: "N",
+		appdomain.Address{ID: domain.NewID("a1"), Street: "Old", Number: "1", Neighborhood: "N",
 			City: "C", State: "ST", ZipCode: "0", Country: "BR"},
 	})
 
@@ -283,7 +283,7 @@ func TestChangeAddressCustomCommand_ApplyAndFromEntity(t *testing.T) {
 	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		appdomain.Address{ID: "addr-1", Street: "Old", Number: "1", Neighborhood: "N",
+		appdomain.Address{ID: domain.NewID("addr-1"), Street: "Old", Number: "1", Neighborhood: "N",
 			City: "C", State: "ST", ZipCode: "0", Country: "BR"},
 	})
 
