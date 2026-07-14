@@ -116,7 +116,7 @@ func (w userCustomBoundWriter) Insert(i domain.Insertable) (domain.ID, error) {
 	if err != nil {
 		return domain.ID{}, w.r.mapErr(err)
 	}
-	return domain.NewID(res.ID), nil
+	return domain.NewID(res.ID.Value()), nil
 }
 
 func (w userCustomBoundWriter) Update(u domain.Updatable) error {

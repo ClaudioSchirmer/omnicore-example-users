@@ -18,7 +18,7 @@ import (
 // Label and Complement are *string because the corresponding columns in
 // addresses are nullable. Same convention as User.Phone: nil → NULL.
 type Address struct {
-	ID           string
+	ID           domain.ID
 	Label        *string `labelKey:"AddressLabelField"`
 	Street       string  `labelKey:"AddressStreetField"`
 	Number       string  `labelKey:"AddressNumberField"`
@@ -30,7 +30,7 @@ type Address struct {
 	Country      string  `labelKey:"AddressCountryField"`
 }
 
-func (a Address) GetID() string { return a.ID }
+func (a Address) GetID() domain.ID { return a.ID }
 
 // sameBusinessIdentity returns true when two addresses point to the same
 // real-world place from the user's perspective. Used by User.AddAddress to

@@ -13,14 +13,14 @@ import (
 //
 // TerminatedAt is *time.Time: nil = the position is the current one.
 type JobHistory struct {
-	ID           string
+	ID           domain.ID
 	JobTitle     string     `labelKey:"JobHistoryJobTitleField"`
 	Department   string     `labelKey:"JobHistoryDepartmentField"`
 	HiredAt      time.Time  `labelKey:"JobHistoryHiredAtField"`
 	TerminatedAt *time.Time `labelKey:"JobHistoryTerminatedAtField"`
 }
 
-func (h JobHistory) GetID() string { return h.ID }
+func (h JobHistory) GetID() domain.ID { return h.ID }
 
 // BuildRules fires at the boundary via runAggregateValidations, scoped at
 // jobHistories[i].

@@ -76,7 +76,7 @@ func TestInsertUserCustomCommandHandler_WarmUpsert(t *testing.T) {
 	}
 	existing.AggregateConstructor([]domain.AggregateValueObject{
 		appdomain.Address{
-			ID: uuid.NewString(), Street: "1 Infinite Loop", Number: "1",
+			ID: domain.NewID(uuid.NewString()), Street: "1 Infinite Loop", Number: "1",
 			Neighborhood: "Mariani", City: "Cupertino", State: "CA",
 			ZipCode: "95014", Country: "US",
 		},

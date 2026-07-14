@@ -52,7 +52,7 @@ func (c *ChangeAddressCommand) ApplyTo(_ *configuration.AppContext, u *appdomain
 func (c *ChangeAddressCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (ChangeAddressResult, error) {
 	out := ChangeAddressResult{UserID: *u.GetID()}
 	for _, addr := range domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot) {
-		if addr.GetID() == c.AddressID {
+		if addr.GetID().Value() == c.AddressID {
 			out.Address = toAddressResult(addr)
 			break
 		}
@@ -86,7 +86,7 @@ type AddressResult struct {
 // toAddressResult maps one domain Address to its application-layer snapshot.
 func toAddressResult(a appdomain.Address) AddressResult {
 	return AddressResult{
-		ID:           a.GetID(),
+		ID:           a.GetID().Value(),
 		Label:        a.Label,
 		Street:       a.Street,
 		Number:       a.Number,

@@ -18,7 +18,7 @@ import "github.com/ClaudioSchirmer/omnicore/domain"
 // everything.
 type GadgetNote struct {
 	domain.AggregateRoot
-	GadgetID string
+	GadgetID domain.ID
 	Text     string
 	Kind     string
 }
@@ -46,7 +46,7 @@ var gadgetNoteKinds = map[string]struct{}{
 // entry is needed.
 func (n *GadgetNote) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 	r.IfInsertOrUpdate(func() {
-		if n.GadgetID == "" {
+		if n.GadgetID.IsEmpty() {
 			r.AddNotification("GadgetID", domain.RequiredFieldNotification{})
 		}
 		if n.Text == "" {

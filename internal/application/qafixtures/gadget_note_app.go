@@ -24,13 +24,13 @@ type InsertGadgetNoteCommand struct {
 }
 
 func (c *InsertGadgetNoteCommand) ToEntity(_ *configuration.AppContext) (*qadomain.GadgetNote, error) {
-	return &qadomain.GadgetNote{GadgetID: c.GadgetID, Text: c.Text, Kind: c.Kind}, nil
+	return &qadomain.GadgetNote{GadgetID: domain.NewID(c.GadgetID), Text: c.Text, Kind: c.Kind}, nil
 }
 
 func (c *InsertGadgetNoteCommand) FromEntity(_ *configuration.AppContext, n *qadomain.GadgetNote) (InsertGadgetNoteResult, error) {
 	return InsertGadgetNoteResult{
 		ID:       *n.GetID(),
-		GadgetID: n.GadgetID,
+		GadgetID: n.GadgetID.Value(),
 		Text:     n.Text,
 		Kind:     n.Kind,
 	}, nil

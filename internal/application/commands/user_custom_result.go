@@ -65,7 +65,7 @@ func userCustomResultFromUser(u *appdomain.User) UserCustomResult {
 	out := make([]AddressCustomResult, len(addrs))
 	for i, a := range addrs {
 		out[i] = AddressCustomResult{
-			ID:           a.GetID(),
+			ID:           a.GetID().Value(),
 			Label:        a.Label,
 			Street:       a.Street,
 			Number:       a.Number,
