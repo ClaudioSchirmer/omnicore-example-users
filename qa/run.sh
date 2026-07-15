@@ -47,24 +47,37 @@ case "$BACKENDS" in
   # Lane C (sqlserver) is OPT-IN until its CDC relay lands: `all` stays the
   # two always-on lanes, and `./qa/run.sh sqlserver` runs lane C alone. When
   # the lane's container cannot run on this host the lane SKIPs (not RED).
-  all)       BACKEND_LIST="postgres mysql" ;;
+  all)       BACKEND_LIST="postgres mysql sqlserver" ;;
   postgres)  BACKEND_LIST="postgres" ;;
   mysql)     BACKEND_LIST="mysql" ;;
   sqlserver) BACKEND_LIST="sqlserver" ;;
 esac
 
-# Lane C prerequisite: the sqlserver profile services (local by default; a
-# remote docker engine via QA_SQLSERVER_CONTEXT). Reachability failure is a
-# SKIP by design — the other lanes' "clone and run" contract stays intact.
-if [ "$BACKENDS" = "sqlserver" ]; then
-  _ctx="${QA_SQLSERVER_CONTEXT:-default}"
-  if ! docker --context "$_ctx" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-sqlserver$'; then
-    echo "lane sqlserver SKIPPED: container omnicore-qa-sqlserver not running on docker context '$_ctx'." >&2
-    echo "  local:  docker compose -f devops/docker-compose.yml --profile sqlserver up -d" >&2
-    echo "  remote: QA_SQLSERVER_CONTEXT=<ctx> QA_SQLSERVER_DB_HOST=<host> ./qa/run.sh sqlserver" >&2
-    exit 0
-  fi
+# Lane availability: a requested lane RUNS when its infrastructure answers and
+# SKIPS otherwise — the skipped lane's report cells render as ⚠ SKIP (a
+# warning, never a RED) so `all` works on any machine while showing exactly
+# what did not run. sqlserver is the optional lane (compose profile; local by
+# default, remote via QA_SQLSERVER_CONTEXT/QA_SQLSERVER_DB_HOST).
+lane_available() {
+  case "$1" in
+    sqlserver)
+      docker --context "${QA_SQLSERVER_CONTEXT:-default}" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-sqlserver$' \
+        && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-kafka-sqlserver$' ;;
+    *) return 0 ;;  # lanes A/B ride the base-bench check below
+  esac
+}
+RUN_BACKENDS=""; SKIP_BACKENDS=""
+for _b in $BACKEND_LIST; do
+  if lane_available "$_b"; then RUN_BACKENDS="$RUN_BACKENDS $_b"; else SKIP_BACKENDS="$SKIP_BACKENDS $_b"; fi
+done
+RUN_BACKENDS="${RUN_BACKENDS# }"; SKIP_BACKENDS="${SKIP_BACKENDS# }"
+if [ -z "$RUN_BACKENDS" ]; then
+  echo "no requested lane is available (requested: $BACKEND_LIST)." >&2
+  echo "  sqlserver lane: docker compose -f devops/docker-compose.yml --profile sqlserver up -d" >&2
+  echo "                  (remote DB: QA_SQLSERVER_CONTEXT=<ctx> QA_SQLSERVER_DB_HOST=<host>)" >&2
+  exit 0
 fi
+[ -n "$SKIP_BACKENDS" ] && echo "lane(s) unavailable — will report ⚠ SKIP: $SKIP_BACKENDS" >&2
 
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
@@ -154,7 +167,7 @@ render_report() {
         if (any) print line
       }
       { seen[$1]=1
-        mark = ($5=="OK") ? "✅ OK" : "❌ " $5
+        mark = ($5=="OK") ? "✅ OK" : (($5=="SKIP") ? "⚠️ SKIP" : "❌ " $5)
         secstr = ($6=="-") ? "-" : $6 "s"
         cell[$1,$2] = " " $2 " | " $3 " | " $4 " | " mark " | " secstr " |" }
       END {
@@ -389,8 +402,14 @@ bold "report: $REPORT_MD"
 
 # ── Launch the lanes in parallel ─────────────────────────────────────────────
 overall_start=$(date +%s)
+# Pre-fill the skipped lanes' report cells (⚠ SKIP, one per suite) so the
+# matrix stays complete and the verdict can tell "skipped" from "never ran".
+for B in $SKIP_BACKENDS; do
+  : > "$LOG_DIR/rows-$B.tsv"
+  for S in $SUITES; do printf '%s\t%s\t-\t-\tSKIP\t-\n' "$S" "$B" >> "$LOG_DIR/rows-$B.tsv"; done
+done
 LANE_PIDS=""
-for B in $BACKEND_LIST; do
+for B in $RUN_BACKENDS; do
   run_lane "$B" &
   LANE_PIDS="$LANE_PIDS $!"
 done
@@ -405,7 +424,7 @@ for s in $SUITES; do grep -qw "$s" <<<"$SERIAL_SUITES" && serial_requested="$ser
 if [ -n "$serial_requested" ] && ! stop_requested; then
   bold ""
   bold "──────── serial phase (source-mutating suites):$serial_requested ────────"
-  for B in $BACKEND_LIST; do
+  for B in $RUN_BACKENDS; do
     ( export BACKEND="$B"
       # shellcheck source=qa/_backend.sh
       source qa/_backend.sh
@@ -428,7 +447,8 @@ elapsed=$(( $(date +%s) - overall_start ))
 # ── Accounting from the per-lane rows ────────────────────────────────────────
 cat "$LOG_DIR"/rows-*.tsv > "$LOG_DIR/rows.tsv" 2>/dev/null || : > "$LOG_DIR/rows.tsv"
 COMPLETED_RUNS=$(grep -cv $'\tABORT\t' "$LOG_DIR/rows.tsv" 2>/dev/null); COMPLETED_RUNS=${COMPLETED_RUNS:-0}
-RED_RUNS=$(awk -F'\t' '$5 != "OK"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); RED_RUNS=${RED_RUNS:-0}
+RED_RUNS=$(awk -F'\t' '$5 != "OK" && $5 != "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); RED_RUNS=${RED_RUNS:-0}
+SKIP_RUNS=$(awk -F'\t' '$5 == "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); SKIP_RUNS=${SKIP_RUNS:-0}
 MISSING_RUNS=$((EXPECTED_RUNS - COMPLETED_RUNS))
 
 bold ""
@@ -438,11 +458,12 @@ bold "════════════════════════�
 
 if [ "$RED_RUNS" = "0" ] && [ "$MISSING_RUNS" = "0" ] && [ "$COMPLETED_RUNS" != "0" ]; then
   logs_note="$LOG_DIR"
-  render_report "**✅ ALL GREEN — $COMPLETED_RUNS/$EXPECTED_RUNS runs — ${elapsed}s total.**"
+  skip_note=""; [ "${SKIP_RUNS:-0}" != "0" ] && skip_note=" (⚠ $SKIP_RUNS run(s) SKIPPED: lane(s) $SKIP_BACKENDS unavailable)"
+  render_report "**✅ ALL GREEN — $COMPLETED_RUNS/$EXPECTED_RUNS runs — ${elapsed}s total.${skip_note}**"
   FINALIZED=1   # real verdict on disk — disarm the aborted-report safety net
   if [ "$LOG_DIR_EPHEMERAL" = "1" ]; then rm -rf "$LOG_DIR"; logs_note="removed (all green)"; fi
-  printf '%s — %s/%s runs, %ss, report: %s, logs: %s\n' \
-    "$(green "ALL GREEN")" "$COMPLETED_RUNS" "$EXPECTED_RUNS" "$elapsed" "$REPORT_MD" "$logs_note"
+  printf '%s — %s/%s runs, %ss%s, report: %s, logs: %s\n' \
+    "$(green "ALL GREEN")" "$COMPLETED_RUNS" "$EXPECTED_RUNS" "$elapsed" "$skip_note" "$REPORT_MD" "$logs_note"
   exit 0
 else
   detail="$RED_RUNS red"

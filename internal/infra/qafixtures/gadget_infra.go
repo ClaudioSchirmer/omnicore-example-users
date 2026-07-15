@@ -229,7 +229,8 @@ var _ appqa.GadgetEventPublisher = GadgetEventPublisherAdapter{}
 // single-statement autocommit through the engine's neutral Querier, rendered
 // dialect-appropriately. Idempotency (at-least-once delivery) rides the
 // gadget_id primary key: ON CONFLICT DO NOTHING on postgres, INSERT IGNORE on
-// mysql — a redelivered event is a silent no-op.
+// mysql, MERGE WITH (HOLDLOCK) on sqlserver — a redelivered event is a silent
+// no-op.
 type GadgetEventSinkAdapter struct {
 	eng fwdb.RelationalEngine
 }
@@ -243,16 +244,24 @@ func (a *GadgetEventSinkAdapter) Record(
 ) error {
 	q := a.eng.Querier()
 	d := a.eng.Dialect()
-	postgres := d.Placeholder(1) == "$1"
 
+	// Idempotent insert-if-absent keyed on gadget_id (at-least-once consumer):
+	// each dialect spells it differently, none portably.
 	var sql string
-	if postgres {
+	switch d.Placeholder(1) {
+	case "$1": // postgres
 		sql = fmt.Sprintf(
 			"INSERT INTO gadget_events_sink (gadget_id, code, name, category, status) "+
 				"VALUES (%s, %s, %s, %s, %s) ON CONFLICT (gadget_id) DO NOTHING",
 			d.Placeholder(1), d.Placeholder(2), d.Placeholder(3), d.Placeholder(4), d.Placeholder(5),
 		)
-	} else {
+	case "@p1": // sqlserver — MERGE WITH (HOLDLOCK) is the race-safe skip-duplicate form
+		sql = "MERGE gadget_events_sink WITH (HOLDLOCK) AS t " +
+			"USING (SELECT @p1 AS gadget_id, @p2 AS code, @p3 AS name, @p4 AS category, @p5 AS status) AS s " +
+			"ON t.gadget_id = s.gadget_id " +
+			"WHEN NOT MATCHED THEN INSERT (gadget_id, code, name, category, status) " +
+			"VALUES (s.gadget_id, s.code, s.name, s.category, s.status);"
+	default: // mysql
 		sql = fmt.Sprintf(
 			"INSERT IGNORE INTO gadget_events_sink (gadget_id, code, name, category, status) "+
 				"VALUES (%s, %s, %s, %s, %s)",

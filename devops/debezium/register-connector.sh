@@ -18,8 +18,8 @@ set -euo pipefail
 
 DIALECT="${1:-postgres}"
 case "$DIALECT" in
-  postgres|mysql) ;;
-  *) echo "unknown dialect '$DIALECT' (want postgres|mysql)" >&2; exit 2 ;;
+  postgres|mysql|sqlserver) ;;
+  *) echo "unknown dialect '$DIALECT' (want postgres|mysql|sqlserver)" >&2; exit 2 ;;
 esac
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -43,6 +43,57 @@ if [ "$DIALECT" = "mysql" ]; then
     sleep 2
   done
   echo "Debezium Server streaming (mysql → NATS)."
+  exit 0
+fi
+
+# ── Lane C (SQL Server → Kafka): Debezium Connect via REST (:8085) ──────────
+# Same relay pattern as lane A, on the lane's OWN Connect. Two extra steps the
+# other dialects don't have: (1) Debezium's SqlServerConnector reads CDC
+# capture tables, so CDC must be enabled on the database AND on exactly the
+# two tables it tails (never the domain tables) — idempotent below; requires
+# SQL Server Agent (the compose profile enables it). (2) The DB may live on a
+# remote docker engine (QA_SQLSERVER_CONTEXT/QA_SQLSERVER_DB_HOST) while
+# Connect stays local, so the connector host/port are substituted per run.
+if [ "$DIALECT" = "sqlserver" ]; then
+  command -v jq >/dev/null || { echo "jq is required (brew install jq)" >&2; exit 2; }
+  CONNECT_URL="${CONNECT_URL_SQLSERVER:-http://localhost:8085}"
+  CTX="${QA_SQLSERVER_CONTEXT:-default}"
+  SA_PW="${QA_SQLSERVER_SA_PASSWORD:-OmnicoreQA!2026}"
+  if [ -n "${QA_SQLSERVER_DB_HOST:-}" ] && [ "${QA_SQLSERVER_DB_HOST}" != "127.0.0.1" ]; then
+    QA_MSSQL_HOST="$QA_SQLSERVER_DB_HOST"; QA_MSSQL_PORT="14333"   # remote engine — reach over the LAN
+  else
+    QA_MSSQL_HOST="sqlserver"; QA_MSSQL_PORT="1433"                # same compose network
+  fi
+
+  sqlcmd_db() { docker --context "$CTX" exec omnicore-qa-sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$SA_PW" -d users_db -h -1 -Q "$1"; }
+
+  echo "Enabling CDC on users_db (db + outbox + integration_events; idempotent) ..."
+  sqlcmd_db "IF (SELECT is_cdc_enabled FROM sys.databases WHERE name='users_db') = 0 EXEC sys.sp_cdc_enable_db" >/dev/null
+  sqlcmd_db "IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='outbox' AND is_tracked_by_cdc=1) EXEC sys.sp_cdc_enable_table @source_schema=N'dbo', @source_name=N'outbox', @role_name=NULL" >/dev/null
+  sqlcmd_db "IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name='integration_events' AND is_tracked_by_cdc=1) EXEC sys.sp_cdc_enable_table @source_schema=N'dbo', @source_name=N'integration_events', @role_name=NULL" >/dev/null
+  echo "CDC enabled."
+
+  echo "Waiting for Kafka Connect at $CONNECT_URL ..."
+  DEADLINE=$(( $(date +%s) + 120 ))
+  until curl -sf "$CONNECT_URL/" >/dev/null 2>&1; do
+    [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "ERROR: Kafka Connect (sqlserver) not up after 120s" >&2; exit 1; }
+    sleep 2
+  done
+
+  for f in users-outbox-sqlserver-connector.json qa-integration-sqlserver-connector.json; do
+    NAME=$(jq -r .name "$HERE/$f")
+    BODY=$(sed -e "s/\${QA_MSSQL_HOST}/$QA_MSSQL_HOST/g" -e "s/\${QA_MSSQL_PORT}/$QA_MSSQL_PORT/g" "$HERE/$f")
+    echo "Registering $NAME ..."
+    printf '%s' "$BODY" | jq .config | curl -sf -X PUT -H "Content-Type: application/json" -d @- "$CONNECT_URL/connectors/$NAME/config" >/dev/null \
+      || { echo "ERROR: registering $NAME failed" >&2; exit 1; }
+    DEADLINE=$(( $(date +%s) + 120 ))
+    until [ "$(curl -sf "$CONNECT_URL/connectors/$NAME/status" | jq -r '.tasks[0].state' 2>/dev/null)" = "RUNNING" ]; do
+      [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "ERROR: $NAME task not RUNNING in 120s" >&2; curl -s "$CONNECT_URL/connectors/$NAME/status" | jq . >&2; exit 1; }
+      sleep 2
+    done
+    echo "$NAME RUNNING."
+  done
+  echo "Debezium Connect streaming (sqlserver → Kafka)."
   exit 0
 fi
 

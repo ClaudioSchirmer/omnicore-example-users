@@ -161,10 +161,11 @@ case "$BACKEND" in
     export MONGO_DB="users_views_sqlserver"
     export SYNC_GROUP_ID="omnicore-example-users-sync-sqlserver"
     export INTEGRATION_GROUP_ID="omnicore-example-users-integration-sqlserver"
-    # Lane C transport = Kafka, sharing lane A's broker (topics are namespaced
-    # with a .sqlserver suffix by the phase-5 relay; the sync group above keeps
-    # the consumers apart either way).
-    export TRANSPORT_ENDPOINTS="${TRANSPORT_ENDPOINTS:-localhost:9094}"
+    # Lane C transport = its OWN Kafka broker (external :9095) + Connect
+    # (:8085): SyncEngine topic names are the cross-service contract
+    # (<table>.events, no suffix knob by design), so sharing lane A's broker
+    # would cross the lanes' events. Isolation mirrors lane B owning its NATS.
+    export TRANSPORT_ENDPOINTS="${TRANSPORT_ENDPOINTS:-localhost:9095}"
     # Lane C listener ports.
     export HTTP_ADDR=":8084"
     export GRPC_ADDR=":9093"

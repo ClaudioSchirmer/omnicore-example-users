@@ -81,6 +81,64 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Lane C transport — a DEDICATED Kafka + Connect pair under the `sqlserver`
+  # profile. Lane C cannot share lane A's broker: the SyncEngine's topic names
+  # are the cross-service contract (`<table>.events`, no suffix knob by
+  # design), so two lanes on one broker would consume each other's events.
+  # Isolation mirrors lane B owning its NATS. External listener :9095;
+  # Connect REST :8085.
+  kafka-sqlserver:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: omnicore-qa-kafka-sqlserver
+    profiles: ["sqlserver"]
+    ports:
+      - "9095:9095"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-sqlserver:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9095"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-sqlserver:9092,EXTERNAL://localhost:9095"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qx"
+    volumes:
+      - kafka_sqlserver_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  connect-sqlserver:
+    image: quay.io/debezium/connect:3.0.0.Final
+    container_name: omnicore-qa-connect-sqlserver
+    profiles: ["sqlserver"]
+    depends_on:
+      kafka-sqlserver:
+        condition: service_healthy
+    ports:
+      - "8085:8083"
+    environment:
+      BOOTSTRAP_SERVERS: "kafka-sqlserver:9092"
+      GROUP_ID: "omnicore-qa-connect-sqlserver"
+      CONFIG_STORAGE_TOPIC: "connect_sqlserver_configs"
+      OFFSET_STORAGE_TOPIC: "connect_sqlserver_offsets"
+      STATUS_STORAGE_TOPIC: "connect_sqlserver_statuses"
+      KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      VALUE_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   mysql:
     image: mysql:8.4
     container_name: omnicore-qa-mysql
@@ -308,6 +366,7 @@ services:
 volumes:
   postgres_data:
   sqlserver_data:
+  kafka_sqlserver_data:
   mysql_data:
   mongo_data:
   kafka_data:
