@@ -11,6 +11,7 @@
 # The two lanes exercise BOTH legs of the transport seam every run:
 #   • Lane A — Postgres + Kafka + Mongo, relay Debezium CONNECT (:8081 / gRPC :9091)
 #   • Lane B — MySQL   + NATS  + Mongo, relay Debezium SERVER  (:8082 / gRPC :9092)
+#   • Lane C — SQL Server + DEDICATED Kafka + Mongo, relay Debezium CONNECT (:8084 / gRPC :9093)
 # Each lane runs on its OWN app ports, binary, relay and Redis, and its OWN Mongo
 # DB (users_views / users_views_mysql), so they never collide — the whole suite
 # list runs on each lane concurrently. Wall-clock ≈ the slower lane, not the sum.
@@ -44,9 +45,9 @@ for arg in "$@"; do
   esac
 done
 case "$BACKENDS" in
-  # Lane C (sqlserver) is OPT-IN until its CDC relay lands: `all` stays the
-  # two always-on lanes, and `./qa/run.sh sqlserver` runs lane C alone. When
-  # the lane's container cannot run on this host the lane SKIPs (not RED).
+  # `all` schedules the full 3-lane matrix; a lane whose infrastructure is not
+  # reachable SKIPs (⚠ in the report, never RED) via the availability filter
+  # below. `./qa/run.sh sqlserver` still runs lane C alone.
   all)       BACKEND_LIST="postgres mysql sqlserver" ;;
   postgres)  BACKEND_LIST="postgres" ;;
   mysql)     BACKEND_LIST="mysql" ;;
@@ -142,9 +143,10 @@ render_report() {
     # the matrix grows DOWN (one row per suite) AND ACROSS (a column group per lane).
     for B in $BACKEND_LIST; do
       case "$B" in
-        postgres) echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
-        mysql)    echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
-        *)        echo "- **Lane** — $B" ;;
+        postgres)  echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
+        mysql)     echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
+        sqlserver) echo "- **Lane C** — SQL Server + Kafka (Debezium Connect, dedicated broker)" ;;
+        *)         echo "- **Lane** — $B" ;;
       esac
       hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
       sep="$sep---|---:|---:|:---:|---:|"
