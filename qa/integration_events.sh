@@ -33,11 +33,11 @@ QA_YAML="$REPO_ROOT/microservice.qa.yaml"
 # omnicore.qa.integration.events (the framework's nats adapter maps the topic
 # below to that subject). A .mysql suffix keeps the engines' events separate in
 # the shared, persisted JetStream stream.
-if [ "$BACKEND" = "mysql" ]; then
-  export QA_INTEGRATION_TOPIC="qa.integration.events.mysql"
-else
-  export QA_INTEGRATION_TOPIC="qa.integration.events"
-fi
+case "$BACKEND" in
+  mysql)     export QA_INTEGRATION_TOPIC="qa.integration.events.mysql" ;;
+  sqlserver) export QA_INTEGRATION_TOPIC="qa.integration.events.sqlserver" ;;
+  *)         export QA_INTEGRATION_TOPIC="qa.integration.events" ;;
+esac
 
 PASS=0; FAIL=0; SERVER_PID=""
 hr()    { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
@@ -125,7 +125,7 @@ GID=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get(
 title "1.2 integration_events carries exactly one GadgetCreated row for the aggregate"
 EVT_ROWS=$(qa_db_query "SELECT count(*) FROM integration_events WHERE event_type='GadgetCreated' AND aggregate_id='$GID';" | tr -d ' ')
 [ "$EVT_ROWS" = "1" ] && ok "one integration_events row (event_type=GadgetCreated, aggregate_id=gid)" || bad "integration_events rows=$EVT_ROWS (want 1)"
-EVT_ID=$(qa_db_query "SELECT event_id FROM integration_events WHERE aggregate_id='$GID' LIMIT 1;" | tr -d ' ')
+EVT_ID=$(qa_db_query "SELECT $QA_SQL_TOP1 event_id FROM integration_events WHERE aggregate_id='$GID' $QA_SQL_LIMIT1;" | tr -d ' ')
 echo "event_id=$EVT_ID"
 
 ##############################################################################

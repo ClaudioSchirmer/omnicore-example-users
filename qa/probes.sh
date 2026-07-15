@@ -47,7 +47,7 @@ cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   kill_port "${HTTP_PORT:-8080}"
   # Always un-pause the lane DB, even on an early abort mid-test.
-  docker unpause "$QA_DB_CONTAINER" >/dev/null 2>&1 || true
+  docker --context "${QA_DOCKER_CONTEXT:-default}" unpause "$QA_DB_CONTAINER" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
@@ -103,8 +103,10 @@ assert_status_body "2.1 GET /readyz → 200 {\"status\":\"ready\"} (stores up)" 
 title "2.2 Pause the lane relational DB → /readyz 503, /livez unaffected"
 # Pausing (SIGSTOP) freezes the DB so the readiness SELECT 1 times out under the
 # 2s probe deadline → 503 with a "relational:" reason. Instant + reversible; the
-# sibling lane uses a different container and Mongo is never touched.
-docker pause "$QA_DB_CONTAINER" >/dev/null 2>&1
+# sibling lane uses a different container and Mongo is never touched. The lane's
+# DB may live on a remote docker engine (sqlserver via QA_SQLSERVER_CONTEXT), so
+# every lifecycle command rides the lane's context.
+docker --context "${QA_DOCKER_CONTEXT:-default}" pause "$QA_DB_CONTAINER" >/dev/null 2>&1
 sleep 1
 rtmp=$(mktemp); rst=$(curl -sS -m 8 -o "$rtmp" -w "%{http_code}" "$BASE/readyz")
 rbody=$(head -c 200 "$rtmp")
@@ -127,7 +129,7 @@ fi
 rm -f "$ltmp"
 
 title "2.3 Un-pause the DB → /readyz recovers to 200 (readiness is dynamic)"
-docker unpause "$QA_DB_CONTAINER" >/dev/null 2>&1
+docker --context "${QA_DOCKER_CONTEXT:-default}" unpause "$QA_DB_CONTAINER" >/dev/null 2>&1
 recovered=fail
 for _i in $(seq 1 20); do
   st=$(curl -sS -m 4 -o /dev/null -w "%{http_code}" "$BASE/readyz" 2>/dev/null)

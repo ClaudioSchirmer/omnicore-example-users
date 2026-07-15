@@ -9,7 +9,7 @@
 #   - autoRun=check + pending  → boot ABORTS naming the pending version(s)
 #   - autoRun=false            → boot SKIPS (pending stays unapplied)
 #   - autoRun=true             → boot APPLIES the pending migration
-#   - dirty state              → boot ABORTS; Force (dirty=false) recovers
+#   - dirty state              → boot ABORTS; Force (dirty=$QA_SQL_FALSE) recovers
 #
 # It never edits the on-disk 0001 migration: a throwaway version 0002 is
 # synthesized into a TEMP dir (a copy of migrations/$BACKEND) and MIGRATIONS_DIR
@@ -46,7 +46,7 @@ reset_baseline() {
   qa_db_exec "DROP TABLE IF EXISTS $PROBE_TABLE;"
   # Restore omnicore_migrations to the single 0001 baseline row.
   qa_db_exec "DELETE FROM omnicore_migrations;"
-  qa_db_exec "INSERT INTO omnicore_migrations (version, dirty) VALUES (1, false);"
+  qa_db_exec "INSERT INTO omnicore_migrations (version, dirty) VALUES (1, $QA_SQL_FALSE);"
 }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
@@ -98,7 +98,13 @@ probe_exists() {  # prints "yes"/"no"
   fi
   [ "${n:-0}" -ge 1 ] 2>/dev/null && echo yes || echo no
 }
-db_version() { qa_db_query "SELECT version FROM omnicore_migrations ORDER BY version DESC LIMIT 1;" | tr -d ' '; }
+db_version() {  # T-SQL caps rows with a SELECT-head TOP, not a LIMIT tail
+  if [ "$BACKEND" = "sqlserver" ]; then
+    qa_db_query "SELECT TOP 1 version FROM omnicore_migrations ORDER BY version DESC;" | tr -d ' \r'
+  else
+    qa_db_query "SELECT version FROM omnicore_migrations ORDER BY version DESC LIMIT 1;" | tr -d ' '
+  fi
+}
 
 ##############################################################################
 sec "0. Build + baseline + synthesize a pending version 0002"
@@ -110,11 +116,14 @@ V=$(db_version); [ "$V" = "1" ] && ok "baseline omnicore_migrations at version 1
 
 rm -rf "$TMP_MIG_DIR"; mkdir -p "$TMP_MIG_DIR"
 cp "$REPO_ROOT/migrations/$BACKEND/"*.sql "$TMP_MIG_DIR/"
-if [ "$BACKEND" = "mysql" ]; then
-  printf 'CREATE TABLE %s (id BINARY(16) NOT NULL, note VARCHAR(64) NOT NULL, PRIMARY KEY (id));\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql"
-else
-  printf 'CREATE TABLE %s (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql"
-fi
+case "$BACKEND" in
+  mysql)
+    printf 'CREATE TABLE %s (id BINARY(16) NOT NULL, note VARCHAR(64) NOT NULL, PRIMARY KEY (id));\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+  sqlserver)
+    printf 'CREATE TABLE %s (id BINARY(16) NOT NULL PRIMARY KEY, note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+  *)
+    printf 'CREATE TABLE %s (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+esac
 printf 'DROP TABLE IF EXISTS %s;\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.down.sql"
 ok "synthesized pending 0002_qa_probe in $TMP_MIG_DIR"
 
@@ -165,7 +174,7 @@ stop_server; rm -f "$Y_TRUE"
 sec "4. Dirty state → boot ABORTS; Force recovers"
 ##############################################################################
 title "4.1 Mark version 2 dirty, boot check → dirty abort"
-qa_db_exec "UPDATE omnicore_migrations SET dirty = true WHERE version = 2;"
+qa_db_exec "UPDATE omnicore_migrations SET dirty = $QA_SQL_TRUE WHERE version = 2;"
 Y_CHECK2=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-${BACKEND}-dirty.log
 if boot_expect_abort "$Y_CHECK2" "$LOG"; then
   [ "$LAST_CODE" -ne 0 ] && ok "dirty boot aborted (exit $LAST_CODE)" || bad "dirty boot exited 0"
@@ -174,8 +183,8 @@ else
   bad "dirty-mode boot did not exit within 20s"
 fi
 
-title "4.2 Force clean (dirty=false), boot check → healthy"
-qa_db_exec "UPDATE omnicore_migrations SET dirty = false WHERE version = 2;"
+title "4.2 Force clean (dirty=$QA_SQL_FALSE), boot check → healthy"
+qa_db_exec "UPDATE omnicore_migrations SET dirty = $QA_SQL_FALSE WHERE version = 2;"
 LOG=/tmp/qa-mig-${BACKEND}-recovered.log
 if boot_healthy "$Y_CHECK2" "$LOG"; then
   ok "recovered server booted healthy under check"

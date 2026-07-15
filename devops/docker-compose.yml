@@ -41,6 +41,104 @@ services:
       retries: 10
 
   # ── Lane B relational — MySQL (binlog defaults on 8.4 satisfy Debezium) ─────
+  # ── Lane C relational — SQL Server 2022, under the `sqlserver` compose
+  # profile so `up -d` without the profile changes nothing for lanes A/B.
+  # Local by default; the lane can instead point at a REMOTE docker engine via
+  # QA_SQLSERVER_CONTEXT/QA_SQLSERVER_DB_HOST (see qa/_backend.sh) — the same
+  # yaml serves both (compose is evaluated client-side). Agent is enabled
+  # because Debezium's SQL Server connector (phase-5 relay) requires it. The
+  # image is amd64-only: Apple-Silicon hosts run it via Rosetta.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: omnicore-qa-sqlserver
+    profiles: ["sqlserver"]
+    ports:
+      - "14333:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "OmnicoreQA!2026"
+      MSSQL_AGENT_ENABLED: "true"
+      MSSQL_PID: "Developer"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'OmnicoreQA!2026' -Q 'SELECT 1' -h -1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Lane C Redis (same rationale as redis/redis-mysql: per-lane broker so
+  # cache.sh can stop/start its own without disturbing the parallel lanes).
+  redis-sqlserver:
+    image: redis:7-alpine
+    container_name: omnicore-qa-redis-sqlserver
+    profiles: ["sqlserver"]
+    ports:
+      - "6382:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Lane C transport — a DEDICATED Kafka + Connect pair under the `sqlserver`
+  # profile. Lane C cannot share lane A's broker: the SyncEngine's topic names
+  # are the cross-service contract (`<table>.events`, no suffix knob by
+  # design), so two lanes on one broker would consume each other's events.
+  # Isolation mirrors lane B owning its NATS. External listener :9095;
+  # Connect REST :8085.
+  kafka-sqlserver:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: omnicore-qa-kafka-sqlserver
+    profiles: ["sqlserver"]
+    ports:
+      - "9095:9095"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-sqlserver:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9095"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-sqlserver:9092,EXTERNAL://localhost:9095"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qx"
+    volumes:
+      - kafka_sqlserver_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  connect-sqlserver:
+    image: quay.io/debezium/connect:3.0.0.Final
+    container_name: omnicore-qa-connect-sqlserver
+    profiles: ["sqlserver"]
+    depends_on:
+      kafka-sqlserver:
+        condition: service_healthy
+    ports:
+      - "8085:8083"
+    environment:
+      BOOTSTRAP_SERVERS: "kafka-sqlserver:9092"
+      GROUP_ID: "omnicore-qa-connect-sqlserver"
+      CONFIG_STORAGE_TOPIC: "connect_sqlserver_configs"
+      OFFSET_STORAGE_TOPIC: "connect_sqlserver_offsets"
+      STATUS_STORAGE_TOPIC: "connect_sqlserver_statuses"
+      KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      VALUE_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   mysql:
     image: mysql:8.4
     container_name: omnicore-qa-mysql
@@ -267,6 +365,8 @@ services:
 
 volumes:
   postgres_data:
+  sqlserver_data:
+  kafka_sqlserver_data:
   mysql_data:
   mongo_data:
   kafka_data:
