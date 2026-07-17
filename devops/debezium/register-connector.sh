@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Brings up the CDC relay for a QA lane. The two lanes use DIFFERENT relays:
 #
-#   postgres → Debezium CONNECT (Kafka). Registered via REST (:8083): the outbox
-#              connector + the qa-integration connector, both EventRouter-routed.
-#   mysql    → Debezium SERVER (NATS). Static mounted config (conf-mysql-nats),
-#              no REST API; "registering" = (re)creating the container and waiting
-#              for it to reach streaming.
+#   postgres  → Debezium CONNECT (Kafka). Registered via REST (:8083): the outbox
+#               connector + the qa-integration connector, both EventRouter-routed.
+#   mysql     → Debezium SERVER (NATS). Static mounted config (conf-mysql-nats),
+#               no REST API; "registering" = (re)creating the container and
+#               waiting for it to reach streaming.
+#   sqlserver → Debezium CONNECT (dedicated Kafka, REST :8085), preceded by the
+#               per-table sp_cdc_enable_* step.
+#   oracle    → Debezium SERVER (dedicated NATS, conf-oracle-nats), preceded by
+#               the per-table supplemental-logging step.
 #
-# Usage: register-connector.sh [postgres|mysql]   (default: postgres)
+# Usage: register-connector.sh [postgres|mysql|sqlserver|oracle]   (default: postgres)
 #
 # Run after `docker compose up` AND after the lane's app has booted once
 # (migrations create the outbox/integration_events tables; the app creates the
@@ -18,8 +22,8 @@ set -euo pipefail
 
 DIALECT="${1:-postgres}"
 case "$DIALECT" in
-  postgres|mysql|sqlserver) ;;
-  *) echo "unknown dialect '$DIALECT' (want postgres|mysql|sqlserver)" >&2; exit 2 ;;
+  postgres|mysql|sqlserver|oracle) ;;
+  *) echo "unknown dialect '$DIALECT' (want postgres|mysql|sqlserver|oracle)" >&2; exit 2 ;;
 esac
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -87,13 +91,80 @@ if [ "$DIALECT" = "sqlserver" ]; then
     printf '%s' "$BODY" | jq .config | curl -sf -X PUT -H "Content-Type: application/json" -d @- "$CONNECT_URL/connectors/$NAME/config" >/dev/null \
       || { echo "ERROR: registering $NAME failed" >&2; exit 1; }
     DEADLINE=$(( $(date +%s) + 120 ))
-    until [ "$(curl -sf "$CONNECT_URL/connectors/$NAME/status" | jq -r '.tasks[0].state' 2>/dev/null)" = "RUNNING" ]; do
+    while :; do
+      STATE=$(curl -sf "$CONNECT_URL/connectors/$NAME/status" | jq -r '.tasks[0].state' 2>/dev/null)
+      [ "$STATE" = "RUNNING" ] && break
+      # A config PUT does NOT revive a FAILED task (e.g. the task tried to
+      # start while the DB container was still booting after a recreate and
+      # Connect never retries on its own) — restart it explicitly.
+      [ "$STATE" = "FAILED" ] && curl -s -X POST "$CONNECT_URL/connectors/$NAME/tasks/0/restart" >/dev/null
       [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "ERROR: $NAME task not RUNNING in 120s" >&2; curl -s "$CONNECT_URL/connectors/$NAME/status" | jq . >&2; exit 1; }
       sleep 2
     done
     echo "$NAME RUNNING."
   done
   echo "Debezium Connect streaming (sqlserver → Kafka)."
+  exit 0
+fi
+
+# ── Lane D (Oracle → NATS): static Debezium Server ──────────────────────────
+# Same relay pattern as lane B (static mounted config, conf-oracle-nats, no
+# REST), preceded by the Oracle twin of lane C's CDC-enable step: PER-TABLE
+# SUPPLEMENTAL LOGGING (ALL COLUMNS) on exactly the two tables the connector
+# tails — the database-level pieces (ARCHIVELOG, minimal supplemental logging,
+# the c##dbzuser LogMiner user, the debezium_heartbeat table) were provisioned
+# once by devops/oracle/init/02_cdc.sh at first boot. The DB may live on a
+# remote docker engine (QA_ORACLE_CONTEXT) while the relay stays local.
+if [ "$DIALECT" = "oracle" ]; then
+  COMPOSE_FILE="$(cd "$HERE/.." && pwd)/docker-compose.yml"
+  CONTAINER="omnicore-qa-debezium-oracle"
+  CTX="${QA_ORACLE_CONTEXT:-default}"
+  APP_PW="${QA_ORACLE_APP_PASSWORD:-omnicore}"
+
+  sqlplus_app() { # one statement, app schema, clean single-value output
+    printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF VERIFY OFF\n%s\n' "$1" \
+      | docker --context "$CTX" exec -i omnicore-qa-oracle sqlplus -S "omnicore/${APP_PW}@localhost/FREEPDB1" \
+      | tr -d ' \t\r'
+  }
+
+  echo "Enabling per-table supplemental logging (outbox + integration_events; idempotent) ..."
+  for T in OUTBOX INTEGRATION_EVENTS; do
+    HAS=$(sqlplus_app "SELECT COUNT(*) FROM user_log_groups WHERE table_name='$T' AND log_group_type='ALL COLUMN LOGGING';")
+    if [ "${HAS:-0}" = "0" ]; then
+      sqlplus_app "ALTER TABLE $T ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;" >/dev/null
+      echo "  $T: supplemental logging (ALL) COLUMNS added"
+    else
+      echo "  $T: already enabled"
+    fi
+  done
+
+  # The LogMiner heartbeat (SCN advancement, heartbeat.action.query) is also
+  # PUBLISHED by the sink — to __debezium-heartbeat.<topic.prefix>, a subject
+  # no stream covers (the app's OMNICORE_EVENTS is omnicore.> only, and
+  # create-stream=false by design). Without a stream the JetStream publish
+  # gets "503 No Responders" and the connector dies, so give the heartbeats
+  # their own tiny stream (idempotent; keeps ONE message, memory-only).
+  echo "Ensuring the DEBEZIUM_HEARTBEAT stream exists on nats-oracle ..."
+  docker run --rm --network omnicore-qa_default natsio/nats-box:latest \
+    sh -c "nats -s nats://nats-oracle:4222 stream info DEBEZIUM_HEARTBEAT >/dev/null 2>&1 \
+      || nats -s nats://nats-oracle:4222 stream add DEBEZIUM_HEARTBEAT \
+           --subjects '__debezium-heartbeat.>' --storage memory --retention limits \
+           --max-msgs 1 --discard old --defaults >/dev/null"
+
+  echo "Recreating Debezium Server (oracle → NATS) ..."
+  docker compose -f "$COMPOSE_FILE" --profile oracle up -d --force-recreate debezium-server-oracle
+
+  echo "Waiting for Debezium Server (oracle) to start streaming ..."
+  DEADLINE=$(( $(date +%s) + 180 ))
+  until docker logs "$CONTAINER" 2>&1 | grep -q "Starting streaming"; do
+    if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+      echo "ERROR: Debezium Server (oracle) did not reach streaming in 180s — boot the oracle app once (so the outbox table + JetStream stream exist), then re-run." >&2
+      docker logs "$CONTAINER" 2>&1 | tail -25 >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  echo "Debezium Server streaming (oracle → NATS)."
   exit 0
 fi
 
@@ -152,6 +223,11 @@ DEADLINE=$(( $(date +%s) + 90 ))
 for cfg in $CONNECTORS; do
   name=$(jq -r '.name' "$HERE/$cfg")
   until [ "$(curl -sf "$CONNECT_URL/connectors/$name/status" 2>/dev/null | jq -r '[.connector.state, (.tasks[]?.state)] | all(. == "RUNNING")' 2>/dev/null)" = "true" ]; do
+    # A config PUT does NOT revive a FAILED task (Connect never retries a task
+    # that failed at start, e.g. against a still-booting DB) — restart it.
+    if [ "$(curl -sf "$CONNECT_URL/connectors/$name/status" 2>/dev/null | jq -r '.tasks[0].state' 2>/dev/null)" = "FAILED" ]; then
+      curl -s -X POST "$CONNECT_URL/connectors/$name/tasks/0/restart" >/dev/null
+    fi
     if [ "$(date +%s)" -ge "$DEADLINE" ]; then
       echo "ERROR: connector '$name' not RUNNING in time:" >&2
       curl -sf "$CONNECT_URL/connectors/$name/status" 2>/dev/null | jq . >&2 || true

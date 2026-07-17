@@ -1,0 +1,70 @@
+{"time":"2026-07-16T22:53:22.56213-04:00","level":"INFO","msg":"tracing enabled","exporter":"otlp","sampler":"always_on","endpoint":"localhost:4317"}
+{"time":"2026-07-16T22:53:22.578707-04:00","level":"INFO","msg":"database connected","dialect":"sqlserver","dsn":"server=127.0.0.1;port=14333;user id=sa;password=OmnicoreQA!2026;database=users_db;encrypt=true;TrustServerCertificate=true"}
+{"time":"2026-07-16T22:53:22.58581-04:00","level":"INFO","msg":"mongo connected","uri":"mongodb://localhost:27028","db":"users_views_sqlserver"}
+{"time":"2026-07-16T22:53:22.586138-04:00","level":"INFO","msg":"httpclient configured"}
+{"time":"2026-07-16T22:53:22.586147-04:00","level":"INFO","msg":"grpcclient configured","services":1}
+{"time":"2026-07-16T22:53:22.596454-04:00","level":"INFO","msg":"openapi enabled","title":"OmniCore Example Users","version":"0.1.0","languageSelector":true}
+{"time":"2026-07-16T22:53:22.638481-04:00","level":"INFO","msg":"migrations applied","dir":"./migrations/sqlserver"}
+{"time":"2026-07-16T22:53:22.63896-04:00","level":"INFO","msg":"feature registered","type":"*main.UsersFeature","readable":true}
+{"time":"2026-07-16T22:53:22.638972-04:00","level":"INFO","msg":"feature registered","type":"*main.EmployeesFeature","readable":true}
+{"time":"2026-07-16T22:53:22.638976-04:00","level":"INFO","msg":"feature registered","type":"*main.PersonsFeature","readable":true}
+{"time":"2026-07-16T22:53:22.638979-04:00","level":"INFO","msg":"feature registered","type":"*main.UserCustomFeature","readable":false}
+{"time":"2026-07-16T22:53:22.638982-04:00","level":"INFO","msg":"feature registered","type":"*main.AuditFeature","readable":false}
+{"time":"2026-07-16T22:53:22.638985-04:00","level":"INFO","msg":"feature registered","type":"*main.ShowcaseFeature","readable":false}
+{"time":"2026-07-16T22:53:22.638988-04:00","level":"INFO","msg":"feature registered","type":"*main.AdminFeature","readable":false}
+{"time":"2026-07-16T22:53:22.638991-04:00","level":"INFO","msg":"feature registered","type":"*main.GadgetFeature","readable":true}
+{"time":"2026-07-16T22:53:22.638994-04:00","level":"INFO","msg":"feature registered","type":"*main.AccountFeature","readable":true}
+{"time":"2026-07-16T22:53:22.638997-04:00","level":"INFO","msg":"feature registered","type":"*main.ProductFeature","readable":false}
+{"time":"2026-07-16T22:53:22.641066-04:00","level":"INFO","msg":"mongo.apply.start","views":7,"forceRebuild":false}
+{"time":"2026-07-16T22:53:22.729604-04:00","level":"INFO","msg":"mongo.apply.end","views":7}
+{"time":"2026-07-16T22:53:22.760177-04:00","level":"INFO","msg":"view.rebuild.start","view":"users","from_hash":"0fa60441adb1a3d6d369b183020e1af13d1544b412835a2d3843306f2f5c11cd","to_hash":"0fa60441adb1a3d6d369b183020e1af13d1544b412835a2d3843306f2f5c11cd"}
+{"time":"2026-07-16T22:53:22.786265-04:00","level":"INFO","msg":"view.rebuild.end","view":"users","upserted":3,"orphan_fields_unset":0,"orphan_docs":0,"duration":34028917}
+{"time":"2026-07-16T22:53:22.790991-04:00","level":"INFO","msg":"view.rebuild.start","view":"persons","from_hash":"baabbe40f89bc868639f862d90d08ff2fd74ac51ecf5fb5b77282cad72ea927d","to_hash":"baabbe40f89bc868639f862d90d08ff2fd74ac51ecf5fb5b77282cad72ea927d"}
+{"time":"2026-07-16T22:53:22.808214-04:00","level":"INFO","msg":"view.rebuild.end","view":"persons","upserted":3,"orphan_fields_unset":0,"orphan_docs":0,"duration":21121834}
+{"time":"2026-07-16T22:53:22.809074-04:00","level":"INFO","msg":"sync engine started","endpoints":["localhost:9095"],"syncGroup":"omnicore-example-users-sync-sqlserver","views":7,"workers":16}
+{"time":"2026-07-16T22:53:22.810473-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"requests.FindUsersByParamsRequest","sortable_wire_paths":["addresses","addresses.city","addresses.complement","addresses.country","addresses.id","addresses.label","addresses.neighborhood","addresses.number","addresses.state","addresses.street","addresses.zipCode","document","email","emailNotification","id","name","phone","smsNotification","userName"]}
+{"time":"2026-07-16T22:53:22.811159-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"requests.FindEmployeesByParamsRequest","sortable_wire_paths":["account","addresses","addresses.city","addresses.complement","addresses.country","addresses.id","addresses.label","addresses.neighborhood","addresses.number","addresses.state","addresses.street","addresses.zipCode","bank","branch","dependents","dependents.birthDate","dependents.healthPlanCard","dependents.healthPlanExpiry","dependents.healthPlanProvider","dependents.id","dependents.name","dependents.relationship","document","email","employeeNumber","id","jobHistories","jobHistories.department","jobHistories.hiredAt","jobHistories.id","jobHistories.jobTitle","jobHistories.terminatedAt","name","phone","pix"]}
+{"time":"2026-07-16T22:53:22.811249-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"requests.FindPersonsByParamsRequest","sortable_wire_paths":["addresses","addresses.city","addresses.complement","addresses.country","addresses.id","addresses.label","addresses.neighborhood","addresses.number","addresses.state","addresses.street","addresses.zipCode","document","email","employee","employee.account","employee.bank","employee.branch","employee.deletedAt","employee.dependents","employee.dependents.birthDate","employee.dependents.healthPlanCard","employee.dependents.healthPlanExpiry","employee.dependents.healthPlanProvider","employee.dependents.id","employee.dependents.name","employee.dependents.relationship","employee.employeeNumber","employee.id","employee.jobHistories","employee.jobHistories.department","employee.jobHistories.hiredAt","employee.jobHistories.id","employee.jobHistories.jobTitle","employee.jobHistories.terminatedAt","employee.pix","id","name","phone","user","user.deletedAt","user.emailNotification","user.id","user.smsNotification","user.userName"]}
+{"time":"2026-07-16T22:53:22.811377-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"requests.FindUsersCustomRequest","sortable_wire_paths":["email","id","name"]}
+{"time":"2026-07-16T22:53:22.812122-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"qafixtures.FindGadgetsRequest","sortable_wire_paths":["category","code","id","name","status"]}
+{"time":"2026-07-16T22:53:22.812166-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"qafixtures.FindGadgetsRequest","sortable_wire_paths":["category","code","id","name","status"]}
+{"time":"2026-07-16T22:53:22.812174-04:00","level":"WARN","msg":"query.sort.opt-in: endpoint accepts ?sort=; verify Mongo indexes cover the sortable wire paths to avoid performance degradation on large collections","request":"qafixtures.FindGadgetsRequest","sortable_wire_paths":["category","code","id","name","status"]}
+{"time":"2026-07-16T22:53:22.812298-04:00","level":"INFO","msg":"openapi language selector","languages":7}
+{"time":"2026-07-16T22:53:22.812314-04:00","level":"INFO","msg":"openapi served","spec":"/openapi.json","ui":"/docs"}
+{"time":"2026-07-16T22:53:22.812322-04:00","level":"INFO","msg":"openapi root redirect enabled","from":"/","to":"/docs"}
+{"time":"2026-07-16T22:53:22.812325-04:00","level":"INFO","msg":"graphql served","path":"/graphql","introspection":true,"playground":true}
+{"time":"2026-07-16T22:53:22.812331-04:00","level":"INFO","msg":"graphql playground served","ui":"/graphql/ui"}
+{"time":"2026-07-16T22:53:22.812529-04:00","level":"INFO","msg":"http listening","addr":":8084"}
+{"time":"2026-07-16T22:53:22.812542-04:00","level":"INFO","msg":"grpc listening","addr":":9093","tls":false}
+22:53:24 | 200 |     5.60675ms |       127.0.0.1 | GET     | /readyz                                               
+{"time":"2026-07-16T22:53:27.285668-04:00","level":"INFO","msg":"audit","threadId":"4943cc83-c0e9-496d-a350-aeb5647f4c21","entityType":"User","entityId":"f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a","verb":"insert","actionName":"GetInsertable","kind":"snapshot","actor":"anonymous","dateTime":"2026-07-17T02:53:27.267306Z","traceId":"ef9c0c546d9dd8d1d7bb2e1a9f787796","snapshot":{"Document":"1784256807","Email":"lane-c-verify-1784256807@qa.local","EmailNotification":null,"Name":"Lane C Verify","Phone":null,"SmsNotification":null,"UserName":"lanec1784256807"}}
+22:53:26 | 201 |   21.881625ms |       127.0.0.1 | POST    | /users                                                
+{"time":"2026-07-16T22:53:27.318721-04:00","level":"INFO","msg":"pipeline failure","threadId":"68b1dedf-3bd8-43c1-9f74-5b10ac70a657","errorType":"*domain.DomainError","contexts":1,"traceId":"ebca4efda5c7952fde18623e3b5d1d1d","spanId":"e5575aba98fa0211"}
+22:53:26 | 404 |      872.25µs |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:27.834047-04:00","level":"INFO","msg":"pipeline failure","threadId":"5a2c4981-cef4-4f7f-97ee-a4555d1b28fe","errorType":"*domain.DomainError","contexts":1,"traceId":"8178e4e8a67225a6e2e3326ada96be91","spanId":"070ea2cf3086a319"}
+22:53:27 | 404 |    1.031041ms |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:28.34903-04:00","level":"INFO","msg":"pipeline failure","threadId":"3fc2f8c1-36c0-451c-80dd-811550122dd7","errorType":"*domain.DomainError","contexts":1,"traceId":"8a7bc391358ca37f64a56c4e297e73aa","spanId":"f3c9ffeccfeae6e2"}
+22:53:28 | 404 |     937.041µs |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:28.873832-04:00","level":"INFO","msg":"pipeline failure","threadId":"3bf38e0a-ebaa-4b71-9b94-f33cf1ea4524","errorType":"*domain.DomainError","contexts":1,"traceId":"983e70b01093181d682ab3e9eb2a1a53","spanId":"cae6d5c18ad45888"}
+22:53:28 | 404 |       1.378ms |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:29.389445-04:00","level":"INFO","msg":"pipeline failure","threadId":"7a467b2e-64b9-4d97-8bdb-bf032feab49b","errorType":"*domain.DomainError","contexts":1,"traceId":"0116f5e6ee6950b0dbd6538b0a88f3e0","spanId":"98a8005ce915afe5"}
+22:53:29 | 404 |    1.080542ms |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:29.905842-04:00","level":"INFO","msg":"pipeline failure","threadId":"cf217cfd-1293-4399-b1f5-830d57a73960","errorType":"*domain.DomainError","contexts":1,"traceId":"56c283918c5390d421bfa50b71c21666","spanId":"f61bf563777d3c15"}
+22:53:29 | 404 |     816.584µs |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:30.427356-04:00","level":"INFO","msg":"pipeline failure","threadId":"6cbc1dd8-3887-4703-89b2-7a7fb2150ecc","errorType":"*domain.DomainError","contexts":1,"traceId":"f9d3fb940c4d1f87e3eadd2e066ed714","spanId":"beec3fff268af2dc"}
+22:53:30 | 404 |        2.26ms |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:30.943744-04:00","level":"INFO","msg":"pipeline failure","threadId":"9c8a1d21-210e-4656-814b-5ceadfcb53cd","errorType":"*domain.DomainError","contexts":1,"traceId":"c6b3b6284db12a7b102837e5f91b8145","spanId":"cb06e500b72f461b"}
+22:53:30 | 404 |     801.792µs |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:31.46072-04:00","level":"INFO","msg":"pipeline failure","threadId":"f125ccf8-1e15-49f7-9efb-7fcbfabfafb3","errorType":"*domain.DomainError","contexts":1,"traceId":"89700b64638cad3f2fe92f86df2db2d5","spanId":"3943d0662485a0d5"}
+22:53:31 | 404 |     773.875µs |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+22:53:31 | 200 |    2.783333ms |       127.0.0.1 | GET     | /users/f8ce6fb0-5f0d-505c-bc79-a2e28eaf125a           
+{"time":"2026-07-16T22:53:32.012985-04:00","level":"INFO","msg":"shutdown signal received, draining..."}
+{"time":"2026-07-16T22:53:32.013028-04:00","level":"INFO","msg":"draining","stage":"sync"}
+{"time":"2026-07-16T22:53:32.013034-04:00","level":"INFO","msg":"draining","stage":"http"}
+{"time":"2026-07-16T22:53:32.013042-04:00","level":"INFO","msg":"draining","stage":"grpc"}
+{"time":"2026-07-16T22:53:32.013096-04:00","level":"INFO","msg":"drained","stage":"http","elapsed":43125}
+{"time":"2026-07-16T22:53:32.013105-04:00","level":"INFO","msg":"drained","stage":"grpc","elapsed":33958}
+{"time":"2026-07-16T22:53:40.836046-04:00","level":"INFO","msg":"drained","stage":"sync","elapsed":8822964834}
+{"time":"2026-07-16T22:53:40.836134-04:00","level":"INFO","msg":"draining","stage":"tracing"}
+{"time":"2026-07-16T22:53:40.837103-04:00","level":"INFO","msg":"drained","stage":"tracing","elapsed":929667}
+{"time":"2026-07-16T22:53:40.837181-04:00","level":"INFO","msg":"shutdown complete"}

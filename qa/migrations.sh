@@ -93,17 +93,21 @@ probe_exists() {  # prints "yes"/"no"
   local n
   if [ "$BACKEND" = "mysql" ]; then
     n=$(qa_db_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='users_db' AND table_name='$PROBE_TABLE';")
+  elif [ "$BACKEND" = "oracle" ]; then
+    # No information_schema on Oracle; the catalog folds unquoted names to
+    # UPPERCASE, so probe user_tables by the uppercased name.
+    n=$(qa_db_query "SELECT COUNT(*) FROM user_tables WHERE table_name=UPPER('$PROBE_TABLE');")
   else
     n=$(qa_db_query "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='$PROBE_TABLE';")
   fi
   [ "${n:-0}" -ge 1 ] 2>/dev/null && echo yes || echo no
 }
-db_version() {  # T-SQL caps rows with a SELECT-head TOP, not a LIMIT tail
-  if [ "$BACKEND" = "sqlserver" ]; then
-    qa_db_query "SELECT TOP 1 version FROM omnicore_migrations ORDER BY version DESC;" | tr -d ' \r'
-  else
-    qa_db_query "SELECT version FROM omnicore_migrations ORDER BY version DESC LIMIT 1;" | tr -d ' '
-  fi
+db_version() {  # per-dialect row cap: TOP (T-SQL), FETCH FIRST (Oracle), LIMIT (the rest)
+  case "$BACKEND" in
+    sqlserver) qa_db_query "SELECT TOP 1 version FROM omnicore_migrations ORDER BY version DESC;" | tr -d ' \r' ;;
+    oracle)    qa_db_query "SELECT version FROM omnicore_migrations ORDER BY version DESC FETCH FIRST 1 ROWS ONLY;" | tr -d ' \r' ;;
+    *)         qa_db_query "SELECT version FROM omnicore_migrations ORDER BY version DESC LIMIT 1;" | tr -d ' ' ;;
+  esac
 }
 
 ##############################################################################
@@ -121,6 +125,8 @@ case "$BACKEND" in
     printf 'CREATE TABLE %s (id BINARY(16) NOT NULL, note VARCHAR(64) NOT NULL, PRIMARY KEY (id));\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
   sqlserver)
     printf 'CREATE TABLE %s (id BINARY(16) NOT NULL PRIMARY KEY, note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+  oracle)
+    printf 'CREATE TABLE %s (id RAW(16) NOT NULL PRIMARY KEY, note VARCHAR2(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
   *)
     printf 'CREATE TABLE %s (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
 esac

@@ -36,6 +36,7 @@ QA_YAML="$REPO_ROOT/microservice.qa.yaml"
 case "$BACKEND" in
   mysql)     export QA_INTEGRATION_TOPIC="qa.integration.events.mysql" ;;
   sqlserver) export QA_INTEGRATION_TOPIC="qa.integration.events.sqlserver" ;;
+  oracle)    export QA_INTEGRATION_TOPIC="qa.integration.events.oracle" ;;
   *)         export QA_INTEGRATION_TOPIC="qa.integration.events" ;;
 esac
 

@@ -152,13 +152,14 @@ PURGE_AUDIT=$(qa_db_query "SELECT count(*) FROM audit_events WHERE entity_type='
 [ "$PURGE_AUDIT" = "0" ] && ok "no persons purge audit event yet" || bad "unexpected persons purge audit rows: $PURGE_AUDIT"
 
 title "1.6 FK RESTRICT veto: an UNREGISTERED table referencing the person blocks the purge"
-# Per-dialect id type + veto action (T-SQL spells RESTRICT as NO ACTION).
+# Per-dialect id type + veto clause (T-SQL spells RESTRICT as NO ACTION;
+# Oracle has NO explicit spelling — omitting ON DELETE IS the restrict default).
 case "$BACKEND" in
-  postgres) QA_REF_TYPE='UUID';       QA_REF_VETO='RESTRICT' ;;
-  *)        QA_REF_TYPE='BINARY(16)'; QA_REF_VETO='NO ACTION' ;;
+  postgres) QA_REF_TYPE='UUID';       QA_REF_FK_TAIL=' ON DELETE RESTRICT' ;;
+  oracle)   QA_REF_TYPE='RAW(16)';    QA_REF_FK_TAIL='' ;;
+  *)        QA_REF_TYPE='BINARY(16)'; QA_REF_FK_TAIL=' ON DELETE NO ACTION' ;;
 esac
-[ "$BACKEND" = sqlserver ] && QA_REF_VETO='NO ACTION' || true
-qa_db_exec "CREATE TABLE qa_external_refs (person_id $QA_REF_TYPE NOT NULL, CONSTRAINT fk_qa_external_refs_person FOREIGN KEY (person_id) REFERENCES persons (id) ON DELETE $QA_REF_VETO);" 2>/dev/null \
+qa_db_exec "CREATE TABLE qa_external_refs (person_id $QA_REF_TYPE NOT NULL, CONSTRAINT fk_qa_external_refs_person FOREIGN KEY (person_id) REFERENCES persons (id)$QA_REF_FK_TAIL);" 2>/dev/null \
   || qa_db_exec "CREATE TABLE qa_external_refs (person_id UUID NOT NULL REFERENCES persons (id) ON DELETE RESTRICT);"
 qa_db_exec "INSERT INTO qa_external_refs (person_id) SELECT id FROM persons;"
 req DELETE "/employees/$EID1"
@@ -354,14 +355,27 @@ PACT=$(qa_db_query "SELECT count(*) FROM persons WHERE id = $(qa_uuid_lit "$EID5
 [ "$PACT" = "1" ] && ok "person stays ACTIVE while the user role is active (keep-by-default across roles)" || bad "person active rows = $PACT"
 
 title "5.3 Read-side: archived employee hidden by default, visible with includeArchived"
-wait_view_total "document=$D5" 0 || true
+# Gate on the RIGHT predicate: the ARCHIVED doc materialized (visible via
+# includeArchived). The default-read total is 0 BEFORE the doc lands too, so
+# waiting on it is vacuous — it cannot tell "hidden because archived" from
+# "not projected yet" (the race the Oracle lane's ~2-3s LogMiner floor loses;
+# the other relays answer in sub-second and never exposed it). The asserts
+# below stay untouched — this only honors the documented eventual consistency.
+wait_view_total "document=$D5&includeArchived=true" 1 || true
 req GET "/employees?document=$D5&onlyTotal=true"
 [ "$(jsonq "d['pagination']['total']")" = "0" ] && ok "default read hides archived" || bad "archived doc still listed: $RESP"
 req GET "/employees?document=$D5&includeArchived=true&onlyTotal=true"
 [ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "?includeArchived=true surfaces it" || bad "includeArchived read: $RESP"
 
 title "5.4 Archive the USER too → the LAST active role goes, the base converges to archived"
-req GET "/users/$EID5"
+# CDC poll before extracting the id (the e2e suite's own by-id pattern): the
+# user doc is eventually consistent, and a bare GET can run ahead of the
+# projection on a slower relay.
+for _ in $(seq 1 67); do
+  req GET "/users/$EID5"
+  [ "$STATUS" = "200" ] && break
+  sleep 0.3
+done
 UARCH=$(jsonq "d['data']['id']")
 req PATCH "/users/$UARCH/archive"
 expect_status "archive user (last active role)" 204

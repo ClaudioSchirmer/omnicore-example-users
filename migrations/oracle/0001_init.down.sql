@@ -1,0 +1,11 @@
+-- Reverse of 0001_init.up.sql (Oracle). Children/siblings first, then roles,
+-- then the shared base. IF EXISTS is native on the 23ai floor.
+DROP TABLE IF EXISTS dependent_health_plans CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS employee_job_histories CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS employee_dependents CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS employee_bank_accounts CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS employees CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS user_configurations CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS users CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS addresses CASCADE CONSTRAINTS;
+DROP TABLE IF EXISTS persons CASCADE CONSTRAINTS;

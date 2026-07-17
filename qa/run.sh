@@ -2,16 +2,25 @@
 # qa/run.sh — the one-command QA matrix: every suite, BOTH transport lanes, run
 # in PARALLEL, one report.
 #
-#   ./qa/run.sh              # both lanes in parallel (the default)
+#   ./qa/run.sh              # every available lane, in waves (the default)
 #   ./qa/run.sh postgres     # one lane only (Postgres + Kafka)
 #   ./qa/run.sh mysql        #                (MySQL + NATS)
 #   SUITES="e2e employee" ./qa/run.sh   # subset (space-separated overrides)
 #   ./qa/run.sh --keep-going            # do NOT stop at the first RED suite
+#   QA_MAX_PARALLEL_LANES=4 ./qa/run.sh # full parallelism (needs a roomier Docker VM)
 #
-# The two lanes exercise BOTH legs of the transport seam every run:
+# The lanes exercise every leg of the engine × transport seams each run:
 #   • Lane A — Postgres + Kafka + Mongo, relay Debezium CONNECT (:8081 / gRPC :9091)
 #   • Lane B — MySQL   + NATS  + Mongo, relay Debezium SERVER  (:8082 / gRPC :9092)
 #   • Lane C — SQL Server + DEDICATED Kafka + Mongo, relay Debezium CONNECT (:8084 / gRPC :9093)
+#   • Lane D — Oracle Free 23ai + DEDICATED NATS + Mongo, relay Debezium SERVER (:8086 / gRPC :9097)
+#
+# Lanes run in WAVES of QA_MAX_PARALLEL_LANES (default 2, list order — A+B then
+# C+D): the four stacks fit an 8 GB Docker VM at rest, but four lanes' PEAK
+# activity (parallel builds + servers + three Kafkas + four engines churning at
+# once) is what OOM-kills containers. Waves keep `all` deterministic on any
+# machine; the report accumulates across waves into the same side-by-side
+# column groups, rendered live after every suite.
 # Each lane runs on its OWN app ports, binary, relay and Redis, and its OWN Mongo
 # DB (users_views / users_views_mysql), so they never collide — the whole suite
 # list runs on each lane concurrently. Wall-clock ≈ the slower lane, not the sum.
@@ -39,19 +48,20 @@ BACKENDS="all"
 KEEP_GOING="${KEEP_GOING:-0}"
 for arg in "$@"; do
   case "$arg" in
-    all|postgres|mysql|sqlserver) BACKENDS="$arg" ;;
+    all|postgres|mysql|sqlserver|oracle) BACKENDS="$arg" ;;
     --keep-going|-k)    KEEP_GOING=1 ;;
-    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver] [--keep-going]" >&2; exit 2 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle] [--keep-going]" >&2; exit 2 ;;
   esac
 done
 case "$BACKENDS" in
-  # `all` schedules the full 3-lane matrix; a lane whose infrastructure is not
+  # `all` schedules the full 4-lane matrix; a lane whose infrastructure is not
   # reachable SKIPs (⚠ in the report, never RED) via the availability filter
-  # below. `./qa/run.sh sqlserver` still runs lane C alone.
-  all)       BACKEND_LIST="postgres mysql sqlserver" ;;
+  # below. `./qa/run.sh sqlserver` / `oracle` still runs that lane alone.
+  all)       BACKEND_LIST="postgres mysql sqlserver oracle" ;;
   postgres)  BACKEND_LIST="postgres" ;;
   mysql)     BACKEND_LIST="mysql" ;;
   sqlserver) BACKEND_LIST="sqlserver" ;;
+  oracle)    BACKEND_LIST="oracle" ;;
 esac
 
 # Lane availability: a requested lane RUNS when its infrastructure answers and
@@ -64,6 +74,9 @@ lane_available() {
     sqlserver)
       docker --context "${QA_SQLSERVER_CONTEXT:-default}" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-sqlserver$' \
         && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-kafka-sqlserver$' ;;
+    oracle)
+      docker --context "${QA_ORACLE_CONTEXT:-default}" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-oracle$' \
+        && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-nats-oracle$' ;;
     *) return 0 ;;  # lanes A/B ride the base-bench check below
   esac
 }
@@ -76,6 +89,8 @@ if [ -z "$RUN_BACKENDS" ]; then
   echo "no requested lane is available (requested: $BACKEND_LIST)." >&2
   echo "  sqlserver lane: docker compose -f devops/docker-compose.yml --profile sqlserver up -d" >&2
   echo "                  (remote DB: QA_SQLSERVER_CONTEXT=<ctx> QA_SQLSERVER_DB_HOST=<host>)" >&2
+  echo "  oracle lane:    docker compose -f devops/docker-compose.yml --profile oracle up -d" >&2
+  echo "                  (remote DB: QA_ORACLE_CONTEXT=<ctx> QA_ORACLE_DB_HOST=<host>)" >&2
   exit 0
 fi
 [ -n "$SKIP_BACKENDS" ] && echo "lane(s) unavailable — will report ⚠ SKIP: $SKIP_BACKENDS" >&2
@@ -146,6 +161,7 @@ render_report() {
         postgres)  echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
         mysql)     echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
         sqlserver) echo "- **Lane C** — SQL Server + Kafka (Debezium Connect, dedicated broker)" ;;
+        oracle)    echo "- **Lane D** — Oracle Free 23ai + NATS (Debezium Server, dedicated JetStream)" ;;
         *)         echo "- **Lane** — $B" ;;
       esac
       hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
@@ -410,12 +426,24 @@ for B in $SKIP_BACKENDS; do
   : > "$LOG_DIR/rows-$B.tsv"
   for S in $SUITES; do printf '%s\t%s\t-\t-\tSKIP\t-\n' "$S" "$B" >> "$LOG_DIR/rows-$B.tsv"; done
 done
-LANE_PIDS=""
-for B in $RUN_BACKENDS; do
-  run_lane "$B" &
-  LANE_PIDS="$LANE_PIDS $!"
+# Waves of QA_MAX_PARALLEL_LANES (see the header): each wave's lanes run in
+# parallel; the next wave starts when the previous fully drains — and not at
+# all once fail-fast tripped (its lanes report "never ran", like today).
+QA_MAX_PARALLEL_LANES="${QA_MAX_PARALLEL_LANES:-2}"
+set -- $RUN_BACKENDS
+while [ "$#" -gt 0 ] && ! stop_requested; do
+  WAVE=""; N=0
+  while [ "$#" -gt 0 ] && [ "$N" -lt "$QA_MAX_PARALLEL_LANES" ]; do
+    WAVE="$WAVE $1"; shift; N=$((N+1))
+  done
+  bold "──────── lane wave:$WAVE ────────"
+  LANE_PIDS=""
+  for B in $WAVE; do
+    run_lane "$B" &
+    LANE_PIDS="$LANE_PIDS $!"
+  done
+  for pid in $LANE_PIDS; do wait "$pid"; done
 done
-for pid in $LANE_PIDS; do wait "$pid"; done
 
 # ── Serial phase: the source-mutating suites, one lane at a time ─────────────
 # schema_evolution patches internal/infra/views.go and rebuilds, so it runs only
