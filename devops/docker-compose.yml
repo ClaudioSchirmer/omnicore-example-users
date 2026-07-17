@@ -1,9 +1,13 @@
-# QA bench — the automated test bench for qa/run.sh, running the TWO transport
-# lanes in parallel so every framework leg is exercised each run:
+# QA bench — the automated test bench for qa/run.sh, running the FOUR
+# engine×transport lanes in waves of two so every framework leg is exercised
+# each run (both brokers twice, both relay flavors twice):
 #   • Lane A — Postgres + Kafka + Mongo, relay = Debezium CONNECT → Kafka
 #   • Lane B — MySQL   + NATS  + Mongo, relay = Debezium SERVER  → NATS
-# Both lanes share one Mongo (distinct DBs), Keycloak, Redis, Jaeger and the ELK
-# stack. This is the "messy" bench the QA suites own and reset at will; the
+#   • Lane C — SQL Server + dedicated Kafka + Mongo, relay = Debezium CONNECT (profile sqlserver)
+#   • Lane D — Oracle Free 23ai + dedicated NATS + Mongo, relay = Debezium SERVER (profile oracle)
+# The lanes share one Mongo (distinct DBs), Keycloak and Jaeger; each has its
+# own Redis. qa/run.sh manages the containers per wave (cold bench between
+# waves). This is the "messy" bench the QA suites own and reset at will; the
 # separate docker-compose.dev.yml (project omnicore-dev) is the developer's
 # exclusive env and is NEVER touched here.
 #
