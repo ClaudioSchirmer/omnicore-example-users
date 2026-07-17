@@ -165,11 +165,14 @@ wait_count() {
 assert_consumer_durable() {
   case "${QA_TRANSPORT_TAG:-kafka}" in
     nats)
+      # QA_NATS_URL comes from the lane env (_backend.sh) — lanes owning their
+      # broker (D) probe THEIR server; default = lane B's shared NATS.
       docker run --rm --network omnicore-qa_default natsio/nats-box:latest \
-        nats -s nats://nats:4222 consumer info "$NATS_STREAM" "$SYNC_GROUP_ID" >/dev/null 2>&1
+        nats -s "${QA_NATS_URL:-nats://nats:4222}" consumer info "$NATS_STREAM" "$SYNC_GROUP_ID" >/dev/null 2>&1
       ;;
     kafka)
-      docker exec omnicore-qa-kafka \
+      # QA_KAFKA_CONTAINER mirrors the same lane-scoping for the Kafka lanes.
+      docker exec "${QA_KAFKA_CONTAINER:-omnicore-qa-kafka}" \
         kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group "$SYNC_GROUP_ID" 2>/dev/null \
         | grep -q "$SYNC_GROUP_ID"
       ;;

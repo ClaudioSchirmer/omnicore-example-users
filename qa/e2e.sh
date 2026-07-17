@@ -365,11 +365,16 @@ echo "USER_C2 (Anna III, new for DELETE in 8.x) = $USER_C2"
 sec "4. GET /users/:id and GET /users (CDC eventually consistent)"
 ####################################
 
-title "4.0 Polling Mongo via GET /users/$USER_A until 200 (CDC)"
-if wait_for_view "$USER_A" "200" 15; then
+title "4.0 Polling Mongo via GET /users/$USER_C2 until 200 (CDC)"
+# Gate on the LAST fixture written before this section (Anna III), not the
+# first (Jane): the users topic is single-partition and the SyncEngine
+# consumes in order, so the newest write visible ⇒ every earlier one is too.
+# Waiting on Jane let a lagging lane pass the gate with the Annas still in
+# flight and 4.5/4.6 reading a half-materialized view.
+if wait_for_view "$USER_C2" "200" 30; then
   echo "view ready"
 else
-  echo "TIMEOUT waiting for view (15s) — continuing anyway to record the failure"
+  echo "TIMEOUT waiting for view (30s) — continuing anyway to record the failure"
 fi
 
 show "4.1 GET /users/:id (Jane, populated via CDC)" GET "/users/$USER_A" "" 200
@@ -708,11 +713,15 @@ qa_db_query "SELECT COUNT(*) AS leftover_addresses FROM addresses a JOIN persons
 sec "9. Read side (Mongo) — re-check view after PATCH/Archive/Unarchive"
 ####################################
 
-title "9.0 Polling Mongo via GET /users/$USER_A until 200 (CDC consolidating all UPDATEs/ARCHIVE/UNARCHIVE)"
-if wait_for_view "$USER_A" "200" 15; then
-  echo "view ready"
+title "9.0 Polling Mongo via GET /users/$USER_C2 until 404 (CDC consolidating all UPDATEs/ARCHIVE/UNARCHIVE + the 8.1 delete)"
+# Gate on the newest event, not the oldest: USER_A has answered 200 since
+# section 4, so waiting on it gates nothing. USER_C2 was hard-deleted in 8.1 —
+# its doc flipping 200→404 proves the delete materialized, and (ordered,
+# single-partition stream) every update/archive/unarchive before it as well.
+if wait_for_view "$USER_C2" "404" 30; then
+  echo "view ready (delete materialized)"
 else
-  echo "TIMEOUT waiting for view (15s)"
+  echo "TIMEOUT waiting for view (30s)"
 fi
 
 show "9.1 GET /users/USER_A (with PATCHes already applied via CDC)" GET "/users/$USER_A" "" 200

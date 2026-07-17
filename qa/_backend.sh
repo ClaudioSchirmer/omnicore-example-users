@@ -11,6 +11,9 @@
 #   BACKEND=sqlserver →  Lane C: SQL Server + Kafka + Mongo, relay Debezium CONNECT
 #                        (local container by default; QA_SQLSERVER_CONTEXT +
 #                         QA_SQLSERVER_DB_HOST point the lane at a remote engine)
+#   BACKEND=oracle    →  Lane D: Oracle Free 23ai + NATS + Mongo, relay Debezium SERVER
+#                        (local container by default; QA_ORACLE_CONTEXT +
+#                         QA_ORACLE_DB_HOST point the lane at a remote engine)
 #
 # Defaults to postgres so a bare invocation runs lane A. It does TWO things:
 #
@@ -182,6 +185,8 @@ case "$BACKEND" in
     QA_BUILD_TAGS="sqlserver kafka"
     QA_TRANSPORT_TAG="kafka"
     QA_RELAY_KIND="connect"
+    # Lane-scoped broker probe (transport.sh): lane C owns its Kafka.
+    export QA_KAFKA_CONTAINER="omnicore-qa-kafka-sqlserver"
     QA_DB_CONTAINER="omnicore-qa-sqlserver"
     QA_MONGO_DB="users_views_sqlserver"
     QA_CONNECTOR_DIALECT="sqlserver"
@@ -215,8 +220,100 @@ case "$BACKEND" in
     _qa_sqlcmd -Q "IF DB_ID('users_db') IS NULL CREATE DATABASE users_db" >/dev/null 2>&1 || true
     ;;
 
+  oracle)
+    # Lane D: Oracle Free 23ai + NATS JetStream (its OWN server) + Mongo, relay
+    # Debezium SERVER — the matrix balance the maintainer chose (2 lanes per
+    # transport: A/C on Kafka, B/D on NATS). The DB container is LOCAL by
+    # default; a remote docker engine is opt-in via env — the only two knobs
+    # that move the lane:
+    #   QA_ORACLE_CONTEXT  docker context name (default: the local engine)
+    #   QA_ORACLE_DB_HOST  where host port 15211 answers (default 127.0.0.1)
+    # There is no CREATE DATABASE step: on Oracle the schema IS the app user
+    # (`omnicore`, created by the gvenzl image in FREEPDB1 on first boot; the
+    # bench init script grants it EXECUTE ON DBMS_LOCK + SELECT_CATALOG_ROLE).
+    export QA_DOCKER_CONTEXT="${QA_ORACLE_CONTEXT:-default}"
+    QA_ORACLE_DB_HOST="${QA_ORACLE_DB_HOST:-127.0.0.1}"
+    QA_ORACLE_APP_PASSWORD="${QA_ORACLE_APP_PASSWORD:-omnicore}"
+
+    export REL_DIALECT="oracle"
+    export DATABASE_URL="${DATABASE_URL_ORACLE:-oracle://omnicore:${QA_ORACLE_APP_PASSWORD}@${QA_ORACLE_DB_HOST}:15211/FREEPDB1}"
+    export MIGRATIONS_DIR="./migrations/oracle"
+    export MONGO_URI="${MONGO_URI:-mongodb://localhost:27028}"
+    export MONGO_DB="users_views_oracle"
+    export SYNC_GROUP_ID="omnicore-example-users-sync-oracle"
+    export INTEGRATION_GROUP_ID="omnicore-example-users-integration-oracle"
+    # Lane D transport = its OWN NATS JetStream (host :4242), for the lane-C
+    # reason: subject names are the cross-service contract
+    # (omnicore.<table>.events, no suffix knob by design), so sharing lane B's
+    # JetStream would cross the lanes' events.
+    export TRANSPORT_ENDPOINTS="${TRANSPORT_ENDPOINTS:-localhost:4242}"
+    # Lane D listener ports.
+    export HTTP_ADDR=":8086"
+    export GRPC_ADDR=":9097"
+    export BASE="http://localhost:8086"
+    export GRPC_BASE="http://localhost:9097"
+    export ECHO_URL="http://localhost:8086"       # httpclient echo self-calls
+    HTTP_PORT="8086"; export GRPC_PORT="9097"      # GRPC_PORT read by the yaml self-call baseURL
+    export OTEL_SERVICE_NAME="omnicore-example-users-oracle"
+    export REDIS_ADDR="localhost:6383"; export SHARED_REDIS_ADDR="localhost:6383"
+    export REDIS_KEY_PREFIX="omnicore-example-users-cache-oracle"
+    export SHARED_REDIS_KEY_PREFIX="omnicore-example-users-shared-oracle"
+    QA_REDIS_SERVICE="redis-oracle"
+
+    QA_BUILD_TAGS="oracle nats"
+    QA_TRANSPORT_TAG="nats"
+    QA_RELAY_KIND="server"
+    # Lane-scoped broker probes (transport.sh): lane D owns its NATS.
+    export QA_NATS_URL="nats://nats-oracle:4222"
+    QA_DB_CONTAINER="omnicore-qa-oracle"
+    QA_MONGO_DB="users_views_oracle"
+    QA_CONNECTOR_DIALECT="oracle"
+
+    _qa_sqlplus() { # runs a SQL script (stdin) inside the lane's container, honoring the context
+      docker --context "$QA_DOCKER_CONTEXT" exec -i "$QA_DB_CONTAINER" sqlplus -S \
+        "omnicore/${QA_ORACLE_APP_PASSWORD}@localhost/FREEPDB1"
+    }
+    # _qa_sql_terminated normalizes a suite statement for sqlplus: the other
+    # CLIs (psql -c / mysql -e / sqlcmd -Q) execute a bare statement — and run
+    # several statements handed on one line — but sqlplus only runs what a ';'
+    # AT END OF LINE terminates. So: trailing whitespace/semicolons stripped,
+    # one terminator re-appended, and every internal ';' gains a newline so a
+    # multi-statement string (qa_db_reset_domain's child-first DELETEs)
+    # executes statement by statement. (No suite SQL carries a ';' inside a
+    # literal; keep it that way.)
+    _qa_sql_terminated() {
+      local s="$1" nl=$'\n'
+      while [ -n "$s" ] && { [ "${s: -1}" = ";" ] || [[ "${s: -1}" =~ [[:space:]] ]]; }; do s="${s%?}"; done
+      s="${s//;/;$nl}"
+      printf '%s;\n' "$s"
+    }
+    # Clean scripting output: no headers/feedback/pagination, tab column
+    # separator, whitespace trimmed per line (sqlplus pads numeric columns).
+    qa_db_query() {
+      { printf 'SET PAGESIZE 0 FEEDBACK OFF HEADING OFF VERIFY OFF TRIMSPOOL ON TRIMOUT ON LINESIZE 32767 COLSEP "\t"\n'; _qa_sql_terminated "$1"; } \
+        | _qa_sqlplus | tr -d '\r' \
+        | sed -e 's/[[:space:]]*'$'\t''[[:space:]]*/'$'\t''/g' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d'
+    }
+    qa_db_exec()  { _qa_sql_terminated "$1" | _qa_sqlplus >/dev/null; }
+    qa_db_reset_domain() {
+      # No TRUNCATE CASCADE on Oracle and TRUNCATE refuses FK-referenced
+      # tables — DELETE child-first (identical row-visibility outcome; these
+      # are small QA tables).
+      qa_db_exec "DELETE FROM dependent_health_plans; DELETE FROM employee_job_histories; DELETE FROM employee_dependents; DELETE FROM employee_bank_accounts; DELETE FROM employees; DELETE FROM user_configurations; DELETE FROM addresses; DELETE FROM users; DELETE FROM persons; DELETE FROM outbox;"
+    }
+    # id columns are RAW(16); render as the lowercase canonical uuid text.
+    qa_uuid_select() { printf "LOWER(REGEXP_REPLACE(RAWTOHEX(%s), '(.{8})(.{4})(.{4})(.{4})(.{12})', '\\\\1-\\\\2-\\\\3-\\\\4-\\\\5'))" "$1"; }
+    # Compare a RAW(16) column to a UUID string (strip dashes, hex→raw).
+    qa_uuid_lit() { printf "HEXTORAW(REPLACE('%s','-',''))" "$1"; }
+    # Row-cap fragments for hand-written suite SQL: Oracle caps with a tail
+    # FETCH FIRST clause (valid without ORDER BY), no SELECT-head TOP.
+    export QA_SQL_TOP1=""; export QA_SQL_LIMIT1="FETCH FIRST 1 ROWS ONLY"
+    # Native 23ai BOOLEAN speaks the standard literals.
+    export QA_SQL_FALSE="FALSE"; export QA_SQL_TRUE="TRUE"
+    ;;
+
   *)
-    echo "qa/_backend.sh: unknown BACKEND='$BACKEND' (want postgres|mysql|sqlserver)" >&2
+    echo "qa/_backend.sh: unknown BACKEND='$BACKEND' (want postgres|mysql|sqlserver|oracle)" >&2
     return 1 2>/dev/null || exit 1
     ;;
 esac

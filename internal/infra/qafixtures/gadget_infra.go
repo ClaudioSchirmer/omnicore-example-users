@@ -261,6 +261,10 @@ func (a *GadgetEventSinkAdapter) Record(
 			"ON t.gadget_id = s.gadget_id " +
 			"WHEN NOT MATCHED THEN INSERT (gadget_id, code, name, category, status) " +
 			"VALUES (s.gadget_id, s.code, s.name, s.category, s.status);"
+	case ":1": // oracle — the dialect's own do-nothing MERGE (empty sets)
+		sql = d.BuildUpsert("gadget_events_sink",
+			[]string{"gadget_id", "code", "name", "category", "status"},
+			[]string{"gadget_id"}, nil)
 	default: // mysql
 		sql = fmt.Sprintf(
 			"INSERT IGNORE INTO gadget_events_sink (gadget_id, code, name, category, status) "+

@@ -1,9 +1,13 @@
-# QA bench — the automated test bench for qa/run.sh, running the TWO transport
-# lanes in parallel so every framework leg is exercised each run:
+# QA bench — the automated test bench for qa/run.sh, running the FOUR
+# engine×transport lanes in waves of two so every framework leg is exercised
+# each run (both brokers twice, both relay flavors twice):
 #   • Lane A — Postgres + Kafka + Mongo, relay = Debezium CONNECT → Kafka
 #   • Lane B — MySQL   + NATS  + Mongo, relay = Debezium SERVER  → NATS
-# Both lanes share one Mongo (distinct DBs), Keycloak, Redis, Jaeger and the ELK
-# stack. This is the "messy" bench the QA suites own and reset at will; the
+#   • Lane C — SQL Server + dedicated Kafka + Mongo, relay = Debezium CONNECT (profile sqlserver)
+#   • Lane D — Oracle Free 23ai + dedicated NATS + Mongo, relay = Debezium SERVER (profile oracle)
+# The lanes share one Mongo (distinct DBs), Keycloak and Jaeger; each has its
+# own Redis. qa/run.sh manages the containers per wave (cold bench between
+# waves). This is the "messy" bench the QA suites own and reset at will; the
 # separate docker-compose.dev.yml (project omnicore-dev) is the developer's
 # exclusive env and is NEVER touched here.
 #
@@ -51,6 +55,9 @@ services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: omnicore-qa-sqlserver
+    # The image is amd64-only; the explicit platform lets an Apple-Silicon
+    # docker pull and run it via Rosetta instead of failing the manifest match.
+    platform: linux/amd64
     profiles: ["sqlserver"]
     ports:
       - "14333:1433"
@@ -59,6 +66,17 @@ services:
       MSSQL_SA_PASSWORD: "OmnicoreQA!2026"
       MSSQL_AGENT_ENABLED: "true"
       MSSQL_PID: "Developer"
+      # Bound SQL Server's own memory. Without it the engine sizes itself
+      # against the WHOLE Docker VM and, under the full multi-lane bench, the
+      # VM OOM-killer takes the container (Exited 137) — the Keycloak rationale.
+      # 1 GB buffer pool is plenty for the QA workload; the generous gap to
+      # mem_limit is NOT slack — MSSQL_MEMORY_LIMIT_MB caps only the engine's
+      # memory manager, while worker-thread stacks, query grants and the
+      # Rosetta x64 translation live OUTSIDE it (a 512MB gap OOM-killed the
+      # container mid-e2e under lane parallelism). mem_limit still makes any
+      # breach deterministic (this container dies, not a random neighbor).
+      MSSQL_MEMORY_LIMIT_MB: "1024"
+    mem_limit: 3g
     volumes:
       - sqlserver_data:/var/opt/mssql
     healthcheck:
@@ -108,6 +126,10 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qx"
+      # Pin the JVM heap (the Keycloak rationale): unbounded, the broker was
+      # OOM-killed (137) under the full multi-lane bench.
+      KAFKA_HEAP_OPTS: "-Xms192m -Xmx512m"
+    mem_limit: 1g
     volumes:
       - kafka_sqlserver_data:/var/lib/kafka/data
     healthcheck:
@@ -133,11 +155,95 @@ services:
       STATUS_STORAGE_TOPIC: "connect_sqlserver_statuses"
       KEY_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
       VALUE_CONVERTER: "org.apache.kafka.connect.storage.StringConverter"
+      # Pin the JVM heap (the Keycloak rationale; twin of connect-oracle).
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx640m"
+    mem_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8083/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
+
+  # ── Lane D relational — Oracle Free 23ai (gvenzl, ARM64-native) under the
+  # `oracle` compose profile so `up -d` without the profile changes nothing for
+  # the other lanes. The image creates the `omnicore` app user in FREEPDB1 on
+  # first boot; the init script grants it EXECUTE ON DBMS_LOCK (the framework's
+  # rebuild/migration lock — not a default grant) + SELECT_CATALOG_ROLE (the
+  # lock-holder diagnostic). Floor: the framework's oracle engine requires
+  # Oracle Database 23ai+ (native BOOLEAN/JSON).
+  oracle:
+    # PINNED to a 23ai Release Update on purpose (not the floating :23): newer
+    # builds ship the 23.26+ rebrand whose banner reads "Oracle AI Database
+    # 26ai Free" — Debezium's Oracle version parser (3.0 AND 3.3) expects the
+    # "Oracle Database …" prefix and fails connector validation with "Failed
+    # to resolve Oracle database version". 23.5 is squarely on the framework's
+    # 23ai floor.
+    image: gvenzl/oracle-free:23.5
+    container_name: omnicore-qa-oracle
+    profiles: ["oracle"]
+    ports:
+      - "15211:1521"
+    environment:
+      ORACLE_PASSWORD: "OmnicoreQA!2026"
+      APP_USER: "omnicore"
+      APP_USER_PASSWORD: "omnicore"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+      - ./oracle/init:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Lane D Redis (same rationale as the other per-lane brokers).
+  redis-oracle:
+    image: redis:7-alpine
+    container_name: omnicore-qa-redis-oracle
+    profiles: ["oracle"]
+    ports:
+      - "6383:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Lane D transport — its OWN NATS JetStream + a Debezium SERVER relay
+  # (Oracle → NATS), both under the `oracle` profile. Own NATS for the lane-C
+  # reason: subject names are the cross-service contract
+  # (omnicore.<table>.events, no suffix knob by design), so sharing lane B's
+  # JetStream would cross the lanes' event streams. The relay is Debezium
+  # Server (static config in ./debezium/conf-oracle-nats, no REST API) — the
+  # lane-B pattern; register-connector.sh recreates it and waits for
+  # streaming. App on the host connects at localhost:4242.
+  nats-oracle:
+    image: nats:2.10-alpine
+    container_name: omnicore-qa-nats-oracle
+    profiles: ["oracle"]
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4242:4222"
+      - "8242:8222"
+    volumes:
+      - nats_oracle_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8222/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  debezium-server-oracle:
+    image: quay.io/debezium/server:3.6.0.Final
+    container_name: omnicore-qa-debezium-oracle
+    profiles: ["oracle"]
+    depends_on:
+      nats-oracle:
+        condition: service_healthy
+    mem_limit: 1g
+    volumes:
+      - ./debezium/conf-oracle-nats:/debezium/config:ro
+      - debezium_oracle_data:/debezium/data
 
   mysql:
     image: mysql:8.4
@@ -194,6 +300,11 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      # Pin the JVM heap (the Keycloak rationale; twin of kafka-sqlserver):
+      # unbounded, the broker idles near 900MiB and the 4-lane bench total
+      # tips the Docker VM into global OOM (which kills the fattest neighbor).
+      KAFKA_HEAP_OPTS: "-Xms192m -Xmx512m"
+    mem_limit: 1g
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
@@ -226,6 +337,9 @@ services:
       CONFIG_STORAGE_REPLICATION_FACTOR: 1
       OFFSET_STORAGE_REPLICATION_FACTOR: 1
       STATUS_STORAGE_REPLICATION_FACTOR: 1
+      # Pin the JVM heap (the Keycloak rationale; twin of connect-sqlserver).
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx640m"
+    mem_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8083/ >/dev/null || exit 1"]
       interval: 10s
@@ -261,6 +375,8 @@ services:
     depends_on:
       nats:
         condition: service_healthy
+    # Same bound as debezium-server-oracle: a breach dies here, deterministically.
+    mem_limit: 1g
     volumes:
       - ./debezium/conf-mysql-nats:/debezium/config:ro
       - debezium_data:/debezium/data
@@ -320,16 +436,26 @@ services:
     container_name: omnicore-qa-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
+      # The default in-memory span store is UNBOUNDED — observed >1GiB after a
+      # few matrix runs, prime target of the VM-wide OOM killer. QA only ever
+      # queries recent traces (tracing.sh), so cap the store and the container.
+      MEMORY_MAX_TRACES: "10000"
+    mem_limit: 768m
     ports:
       - "16686:16686"   # web UI
       - "4317:4317"     # OTLP gRPC — the app on the host exports here
       - "4318:4318"     # OTLP HTTP
 
-  # ── Shared — Logging stack (ELK). Optional: no suite depends on it; a dev
-  # convenience for browsing the mirrored app logs in Kibana (:5601). ─────────
+  # ── Shared — Logging stack (ELK), under the `elk` compose profile: OFF by
+  # default (no suite depends on it — a dev convenience for browsing the
+  # mirrored app logs in Kibana :5601). Everything stays defined here; opt in
+  # with `--profile elk up -d`. Keeping it down by default frees ~1.6 GiB of
+  # the Docker VM — the headroom the sqlserver + oracle lanes need to run
+  # locally side by side. ─────────────────────────────────────────────────────
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     container_name: omnicore-qa-elasticsearch
+    profiles: ["elk"]
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -345,6 +471,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
     container_name: omnicore-qa-kibana
+    profiles: ["elk"]
     depends_on:
       - elasticsearch
     environment:
@@ -355,6 +482,7 @@ services:
   filebeat:
     image: docker.elastic.co/beats/filebeat:8.13.4
     container_name: omnicore-qa-filebeat
+    profiles: ["elk"]
     user: root
     depends_on:
       - elasticsearch
@@ -367,6 +495,9 @@ volumes:
   postgres_data:
   sqlserver_data:
   kafka_sqlserver_data:
+  oracle_data:
+  nats_oracle_data:
+  debezium_oracle_data:
   mysql_data:
   mongo_data:
   kafka_data:

@@ -12,20 +12,27 @@ import (
 
 // qaExecDDL executes each provisioning statement through the engine's neutral
 // Querier, translating the MySQL-shaped DDL into T-SQL when the engine is SQL
-// Server (detected the same way the provisioners pick their dialect branch —
-// by the placeholder form). The QA fixtures deliberately keep TWO hand-written
-// DDL flavors (postgres + mysql, the always-on lanes) and derive the third
-// mechanically: the MySQL shapes already use BINARY(16)/VARCHAR/
-// CURRENT_TIMESTAMP, so only four idioms differ, all rewritten below. This is
-// QA scaffolding — the canonical service keeps hand-written per-dialect
-// migrations (migrations/{postgres,mysql,sqlserver}); never copy this
-// translator into production code.
+// Server and into Oracle DDL when it is Oracle (detected the same way the
+// provisioners pick their dialect branch — by the placeholder form). The QA
+// fixtures deliberately keep TWO hand-written DDL flavors (postgres + mysql,
+// the always-on lanes) and derive the others mechanically: the MySQL shapes
+// already use BINARY(16)/VARCHAR/CURRENT_TIMESTAMP, so only a handful of
+// idioms differ per target, all rewritten below. This is QA scaffolding — the
+// canonical service keeps hand-written per-dialect migrations
+// (migrations/{postgres,mysql,sqlserver,oracle}); never copy this translator
+// into production code.
 func qaExecDDL(ctx context.Context, eng fwdb.RelationalEngine, stmts ...string) error {
-	sqlserver := eng.Dialect().Placeholder(1) == "@p1"
+	var rewrite func(string) string
+	switch eng.Dialect().Placeholder(1) {
+	case "@p1":
+		rewrite = mysqlDDLToTSQL
+	case ":1":
+		rewrite = mysqlDDLToOracle
+	}
 	q := eng.Querier()
 	for _, stmt := range stmts {
-		if sqlserver {
-			stmt = mysqlDDLToTSQL(stmt)
+		if rewrite != nil {
+			stmt = rewrite(stmt)
 		}
 		if err := q.Exec(ctx, stmt); err != nil {
 			return err

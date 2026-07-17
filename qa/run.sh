@@ -2,16 +2,30 @@
 # qa/run.sh — the one-command QA matrix: every suite, BOTH transport lanes, run
 # in PARALLEL, one report.
 #
-#   ./qa/run.sh              # both lanes in parallel (the default)
+#   ./qa/run.sh              # every available lane, in waves (the default)
 #   ./qa/run.sh postgres     # one lane only (Postgres + Kafka)
 #   ./qa/run.sh mysql        #                (MySQL + NATS)
 #   SUITES="e2e employee" ./qa/run.sh   # subset (space-separated overrides)
 #   ./qa/run.sh --keep-going            # do NOT stop at the first RED suite
+#   QA_MAX_PARALLEL_LANES=4 ./qa/run.sh # full parallelism (needs a roomier Docker VM)
 #
-# The two lanes exercise BOTH legs of the transport seam every run:
+# The lanes exercise every leg of the engine × transport seams each run:
 #   • Lane A — Postgres + Kafka + Mongo, relay Debezium CONNECT (:8081 / gRPC :9091)
 #   • Lane B — MySQL   + NATS  + Mongo, relay Debezium SERVER  (:8082 / gRPC :9092)
 #   • Lane C — SQL Server + DEDICATED Kafka + Mongo, relay Debezium CONNECT (:8084 / gRPC :9093)
+#   • Lane D — Oracle Free 23ai + DEDICATED NATS + Mongo, relay Debezium SERVER (:8086 / gRPC :9097)
+#
+# Lanes run in WAVES of QA_MAX_PARALLEL_LANES (default 2, list order — A+B then
+# C+D) on a COLD BENCH: each wave brings up ONLY its lanes' containers (engine +
+# broker + relay + redis), runs, then stops them again before the next wave.
+# Two reasons: (a) an 8 GB Docker VM cannot hold four lanes' peak activity
+# (that's what OOM-killed containers); (b) an "idle" lane is never idle — the
+# CDC relays poll continuously (LogMiner mining sessions, binlog/WAL readers,
+# broker housekeeping), so hot neighbors tax the running wave's wall clock and
+# skew the per-suite timings. The shared trio (mongo + keycloak + jaeger) stays
+# up across waves; jaeger restarts between waves (drops its in-RAM trace
+# store). The report accumulates across waves into the same side-by-side
+# column groups, rendered live after every suite.
 # Each lane runs on its OWN app ports, binary, relay and Redis, and its OWN Mongo
 # DB (users_views / users_views_mysql), so they never collide — the whole suite
 # list runs on each lane concurrently. Wall-clock ≈ the slower lane, not the sum.
@@ -21,11 +35,12 @@
 # reported "never ran", exit 1). Pass --keep-going (or KEEP_GOING=1) to run every
 # scheduled suite regardless — the exhaustive sweep for sizing a change.
 #
-# Prerequisites: the QA bench up (docker compose -f devops/docker-compose.yml up -d)
-# and jq installed. Everything else is handled here: each lane builds its own
-# single-transport binary; the lane's relay is (re)started and proven streaming;
-# the "running already" suites run against a per-lane server this script starts
-# and stops; the self-managed suites get their lane's free port.
+# Prerequisites: Docker and jq. The bench itself is managed HERE (wave up/stop
+# per lane group; shared infra up front; lanes A/B restored at the end — the
+# documented default bench). Each lane builds its own single-transport binary;
+# the lane's relay is (re)started and proven streaming; the "running already"
+# suites run against a per-lane server this script starts and stops; the
+# self-managed suites get their lane's free port.
 #
 # Report: qa-report.md at the STACK ROOT (two levels above qa/), one section per
 # lane, written when the run completes. Exit code: 0 only when every scheduled run
@@ -39,19 +54,20 @@ BACKENDS="all"
 KEEP_GOING="${KEEP_GOING:-0}"
 for arg in "$@"; do
   case "$arg" in
-    all|postgres|mysql|sqlserver) BACKENDS="$arg" ;;
+    all|postgres|mysql|sqlserver|oracle) BACKENDS="$arg" ;;
     --keep-going|-k)    KEEP_GOING=1 ;;
-    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver] [--keep-going]" >&2; exit 2 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle] [--keep-going]" >&2; exit 2 ;;
   esac
 done
 case "$BACKENDS" in
-  # `all` schedules the full 3-lane matrix; a lane whose infrastructure is not
+  # `all` schedules the full 4-lane matrix; a lane whose infrastructure is not
   # reachable SKIPs (⚠ in the report, never RED) via the availability filter
-  # below. `./qa/run.sh sqlserver` still runs lane C alone.
-  all)       BACKEND_LIST="postgres mysql sqlserver" ;;
+  # below. `./qa/run.sh sqlserver` / `oracle` still runs that lane alone.
+  all)       BACKEND_LIST="postgres mysql sqlserver oracle" ;;
   postgres)  BACKEND_LIST="postgres" ;;
   mysql)     BACKEND_LIST="mysql" ;;
   sqlserver) BACKEND_LIST="sqlserver" ;;
+  oracle)    BACKEND_LIST="oracle" ;;
 esac
 
 # Lane availability: a requested lane RUNS when its infrastructure answers and
@@ -64,21 +80,16 @@ lane_available() {
     sqlserver)
       docker --context "${QA_SQLSERVER_CONTEXT:-default}" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-sqlserver$' \
         && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-kafka-sqlserver$' ;;
+    oracle)
+      docker --context "${QA_ORACLE_CONTEXT:-default}" ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-oracle$' \
+        && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^omnicore-qa-nats-oracle$' ;;
     *) return 0 ;;  # lanes A/B ride the base-bench check below
   esac
 }
-RUN_BACKENDS=""; SKIP_BACKENDS=""
-for _b in $BACKEND_LIST; do
-  if lane_available "$_b"; then RUN_BACKENDS="$RUN_BACKENDS $_b"; else SKIP_BACKENDS="$SKIP_BACKENDS $_b"; fi
-done
-RUN_BACKENDS="${RUN_BACKENDS# }"; SKIP_BACKENDS="${SKIP_BACKENDS# }"
-if [ -z "$RUN_BACKENDS" ]; then
-  echo "no requested lane is available (requested: $BACKEND_LIST)." >&2
-  echo "  sqlserver lane: docker compose -f devops/docker-compose.yml --profile sqlserver up -d" >&2
-  echo "                  (remote DB: QA_SQLSERVER_CONTEXT=<ctx> QA_SQLSERVER_DB_HOST=<host>)" >&2
-  exit 0
-fi
-[ -n "$SKIP_BACKENDS" ] && echo "lane(s) unavailable — will report ⚠ SKIP: $SKIP_BACKENDS" >&2
+# Availability is judged PER WAVE, after the wave's infra starts (a cold bench
+# has nothing running up front): a lane that does not answer post-up SKIPs —
+# ⚠ cells, never RED — and the wave runs whoever answered.
+RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
@@ -146,6 +157,7 @@ render_report() {
         postgres)  echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
         mysql)     echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
         sqlserver) echo "- **Lane C** — SQL Server + Kafka (Debezium Connect, dedicated broker)" ;;
+        oracle)    echo "- **Lane D** — Oracle Free 23ai + NATS (Debezium Server, dedicated JetStream)" ;;
         *)         echo "- **Lane** — $B" ;;
       esac
       hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
@@ -318,6 +330,44 @@ cdc_warmup() {
   [ -n "$id" ] && curl -sS -o /dev/null -X DELETE "$BASE/users/$id" 2>/dev/null || true
 }
 
+# ── Wave infra lifecycle (cold bench between waves) ──────────────────────────
+# Each lane's containers: engine + broker + relay + its Redis. The SHARED trio
+# (mongo + keycloak + jaeger) is wave-independent — preflight starts it and it
+# stays up. Both profiles ride every compose call so the C/D services resolve.
+COMPOSE_CMD="docker compose -f devops/docker-compose.yml --profile sqlserver --profile oracle"
+lane_services() {
+  case "$1" in
+    postgres)  echo "postgres kafka connect redis" ;;
+    mysql)     echo "mysql nats debezium-server redis-mysql" ;;
+    sqlserver) # a remote-DB lane starts everything but the (remote) engine
+      if [ -n "${QA_SQLSERVER_DB_HOST:-}" ]; then echo "kafka-sqlserver connect-sqlserver redis-sqlserver"
+      else echo "sqlserver kafka-sqlserver connect-sqlserver redis-sqlserver"; fi ;;
+    oracle)
+      if [ -n "${QA_ORACLE_DB_HOST:-}" ]; then echo "nats-oracle debezium-server-oracle redis-oracle"
+      else echo "oracle nats-oracle debezium-server-oracle redis-oracle"; fi ;;
+  esac
+}
+wave_up() {
+  local svcs="" b
+  for b in "$@"; do svcs="$svcs $(lane_services "$b")"; done
+  bold "──────── wave infra up:$svcs ────────"
+  # Warm starts (stop, never down — volumes/state kept). --wait gates on the
+  # healthchecks (engines, brokers, connects); the relays are force-recreated
+  # per lane by relay_setup anyway. A failure falls through to the per-wave
+  # availability check, which turns the lane into ⚠ SKIP.
+  $COMPOSE_CMD up -d --wait $svcs >/dev/null 2>&1 || true
+}
+wave_down() {
+  [ "$#" -eq 0 ] && return 0
+  local svcs="" b
+  for b in "$@"; do svcs="$svcs $(lane_services "$b")"; done
+  bold "──────── wave infra stop:$svcs ────────"
+  $COMPOSE_CMD stop $svcs >/dev/null 2>&1 || true
+  # Drop jaeger's in-RAM trace store between waves — the next wave's tracing
+  # suite only queries its own lane's service anyway.
+  docker restart omnicore-qa-jaeger >/dev/null 2>&1 || true
+}
+
 # ── One lane's full pipeline (runs as a background job) ───────────────────────
 run_lane() {
   local B="$1"
@@ -391,8 +441,10 @@ run_lane() {
 
 # ── Preflight ────────────────────────────────────────────────────────────────
 command -v jq >/dev/null || { ABORT_REASON="jq not installed"; echo "jq is required (brew install jq)" >&2; exit 2; }
-docker compose -f devops/docker-compose.yml ps --format '{{.Name}}' 2>/dev/null | grep -q omnicore-qa-postgres \
-  || { ABORT_REASON="QA bench is not up"; echo "QA bench is not up — run: docker compose -f devops/docker-compose.yml up -d" >&2; exit 2; }
+# Shared, wave-independent infra up front; each wave manages only its lanes.
+bold "shared infra up (mongo + keycloak + jaeger) ..."
+docker compose -f devops/docker-compose.yml up -d --wait mongo keycloak jaeger >/dev/null 2>&1 \
+  || { ABORT_REASON="shared infra failed to start"; echo "could not start mongo/keycloak/jaeger — is Docker running?" >&2; exit 2; }
 if grep -qE 'auth|authz' <<<"$SUITES"; then
   bold "waiting for Keycloak (auth/authz suites requested) ..."
   ./devops/keycloak/wait-ready.sh >/dev/null 2>&1 || true
@@ -404,42 +456,74 @@ bold "report: $REPORT_MD"
 
 # ── Launch the lanes in parallel ─────────────────────────────────────────────
 overall_start=$(date +%s)
-# Pre-fill the skipped lanes' report cells (⚠ SKIP, one per suite) so the
-# matrix stays complete and the verdict can tell "skipped" from "never ran".
-for B in $SKIP_BACKENDS; do
-  : > "$LOG_DIR/rows-$B.tsv"
-  for S in $SUITES; do printf '%s\t%s\t-\t-\tSKIP\t-\n' "$S" "$B" >> "$LOG_DIR/rows-$B.tsv"; done
-done
-LANE_PIDS=""
-for B in $RUN_BACKENDS; do
-  run_lane "$B" &
-  LANE_PIDS="$LANE_PIDS $!"
-done
-for pid in $LANE_PIDS; do wait "$pid"; done
-
-# ── Serial phase: the source-mutating suites, one lane at a time ─────────────
-# schema_evolution patches internal/infra/views.go and rebuilds, so it runs only
-# now that every parallel build has finished — and postgres then mysql, never
-# together, since they share the source tree + backup path.
+# Waves of QA_MAX_PARALLEL_LANES (see the header): each wave brings up ONLY its
+# lanes' infra, runs the lanes in parallel, runs the source-mutating serial
+# suites for those lanes, then stops the wave's containers. The next wave
+# starts when the previous fully drains — and not at all once fail-fast
+# tripped (its lanes report "never ran", like today).
+QA_MAX_PARALLEL_LANES="${QA_MAX_PARALLEL_LANES:-2}"
 serial_requested=""
 for s in $SUITES; do grep -qw "$s" <<<"$SERIAL_SUITES" && serial_requested="$serial_requested $s"; done
-if [ -n "$serial_requested" ] && ! stop_requested; then
-  bold ""
-  bold "──────── serial phase (source-mutating suites):$serial_requested ────────"
-  for B in $RUN_BACKENDS; do
-    ( export BACKEND="$B"
-      # shellcheck source=qa/_backend.sh
-      source qa/_backend.sh
-      LANE_ROWS="$LOG_DIR/rows-$B.tsv"; LANE_FRAG="$LOG_DIR/frag-$B.md"
-      for s in $serial_requested; do
-        stop_requested && break
-        t0=$(date +%s)
-        ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1; rc=$?
-        record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))" || fail_fast "$s" "$B"
-      done
-    )
+
+set -- $RUN_BACKENDS
+while [ "$#" -gt 0 ] && ! stop_requested; do
+  WAVE=""; N=0
+  while [ "$#" -gt 0 ] && [ "$N" -lt "$QA_MAX_PARALLEL_LANES" ]; do
+    WAVE="$WAVE $1"; shift; N=$((N+1))
   done
-fi
+  wave_up $WAVE
+  # Post-up availability: an unreachable lane's report cells pre-fill as
+  # ⚠ SKIP (one per suite) so the matrix stays complete and the verdict can
+  # tell "skipped" from "never ran".
+  WAVE_RUN=""
+  for B in $WAVE; do
+    if lane_available "$B"; then WAVE_RUN="$WAVE_RUN $B"; else
+      SKIP_BACKENDS="$SKIP_BACKENDS $B"
+      echo "lane unavailable — reporting ⚠ SKIP: $B" >&2
+      : > "$LOG_DIR/rows-$B.tsv"
+      for S in $SUITES; do printf '%s\t%s\t-\t-\tSKIP\t-\n' "$S" "$B" >> "$LOG_DIR/rows-$B.tsv"; done
+      render_report "$(progress_footer)"
+    fi
+  done
+  WAVE_RUN="${WAVE_RUN# }"
+  [ -z "$WAVE_RUN" ] && continue
+  bold "──────── lane wave: $WAVE_RUN ────────"
+  LANE_PIDS=""
+  for B in $WAVE_RUN; do
+    run_lane "$B" &
+    LANE_PIDS="$LANE_PIDS $!"
+  done
+  for pid in $LANE_PIDS; do wait "$pid"; done
+
+  # Serial phase for THIS wave: schema_evolution patches internal/infra/views.go
+  # (shared source + backup path) and rebuilds, so it runs one lane at a time,
+  # only after the wave's parallel builds drained — and before the wave's infra
+  # stops (it needs the lane's engine + relay live).
+  if [ -n "$serial_requested" ] && ! stop_requested; then
+    bold "──────── serial phase (source-mutating suites):$serial_requested ────────"
+    for B in $WAVE_RUN; do
+      ( export BACKEND="$B"
+        # shellcheck source=qa/_backend.sh
+        source qa/_backend.sh
+        LANE_ROWS="$LOG_DIR/rows-$B.tsv"; LANE_FRAG="$LOG_DIR/frag-$B.md"
+        for s in $serial_requested; do
+          stop_requested && break
+          t0=$(date +%s)
+          ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1; rc=$?
+          record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))" || fail_fast "$s" "$B"
+        done
+      )
+    done
+  fi
+
+  # Fail-fast leaves the wave's infra UP — the crime scene stays intact for
+  # diagnosis. A clean wave stops its containers (warm stop, volumes kept).
+  stop_requested || wave_down $WAVE_RUN
+done
+
+# Restore the documented default bench (lanes A/B up, C/D down) — unless
+# fail-fast tripped, in which case the failing wave's infra is still up.
+stop_requested || docker compose -f devops/docker-compose.yml up -d >/dev/null 2>&1 || true
 
 elapsed=$(( $(date +%s) - overall_start ))
 
