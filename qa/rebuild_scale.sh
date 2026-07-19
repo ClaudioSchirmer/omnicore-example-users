@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # rebuild_scale.sh — online blue-green view rebuild under LOAD + full MULTI-POD.
 #
-# Heavy, standalone suite (NOT in the qa/run.sh matrix — like perf.sh). It proves
-# the whole blue-green story end to end on a large FULL aggregate:
+# Heavy suite that proves the whole blue-green story end to end on a large FULL
+# aggregate:
 #   • CRUD works on a live service (insert + edit + read),
 #   • a version-bump rebuild that ADDS A NULLABLE COLUMN to the view runs online,
 #   • a second pod (POD A, the driver) rebuilds while POD B keeps serving,
@@ -12,32 +12,41 @@
 #   • after the flip a fresh pod (POD D) and POD A/C read the NEW view,
 #   • zero data loss, inspected via BOTH the database AND the HTTP endpoints.
 #
-# Postgres-only (the bulk seed uses gen_random_uuid / generate_series). The
-# service source is patched (entity + schema + read DTOs + view Version) and a
-# nullable `nickname` column added; a cleanup trap restores the tree + drops the
-# column on every exit path.
+# LANE-DRIVEN like every other qa suite: `BACKEND=postgres|mysql|sqlserver|oracle`
+# selects the whole leg (engine + transport + relay + Mongo DB + ports) via
+# _backend.sh; the bulk seed is dialect-aware (row generator + id type differ).
+# It runs in the qa/run.sh matrix as a SERIAL suite (it patches the shared source
+# tree + rebuilds, so it cannot run concurrent with another lane's build), one
+# lane at a time with SEED_COUNT=100000; run.sh SKIPs a lane whose infra is down.
 #
-# Prerequisites (bench up + relay registered):
+# The service source is patched (entity + schema + read DTOs + BOTH views' Version)
+# and a nullable `nickname` column added; a cleanup trap restores the tree, drops
+# the column + registry rows, and wipes the seeded domain on every exit path.
+#
+# Prerequisites (the lane's bench up + relay registered) — qa/run.sh does this; by
+# hand, e.g. the postgres lane:
 #   docker compose -f devops/docker-compose.yml up -d postgres mongo kafka connect redis --wait
 #   ./devops/debezium/register-connector.sh postgres
 #
-# Run:   bash qa/rebuild_scale.sh
-# Tune:  SEED_COUNT=1000000 CONCURRENT_WRITES=200 LEASE_SECONDS=2 bash qa/rebuild_scale.sh
+# Run:   BACKEND=postgres bash qa/rebuild_scale.sh
+# Tune:  SEED_COUNT=1000000 CONCURRENT_WRITES=200 LEASE_SECONDS=2 BACKEND=mysql bash qa/rebuild_scale.sh
 
 set -u
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export BACKEND=postgres
+export BACKEND="${BACKEND:-postgres}"     # inherited from run.sh; defaults to lane A standalone
 source "$REPO_ROOT/qa/_backend.sh"
 
 SEED_COUNT="${SEED_COUNT:-1000000}"
 CONCURRENT_WRITES="${CONCURRENT_WRITES:-200}"
 LEASE_SECONDS="${LEASE_SECONDS:-2}"          # pointerLeaseSeconds override — keeps fence waits short
 REBUILD_TIMEOUT="${REBUILD_TIMEOUT:-3600}"   # a 1M full-aggregate backfill takes minutes
+WINDOW_MIN="${WINDOW_MIN:-50000}"            # below this the (set-based, fast) backfill flips before the live writes land — too short to observe the old-slot dual-writes; the new-slot no-loss check still runs at every seed
+SMOKE_CDC_TIMEOUT="${SMOKE_CDC_TIMEOUT:-120}" # first-boot read-back poll — generous for a cold relay (Oracle LogMiner floors at seconds)
 
-BIN_V1="/tmp/omnicore-rs-v1"
-BIN_V2="/tmp/omnicore-rs-v2"
-FAST_YAML="/tmp/omnicore-rs-fast.yaml"
+BIN_V1="/tmp/omnicore-rs-v1-$BACKEND"
+BIN_V2="/tmp/omnicore-rs-v2-$BACKEND"
+FAST_YAML="/tmp/omnicore-rs-fast-$BACKEND.yaml"
 
 # Files the "add a nullable column, project it, bump the view" edit patches.
 VIEW_SRC="$REPO_ROOT/internal/infra/views/user_view.go"
@@ -48,16 +57,17 @@ DTO_ID_SRC="$REPO_ROOT/internal/web/requests/find_user_by_id.go"
 DTO_LIST_SRC="$REPO_ROOT/internal/web/requests/find_users_by_params.go"
 PATCHED=("$VIEW_SRC" "$PERSON_VIEW_SRC" "$SCHEMA_SRC" "$ENTITY_SRC" "$DTO_ID_SRC" "$DTO_LIST_SRC")
 
-# POD B on the lane port (BASE), the others on +offset. Same sync group / DB /
-# Mongo / broker → one competing-consumer group.
-B_HTTP=":$HTTP_PORT";        B_BASE="$BASE"
-A_HTTP=":$((HTTP_PORT+10))"; A_BASE="http://localhost:$((HTTP_PORT+10))"
-C_HTTP=":$((HTTP_PORT+20))"; C_BASE="http://localhost:$((HTTP_PORT+20))"
-D_HTTP=":$((HTTP_PORT+30))"; D_BASE="http://localhost:$((HTTP_PORT+30))"
+# POD B on the lane ports (BASE / GRPC_PORT), the others on +offset. Same sync
+# group / DB / Mongo / broker → one competing-consumer group. run.sh runs this
+# suite serially per lane, so only one lane's pods are ever up at a time.
+B_HTTP=":$HTTP_PORT";           B_BASE="$BASE";                                B_GRPC="$GRPC_PORT"
+A_HTTP=":$((HTTP_PORT+10))";    A_BASE="http://localhost:$((HTTP_PORT+10))";   A_GRPC="$((GRPC_PORT+10))"
+C_HTTP=":$((HTTP_PORT+20))";    C_BASE="http://localhost:$((HTTP_PORT+20))";   C_GRPC="$((GRPC_PORT+20))"
+D_HTTP=":$((HTTP_PORT+30))";    D_BASE="http://localhost:$((HTTP_PORT+30))";   D_GRPC="$((GRPC_PORT+30))"
 # The transient first-boot pod (migrate + FreshInit) gets its OWN throwaway ports
-# so POD B never reuses them — otherwise the first pod's just-closed :90XX gRPC
-# socket lingers in TIME_WAIT and POD B's bind fails, tearing down its rebuild.
-BOOT_HTTP=":$((HTTP_PORT+40))"; BOOT_BASE="http://localhost:$((HTTP_PORT+40))"
+# so POD B never reuses them — otherwise the first pod's just-closed gRPC socket
+# lingers in TIME_WAIT and POD B's bind fails, tearing down its rebuild.
+BOOT_HTTP=":$((HTTP_PORT+40))"; BOOT_BASE="http://localhost:$((HTTP_PORT+40))"; BOOT_GRPC="$((GRPC_PORT+40))"
 
 declare -a PIDS=()
 PASS=0; FAIL=0
@@ -66,32 +76,91 @@ hr()  { printf '\n\033[1;36m%s\033[0m\n' "======================================
 sec() { hr; printf '\033[1;33m== %s ==\033[0m\n' "$1"; }
 title(){ printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 
-pq()  { docker exec "${QA_DB_CONTAINER:-omnicore-qa-postgres}" psql -U omnicore -d users_db -tA "$@"; }
+# DB access is lane-aware (qa_db_query / qa_db_exec from _backend.sh); the Mongo
+# read side lives in one container, isolated per lane by DB name (QA_MONGO_DB).
 mq()  { docker exec "${QA_MONGO_CONTAINER:-omnicore-qa-mongo}" mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null; }
-reg() { pq -c "SELECT COALESCE($1::text,'') FROM omnicore_mongo_views WHERE view_name='users';" | tr -d '[:space:]'; }
+reg() { qa_db_query "SELECT COALESCE($1,'') FROM omnicore_mongo_views WHERE view_name='users'" | tr -d '[:space:]'; }
 mcount() { mq "print(db.getCollection('$1').countDocuments({}))" | tr -d '[:space:]'; }
 
 assert_eq(){ if [ "$2" = "$3" ]; then PASS=$((PASS+1)); printf '  \033[1;32m✔\033[0m %s: %s\n' "$1" "$3"; else FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m %s: expected %q, got %q\n' "$1" "$2" "$3"; fi; }
 assert_ge(){ if [ -n "$3" ] && [ "$3" -ge "$2" ] 2>/dev/null; then PASS=$((PASS+1)); printf '  \033[1;32m✔\033[0m %s: %s (>= %s)\n' "$1" "$3" "$2"; else FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m %s: expected >= %q, got %q\n' "$1" "$2" "$3"; fi; }
 assert_true(){ if [ "$2" = "true" ]; then PASS=$((PASS+1)); printf '  \033[1;32m✔\033[0m %s\n' "$1"; else FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m %s (got %q)\n' "$1" "$2"; fi; }
 
+# ── dialect-aware DDL/DML the lane helpers do not cover ──────────────────────
+add_nickname_col(){
+  case "$REL_DIALECT" in
+    postgres)  qa_db_exec "ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(100)" ;;
+    mysql)     qa_db_exec "ALTER TABLE users ADD COLUMN nickname VARCHAR(100)" ;;
+    sqlserver) qa_db_exec "ALTER TABLE users ADD nickname VARCHAR(100)" ;;
+    oracle)    qa_db_exec "ALTER TABLE users ADD nickname VARCHAR2(100)" ;;
+  esac
+}
+drop_nickname_col(){   # best-effort — tolerate "column does not exist"
+  case "$REL_DIALECT" in
+    postgres) qa_db_exec "ALTER TABLE users DROP COLUMN IF EXISTS nickname" 2>/dev/null || true ;;
+    *)        qa_db_exec "ALTER TABLE users DROP COLUMN nickname"           2>/dev/null || true ;;
+  esac
+}
+reset_registry(){ qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','persons')" 2>/dev/null || true; }
+drop_mongo_slots(){ mq "['users','users__0','users__1','persons','persons__0','persons__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null 2>&1 || true; }
+
+# Bulk-seed N full aggregates (persons + users + addresses + user_configurations)
+# via raw SQL — the rebuild backfill reads the relational source directly, and the
+# API would be orders of magnitude too slow at this scale. The row generator and
+# the id type diverge per dialect; the column names are identical everywhere.
+seed_aggregates(){
+  local n="$1" D V
+  case "$REL_DIALECT" in
+    postgres)
+      qa_db_exec "INSERT INTO persons (id,document,name,email) SELECT gen_random_uuid(),'sd'||g,'name '||g,'p'||g||'@qa.test' FROM generate_series(1,$n) g"
+      qa_db_exec "INSERT INTO users (id,user_name) SELECT id,'u_'||document FROM persons"
+      qa_db_exec "INSERT INTO addresses (person_id,street,number,neighborhood,city,state,zip_code,country) SELECT id,'St','1','Nb','City','ST','00000','US' FROM persons"
+      qa_db_exec "INSERT INTO user_configurations (id,email_notification) SELECT id,$QA_SQL_TRUE FROM users WHERE random()<0.5"
+      ;;
+    mysql)
+      # numbers 1..1e6 via a cross-join of six inline digit tables, filtered to n.
+      D="(SELECT 0 i UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9)"
+      qa_db_exec "INSERT INTO persons (id,document,name,email) SELECT UUID_TO_BIN(UUID(),0),CONCAT('sd',g),CONCAT('name ',g),CONCAT('p',g,'@qa.test') FROM (SELECT t6.i*100000+t5.i*10000+t4.i*1000+t3.i*100+t2.i*10+t1.i+1 g FROM $D t1,$D t2,$D t3,$D t4,$D t5,$D t6) nums WHERE g<=$n"
+      qa_db_exec "INSERT INTO users (id,user_name) SELECT id,CONCAT('u_',document) FROM persons"
+      qa_db_exec "INSERT INTO addresses (id,person_id,street,number,neighborhood,city,state,zip_code,country) SELECT UUID_TO_BIN(UUID(),0),id,'St','1','Nb','City','ST','00000','US' FROM persons"
+      qa_db_exec "INSERT INTO user_configurations (id,email_notification) SELECT id,$QA_SQL_TRUE FROM users WHERE RAND()<0.5"
+      ;;
+    sqlserver)
+      V="(VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9))"
+      qa_db_exec "INSERT INTO persons (id,document,name,email) SELECT CONVERT(BINARY(16),REPLACE(CONVERT(char(36),NEWID()),'-',''),2),'sd'+CAST(g AS varchar(20)),'name '+CAST(g AS varchar(20)),'p'+CAST(g AS varchar(20))+'@qa.test' FROM (SELECT t6.i*100000+t5.i*10000+t4.i*1000+t3.i*100+t2.i*10+t1.i+1 g FROM $V t1(i) CROSS JOIN $V t2(i) CROSS JOIN $V t3(i) CROSS JOIN $V t4(i) CROSS JOIN $V t5(i) CROSS JOIN $V t6(i)) nums WHERE g<=$n"
+      qa_db_exec "INSERT INTO users (id,user_name) SELECT id,'u_'+document FROM persons"
+      qa_db_exec "INSERT INTO addresses (id,person_id,street,number,neighborhood,city,state,zip_code,country) SELECT CONVERT(BINARY(16),REPLACE(CONVERT(char(36),NEWID()),'-',''),2),id,'St','1','Nb','City','ST','00000','US' FROM persons"
+      qa_db_exec "INSERT INTO user_configurations (id,email_notification) SELECT id,$QA_SQL_TRUE FROM users WHERE ABS(CHECKSUM(NEWID()))%2=0"
+      ;;
+    oracle)
+      qa_db_exec "INSERT INTO persons (id,document,name,email) SELECT SYS_GUID(),'sd'||g,'name '||g,'p'||g||'@qa.test' FROM (SELECT LEVEL g FROM dual CONNECT BY LEVEL<=$n)"
+      qa_db_exec "INSERT INTO users (id,user_name) SELECT id,'u_'||document FROM persons"
+      qa_db_exec "INSERT INTO addresses (id,person_id,street,number,neighborhood,city,state,zip_code,country) SELECT SYS_GUID(),id,'St','1','Nb','City','ST','00000','US' FROM persons"
+      qa_db_exec "INSERT INTO user_configurations (id,email_notification) SELECT id,$QA_SQL_TRUE FROM users WHERE DBMS_RANDOM.VALUE<0.5"
+      ;;
+  esac
+}
+
 kill_all(){ [ "${#PIDS[@]}" -gt 0 ] || return 0; for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; for p in "${PIDS[@]}"; do wait "$p" 2>/dev/null; done; PIDS=(); }
 restore_src(){ [ "${#PATCHED[@]}" -gt 0 ] || return 0; for f in "${PATCHED[@]}"; do [ -f "$f.rsbak" ] && mv "$f.rsbak" "$f"; done; }
 cleanup(){
   kill_all
   restore_src
-  # Reset the bench so a re-run starts clean (best-effort): drop the test column
-  # AND the registry row, so the next V1 boot is a pristine FreshInit at version 1
-  # (otherwise the leftover version=2 row trips the downgrade guard).
-  pq -c "ALTER TABLE users DROP COLUMN IF EXISTS nickname;"                          >/dev/null 2>&1
-  pq -c "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','persons');"   >/dev/null 2>&1
+  # Leave the lane's bench pristine for the next run / the next serial suite:
+  # drop the test column + the bumped registry rows (else a v1 boot trips the
+  # downgrade guard) and wipe the seeded domain (else the next suite inherits
+  # 100k+ leftover rows). All best-effort — the DB may already be down on abort.
+  drop_nickname_col
+  reset_registry
+  qa_db_reset_domain 2>/dev/null || true
+  drop_mongo_slots
 }
 trap cleanup EXIT INT TERM
 
-# start_pod <bin> <http> <grpc-suffix> <log> — background; appends PID to PIDS; echoes PID.
+# start_pod <bin> <http-addr> <grpc-port> <log> — background; appends PID to PIDS; echoes PID.
 start_pod(){
   local bin="$1" http="$2" g="$3" log="$4"; : > "$log"
-  ( cd "$REPO_ROOT"; APP_PROFILE=dev HTTP_ADDR="$http" GRPC_ADDR=":90$g" OMNICORE_CONFIG_PATH="$FAST_YAML" exec "$bin" >>"$log" 2>&1 ) &
+  ( cd "$REPO_ROOT"; APP_PROFILE=dev HTTP_ADDR="$http" GRPC_ADDR=":$g" OMNICORE_CONFIG_PATH="$FAST_YAML" exec "$bin" >>"$log" 2>&1 ) &
   local pid=$!; PIDS+=("$pid"); echo "$pid"
 }
 wait_ready(){ local base="$1"; local t="${2:-30}"; local d=$(( $(date +%s)+t )); while [ "$(date +%s)" -lt "$d" ]; do curl -sf -o /dev/null "$base/readyz" && return 0; sleep 0.5; done; return 1; }
@@ -122,7 +191,7 @@ patch_add_nickname(){
 
 # ═════════════════════════════════════════════════════════════════════════════
 sec "Blue-green rebuild — scale ($SEED_COUNT) + multi-pod + column-add"
-echo "lane=$BACKEND  MongoDB=$QA_MONGO_DB  lease=${LEASE_SECONDS}s"
+echo "lane=$BACKEND ($REL_DIALECT)  MongoDB=$QA_MONGO_DB  lease=${LEASE_SECONDS}s"
 command -v jq >/dev/null || { echo "FATAL: jq required"; exit 1; }
 
 # short-lease override so the fence/settle waits do not dominate
@@ -139,42 +208,48 @@ title "build BIN_V1 (Version 1)"
 title "clean slate — drop users+persons registry rows + slots + stale column from any prior run"
 # BOTH views are bumped by this suite (persons is a SharedBaseView over the user
 # schema), so BOTH registry rows must reset or a V1 boot trips the downgrade guard.
-pq -c "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','persons');" >/dev/null 2>&1 || true
-pq -c "ALTER TABLE users DROP COLUMN IF EXISTS nickname;"                          >/dev/null 2>&1 || true
-mq "['users','users__0','users__1','persons','persons__0','persons__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null 2>&1 || true
+reset_registry
+drop_nickname_col
+drop_mongo_slots
 
 title "boot V1 once (throwaway ports) → apply migrations (create tables) → FreshInit"
-pid=$(start_pod "$BIN_V1" "$BOOT_HTTP" 99 /tmp/omnicore-rs-boot.log)
-wait_ready "$BOOT_BASE" 40 || { echo "V1 first boot never ready"; tail -30 /tmp/omnicore-rs-boot.log; exit 1; }
-title "CRUD smoke: insert + read + edit a user through the live service"
+pid=$(start_pod "$BIN_V1" "$BOOT_HTTP" "$BOOT_GRPC" /tmp/omnicore-rs-boot.log)
+wait_ready "$BOOT_BASE" 60 || { echo "V1 first boot never ready"; tail -30 /tmp/omnicore-rs-boot.log; exit 1; }
+title "CRUD smoke: insert + edit + read a user through the live service"
 assert_eq "POST /users → 201" "201" "$(post_user "$BOOT_BASE" crud1)"
-tot=$(wait_total "$BOOT_BASE" 1 40)   # poll: CDC projection is cold on first boot
-assert_ge "GET /users total >= 1 after insert (CDC)" "1" "$tot"
-uid=$(curl -sS "$BOOT_BASE/users?limit=1" | jq -r '.data[0].id // .data[0].Id // empty')
+# PATCH by the DB id, NOT the projection — the edit is a synchronous write and must
+# not wait on the eventually-consistent read side (slow on Oracle LogMiner).
+uid=$(qa_db_query "SELECT $QA_SQL_TOP1 $(qa_uuid_select id) FROM users $QA_SQL_LIMIT1" | tr -d '[:space:]')
 if [ -n "$uid" ]; then
   assert_eq "PATCH /users/:id (edit userName) → 200" "200" "$(curl -sS -X PATCH "$BOOT_BASE/users/$uid" -H 'Content-Type: application/json' --data '{"userName":"crud1-edited"}' -o /dev/null -w '%{http_code}')"
 else
-  FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m no user id to PATCH (projection empty)\n'
+  FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m no user id in the DB to PATCH\n'
 fi
+# Read-back through the projection is the only CDC-dependent smoke check — poll it
+# generously (a cold relay's first event is slow, Oracle LogMiner most of all).
+tot=$(wait_total "$BOOT_BASE" 1 "$SMOKE_CDC_TIMEOUT")
+assert_ge "GET /users total >= 1 after insert (CDC)" "1" "$tot"
 kill_all
 
 title "reset domain + drop Mongo slots (keep registry → reboot = DriftMongoWiped)"
-pq -c "TRUNCATE persons, users, addresses, user_configurations, outbox CASCADE;" >/dev/null
+qa_db_reset_domain
 mq "['users','users__0','users__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null
 
 title "bulk-seed $SEED_COUNT FULL aggregates (persons + users + addresses + configs)"
-pq -c "INSERT INTO persons (id,document,name,email) SELECT gen_random_uuid(),'sd'||lpad(g::text,12,'0'),'name '||g,'p'||g||'@qa.test' FROM generate_series(1,$SEED_COUNT) g;"
-pq -c "INSERT INTO users (id,user_name) SELECT id,'u_'||document FROM persons;"
-pq -c "INSERT INTO addresses (person_id,street,number,neighborhood,city,state,zip_code,country) SELECT id,'St','1','Nb','City','ST','00000','US' FROM persons;"
-pq -c "INSERT INTO user_configurations (id,email_notification) SELECT id,true FROM users WHERE random()<0.5;"
-assert_eq "seed: users count" "$SEED_COUNT" "$(pq -c 'SELECT count(*) FROM users;' | tr -d '[:space:]')"
+seed_aggregates "$SEED_COUNT"
+assert_eq "seed: users count" "$SEED_COUNT" "$(qa_db_query 'SELECT count(*) FROM users' | tr -d '[:space:]')"
 
 title "first blue-green rebuild (DriftMongoWiped) — $SEED_COUNT → users__0"
-pid=$(start_pod "$BIN_V1" "$B_HTTP" 81 /tmp/omnicore-rs-B.log); B_PID=$pid  # "service 1" (V1) — stays up through Phase 2, dropped in Phase 3
+pid=$(start_pod "$BIN_V1" "$B_HTTP" "$B_GRPC" /tmp/omnicore-rs-B.log); B_PID=$pid  # "service 1" (V1) — stays up through Phase 2, dropped in Phase 3
 if wait_ready "$B_BASE" "$REBUILD_TIMEOUT"; then
   assert_eq "flipped to users__0"           "users__0" "$(reg active_collection)"
   assert_eq "docs in active slot users__0"  "$SEED_COUNT" "$(mcount users__0)"
   assert_ge "GET /users total = seed"       "$SEED_COUNT" "$(api_total "$B_BASE")"
+  # Performance yardstick: the pure backfill time for $SEED_COUNT full aggregates
+  # (recompose from the relational source → bulk Mongo upsert), directly
+  # comparable across engines at equal N. Printed, not asserted.
+  bd_ns=$(grep -aoE '"view":"users"[^}]*"duration":[0-9]+' /tmp/omnicore-rs-B.log 2>/dev/null | grep -oE 'duration":[0-9]+' | head -1 | sed 's/duration"://')
+  [ -n "$bd_ns" ] && awk -v ns="$bd_ns" -v n="$SEED_COUNT" -v e="$REL_DIALECT" 'BEGIN{printf "  \033[1;36m⏱ PERF\033[0m first-rebuild backfill: %.2fs for %s aggregates on %s (%.0f/s)\n", ns/1e9, n, e, n/(ns/1e9)}'
 else
   FAIL=$((FAIL+1)); echo "✘ first rebuild never became ready"; tail -40 /tmp/omnicore-rs-B.log
 fi
@@ -182,7 +257,7 @@ fi
 
 sec "Phase 1 — the edit: add nullable column, project it, bump the view; build V2"
 title "ALTER users ADD nickname + patch (entity + schema + DTOs + Version→2)"
-pq -c "ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(100);" >/dev/null
+add_nickname_col
 patch_add_nickname || { echo "FATAL: source patch failed"; FAIL=$((FAIL+1)); }
 ( cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$BIN_V2" ./bootstrap ) && echo "BIN_V2 built (Version 2 + nickname)" || { echo "FATAL: V2 build failed"; FAIL=$((FAIL+1)); }
 restore_src   # tree clean again; BIN_V2 keeps the change
@@ -191,7 +266,7 @@ sec "Phase 2 — multi-pod version-bump rebuild"
 mq "db.getCollection('users__1').drop()" >/dev/null
 title "boot POD A (V2, driver) — livez up at once, readyz 503 during the rebuild"
 sleep 2; a_live=$(curl -s -o /dev/null -w '%{http_code}' "$A_BASE/livez")   # before boot: expect no server
-pid=$(start_pod "$BIN_V2" "$A_HTTP" 91 /tmp/omnicore-rs-A.log)
+pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A.log)
 title "wait for the dual-apply window (shadow_collection set)"
 sh=""; d=$(( $(date +%s)+REBUILD_TIMEOUT )); while [ "$(date +%s)" -lt "$d" ]; do sh=$(reg shadow_collection); [ -n "$sh" ] && break; sleep 0.3; done
 assert_eq "POD A recorded shadow slot users__1" "users__1" "$sh"
@@ -203,17 +278,13 @@ assert_eq "POD A /readyz 503 during rebuild"  "503" "$(curl -s -o /dev/null -w '
 assert_eq "old active users__0 (v1) docs lack 'nickname'" "false" "$(mq "print(db.getCollection('users__0').findOne().hasOwnProperty('nickname'))")"
 
 title "boot POD C (V2) mid-rebuild alongside POD A — follower proof checked after the flip"
-pid=$(start_pod "$BIN_V2" "$C_HTTP" 93 /tmp/omnicore-rs-C.log)
+pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C.log)
 # Boot POD C concurrently but do NOT block on it here, so the users dual-apply
 # window stays open for the write burst below. POD C follows POD A on the USERS
 # lock (no abort) and may itself drive the PERSONS view's rebuild (the nickname
 # ripples there and that lock is free when POD C boots) — which can run before it
 # even reaches the users plan, so its follower log + readiness are asserted later.
 
-# Let every running pod's resolver lease refresh so it OBSERVES the shadow flag
-# (dual-apply ON) before we fire — otherwise a write POD B consumes in the gap
-# between the registry flag and its own lease refresh lands in the old slot only
-# and is lost when that slot is reclaimed after the flip.
 # Background sampler: track the PEAK users__0 (old active slot) doc count across
 # the whole window. Started BEFORE we fire, so it observes the old slot both at
 # its seeded baseline AND as live dual-writes land — before the post-flip reclaim
@@ -222,10 +293,9 @@ pid=$(start_pod "$BIN_V2" "$C_HTTP" 93 /tmp/omnicore-rs-C.log)
 # backfill runs for tens of seconds); at tiny seeds the rebuild finishes before
 # the writes land and only the new-slot no-loss check is meaningful.
 peakfile="/tmp/omnicore-rs-peak0.$$"; echo 0 > "$peakfile"
-# Per-tick bash sampler tracking the PEAK users__0 (old active slot) size. Each
-# tick writes immediately (no buffering to lose). It uses countDocuments (the
-# exact count) not estimatedDocumentCount — the latter reads cached metadata that
-# reports 0 for a freshly bulk-built slot even when the docs are there.
+# Per-tick bash sampler: each tick writes immediately (no buffering to lose), and
+# uses countDocuments (the exact count) not estimatedDocumentCount — the latter
+# reads cached metadata that reports 0 for a freshly bulk-built slot.
 ( while :; do c=$(mcount users__0); p=$(cat "$peakfile" 2>/dev/null); case "$c" in ''|*[!0-9]*) ;; *) [ "$c" -gt "${p:-0}" ] && echo "$c" > "$peakfile";; esac; sleep 0.4; done ) &
 SAMPLER=$!
 
@@ -243,15 +313,21 @@ kill "$SAMPLER" 2>/dev/null; wait "$SAMPLER" 2>/dev/null
 peak0=$(cat "$peakfile" 2>/dev/null); peak0=${peak0:-0}; rm -f "$peakfile"
 # Old slot kept receiving the live writes while it was still active (dual-apply):
 # peak grew past the seed. Hard assertion only when the window is wide enough to
-# observe it (SEED_COUNT >= WINDOW_MIN); otherwise it is reported informationally
-# and the new-slot no-loss check below carries the correctness proof.
-WINDOW_MIN="${WINDOW_MIN:-20000}"
-if [ "$SEED_COUNT" -ge "$WINDOW_MIN" ]; then
-  assert_ge "old slot users__0 got live dual-writes (peak > seed)" "$(( SEED_COUNT + 1 ))" "$peak0"
-elif [ "$peak0" -gt "$SEED_COUNT" ] 2>/dev/null; then
+# observe it (SEED_COUNT >= WINDOW_MIN); otherwise report it informationally and
+# let the new-slot no-loss check below carry the correctness proof.
+# Hard on the fast-CDC backends (they observe the writes land in the old slot
+# during the window). On Oracle the LogMiner floor (~2-3s) means live writes often
+# arrive AFTER the fast SQL backfill has already flipped — the old slot is retired
+# before they reach it, so there is legitimately nothing to observe there (the
+# new-slot no-loss check below still proves they were not lost). So: hard when the
+# window is wide (seed >= WINDOW_MIN) AND the backend's CDC is fast; otherwise
+# report what was seen informationally.
+if [ "$peak0" -gt "$SEED_COUNT" ] 2>/dev/null; then
   PASS=$((PASS+1)); printf '  \033[1;32m✔\033[0m old slot users__0 got live dual-writes (peak %s > seed %s)\n' "$peak0" "$SEED_COUNT"
+elif [ "$SEED_COUNT" -ge "$WINDOW_MIN" ] && [ "$REL_DIALECT" != "oracle" ]; then
+  assert_ge "old slot users__0 got live dual-writes (peak > seed)" "$(( SEED_COUNT + 1 ))" "$peak0"
 else
-  printf '  \033[1;33mⓘ\033[0m dual-apply window closed before writes landed (seed %s < %s) — new-slot no-loss check is the invariant\n' "$SEED_COUNT" "$WINDOW_MIN"
+  printf '  \033[1;33mⓘ\033[0m dual-apply window closed before the live writes landed on the old slot (seed=%s, %s CDC) — new-slot no-loss check is the invariant\n' "$SEED_COUNT" "$REL_DIALECT"
 fi
 
 title "POD C did not abort — it logs the follower path for the users rebuild"
@@ -274,8 +350,8 @@ assert_ge "GET /users total on the new view = seed + concurrent" "$want" "$(wait
 
 title "drop POD B (service 1, V1) now that POD A is ready — then boot POD D (service 4, V2, fresh)"
 kill "$B_PID" 2>/dev/null; wait "$B_PID" 2>/dev/null
-# POD B's :8081/:9081 are now freed for good; POD D takes its own ports.
-pid=$(start_pod "$BIN_V2" "$D_HTTP" 96 /tmp/omnicore-rs-D.log)
+# POD B's ports are now freed for good; POD D takes its own ports.
+pid=$(start_pod "$BIN_V2" "$D_HTTP" "$D_GRPC" /tmp/omnicore-rs-D.log)
 wait_ready "$D_BASE" "$REBUILD_TIMEOUT" && { PASS=$((PASS+1)); echo "  ✔ POD D booted clean (no rebuild — registry already at v2)"; } || { FAIL=$((FAIL+1)); echo "  ✘ POD D never ready"; tail -20 /tmp/omnicore-rs-D.log; }
 assert_ge "POD D (service 4) reads the NEW view (GET /users total)" "$want" "$(wait_total "$D_BASE" "$want" 120)"
 # POD C may have been driving the persons rebuild — wait for it to finish + serve.

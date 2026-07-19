@@ -98,11 +98,19 @@ SELF_SUITES="audit cache authz schema_evolution config_validation migrations tra
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
-# Suites that MUST run alone: schema_evolution mutates the SHARED source tree
-# (internal/infra/views.go) + a shared backup path and rebuilds, so it cannot run
-# concurrently with any other build (the other lane would compile the patched
-# source). They run SERIALLY after the parallel matrix, one lane at a time.
-SERIAL_SUITES="schema_evolution"
+# Suites that MUST run alone: schema_evolution + rebuild_scale both mutate the
+# SHARED source tree (views/schema/DTOs) + a shared backup path and rebuild, so
+# neither can run concurrently with any other build (the other lane would compile
+# the patched source). They run SERIALLY after the parallel matrix, one lane at a
+# time. rebuild_scale is also heavy (a full-aggregate bulk seed + multi-pod
+# blue-green rebuild), so run.sh drives it at a bounded SEED_COUNT (see below).
+SERIAL_SUITES="schema_evolution rebuild_scale"
+
+# rebuild_scale's per-lane seed under run.sh (its standalone default is 1,000,000
+# — far too heavy for the matrix). The SAME seed on every lane, on purpose: the
+# suite doubles as a cross-engine performance yardstick (the backfill throughput
+# is directly comparable only at equal N). Override: REBUILD_SCALE_SEED=30000 ./qa/run.sh
+REBUILD_SCALE_SEED="${REBUILD_SCALE_SEED:-100000}"
 
 if [ -n "${QA_RUN_LOG_DIR:-}" ]; then
   LOG_DIR="$QA_RUN_LOG_DIR"; LOG_DIR_EPHEMERAL=0
@@ -509,7 +517,12 @@ while [ "$#" -gt 0 ] && ! stop_requested; do
         for s in $serial_requested; do
           stop_requested && break
           t0=$(date +%s)
-          ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1; rc=$?
+          # rebuild_scale is lane-driven + heavy: pin its seed to the matrix budget
+          # (its own default is 1M for standalone runs) — the SAME N on every lane,
+          # so the per-lane timings are a comparable performance yardstick.
+          suite_env=""
+          [ "$s" = "rebuild_scale" ] && suite_env="SEED_COUNT=$REBUILD_SCALE_SEED"
+          env $suite_env ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1; rc=$?
           record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))" || fail_fast "$s" "$B"
         done
       )
