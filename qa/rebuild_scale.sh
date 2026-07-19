@@ -252,9 +252,15 @@ free_ports   # evict any orphan pod on this lane's ports before touching Mongo
 title "build BIN_V1 (Version 1)"
 ( cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$BIN_V1" ./bootstrap ) || { echo "build V1 failed"; exit 1; }
 
-title "clean slate — drop users+persons registry rows + slots + stale column from any prior run"
+title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + stale column from any prior run"
 # BOTH views are bumped by this suite (persons is a SharedBaseView over the user
 # schema), so BOTH registry rows must reset or a V1 boot trips the downgrade guard.
+# The DOMAIN reset makes the suite idempotent to a prior run that died WITHOUT its
+# cleanup trap (a kill -9, an OOM-killed Mongo, a crashed pod): leftover seed/smoke
+# rows would otherwise collide with the CRUD smoke's insert/edit below (e.g. a
+# duplicate userName → 422) before the seed's own reset (further down) runs.
+# Best-effort + guarded so a truly fresh lane (tables not migrated yet) is a no-op.
+qa_db_reset_domain 2>/dev/null || true
 reset_registry
 drop_nickname_col
 drop_mongo_slots
