@@ -40,7 +40,7 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded upstream_gadgets; }
 trap cleanup EXIT INT TERM
 
 mongo_up() {  # eval a mongosh expression against the upstream collection
@@ -74,7 +74,7 @@ title "0.4 Reset gadgets + upstream_gadgets + gadgets view collection"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM omnicore_upstream_failures;" 2>/dev/null || true
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.deleteMany({}); db.$UP_COLL.deleteMany({})" >/dev/null 2>&1 || true
+qa_view_clear gadgets "$UP_COLL"
 sleep 1
 ok "clean baseline"
 
@@ -130,26 +130,26 @@ print(cur if cur is not None else "")' "$1" "$2" 2>/dev/null
 title "1.5.1 GET /qa/gadgets-embedded/:id returns the embedded doc with the mirror rippled in"
 deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); embedded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  curl -sS -o /tmp/qa-gc.json "$GCB"
-  MC=$(get_field data.upstreamMirror.code /tmp/qa-gc.json)
+  curl -sS -o /tmp/qa-gc.json.${BACKEND:-default} "$GCB"
+  MC=$(get_field data.upstreamMirror.code /tmp/qa-gc.json.${BACKEND:-default})
   [ "$MC" = "UP-001" ] && { embedded=ok; break; }
   sleep 1
 done
-[ "$embedded" = ok ] && ok "embedded endpoint serves upstreamMirror.code=UP-001 (ripple recomposed the embed)" || { bad "embedded doc never carried the mirror"; cat /tmp/qa-gc.json 2>/dev/null; tail -n 25 "$SERVER_LOG"; }
+[ "$embedded" = ok ] && ok "embedded endpoint serves upstreamMirror.code=UP-001 (ripple recomposed the embed)" || { bad "embedded doc never carried the mirror"; cat /tmp/qa-gc.json.${BACKEND:-default} 2>/dev/null; tail -n 25 "$SERVER_LOG"; }
 
 title "1.5.2 The nested mirror carries [id, code, name] but NOT the filtered-out category/status"
-MNAME=$(get_field data.upstreamMirror.name /tmp/qa-gc.json)
-MCAT=$(get_field data.upstreamMirror.category /tmp/qa-gc.json)
-MSTATUS=$(get_field data.upstreamMirror.status /tmp/qa-gc.json)
+MNAME=$(get_field data.upstreamMirror.name /tmp/qa-gc.json.${BACKEND:-default})
+MCAT=$(get_field data.upstreamMirror.category /tmp/qa-gc.json.${BACKEND:-default})
+MSTATUS=$(get_field data.upstreamMirror.status /tmp/qa-gc.json.${BACKEND:-default})
 echo "mirror: name='$MNAME' category='$MCAT' status='$MSTATUS'"
 [ "$MNAME" = "Upstream One" ] && ok "mirror carries the allow-listed name" || bad "mirror name missing"
 { [ -z "$MCAT" ] && [ -z "$MSTATUS" ]; } && ok "mirror omits filtered-out category/status" || bad "mirror leaked category/status"
 
 title "1.5.3 The root gadget still carries category/status (root vs mirror distinction)"
-RCAT=$(get_field data.category /tmp/qa-gc.json)
-RSTATUS=$(get_field data.status /tmp/qa-gc.json)
+RCAT=$(get_field data.category /tmp/qa-gc.json.${BACKEND:-default})
+RSTATUS=$(get_field data.status /tmp/qa-gc.json.${BACKEND:-default})
 { [ "$RCAT" = "secret-cat" ] && [ "$RSTATUS" = "active" ]; } && ok "root gadget keeps its full field set" || bad "root gadget fields missing (cat='$RCAT' status='$RSTATUS')"
-rm -f /tmp/qa-gc.json
+rm -f /tmp/qa-gc.json.${BACKEND:-default}
 
 ##############################################################################
 sec "2. onUpstreamDelete=cascade removes the local projection"
@@ -181,10 +181,10 @@ PENDING=$(qa_db_query "SELECT count(*) FROM omnicore_upstream_failures WHERE res
 [ "${PENDING:-0}" = "0" ] && ok "no pending upstream failures" || bad "unexpected pending failures: $PENDING"
 
 title "3.2 POST /admin/retries/upstream drains (responds 200)"
-ST=$(curl -sS -o /tmp/qa-up-retry.json -w "%{http_code}" -X POST "$BASE/admin/retries/upstream")
-echo "response: $(cat /tmp/qa-up-retry.json 2>/dev/null)"
+ST=$(curl -sS -o /tmp/qa-up-retry.json.${BACKEND:-default} -w "%{http_code}" -X POST "$BASE/admin/retries/upstream")
+echo "response: $(cat /tmp/qa-up-retry.json.${BACKEND:-default} 2>/dev/null)"
 [ "$ST" = "200" ] && ok "admin upstream-retry route responds 200" || bad "admin retry status $ST"
-rm -f /tmp/qa-up-retry.json
+rm -f /tmp/qa-up-retry.json.${BACKEND:-default}
 
 ##############################################################################
 sec "Cleanup + Summary"
@@ -192,6 +192,6 @@ sec "Cleanup + Summary"
 qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 # DROP the qa collections so the canonical (non-qa) binary's boot registry
 # guard does not later abort on foreign collections it cannot map to a view.
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_embedded.drop(); db.$UP_COLL.drop()" >/dev/null 2>&1 || true
+qa_view_drop gadgets gadget_notes gadgets_embedded "$UP_COLL" || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

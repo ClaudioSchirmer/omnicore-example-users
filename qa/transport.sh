@@ -75,7 +75,7 @@ kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [
 purge_gadgets() {
   qa_db_exec "DELETE FROM gadgets WHERE code LIKE 'QA-TRANSPORT-%'" 2>/dev/null || true
   docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet \
-    --eval "db.gadgets.deleteMany({code:{\$regex:'^QA-TRANSPORT-'}})" >/dev/null 2>&1 || true
+    --eval "db.getCollection('$(qa_view_coll gadgets)').deleteMany({code:{\$regex:'^QA-TRANSPORT-'}})" >/dev/null 2>&1 || true
 }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
@@ -134,13 +134,13 @@ except Exception:
 # mongo_count counts this run's gadgets in the projection.
 mongo_count() {
   docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet \
-    --eval "db.gadgets.countDocuments({code:{\$regex:'^$CODE_PREFIX'}})" 2>/dev/null | tail -1 | tr -d ' '
+    --eval "db.getCollection('$(qa_view_coll gadgets)').countDocuments({code:{\$regex:'^$CODE_PREFIX'}})" 2>/dev/null | tail -1 | tr -d ' '
 }
 
 # mongo_count_code counts a single code (must be exactly 1 → no duplicate upsert).
 mongo_count_code() {
   docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet \
-    --eval "db.gadgets.countDocuments({code:'$1'})" 2>/dev/null | tail -1 | tr -d ' '
+    --eval "db.getCollection('$(qa_view_coll gadgets)').countDocuments({code:'$1'})" 2>/dev/null | tail -1 | tr -d ' '
 }
 
 # wait_count blocks until this run's projected count reaches $1 or the CDC

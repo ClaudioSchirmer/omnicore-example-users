@@ -300,8 +300,12 @@ pg_registry_field() {
 }
 
 mongo_users_count() {
+  # After a blue-green rebuild the docs live in the active SLOT (users__0/__1),
+  # not the bare "users" collection — resolve the registry pointer so the count
+  # follows the flip (pre-first-rebuild / no-registry-row → falls back to bare).
+  local coll; coll=$(qa_view_coll users)
   docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
-    "print(db.users.countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
+    "print(db.getCollection('$coll').countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
 }
 
 # wait_until_mongo_count polls the Mongo users count every 1s until it reaches

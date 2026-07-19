@@ -405,10 +405,10 @@ echo "$CSV" | grep -q "Maria Silva" && ok "CSV dependent row present" || bad "CS
 echo "$CSV" | grep -q "Engineer" && ok "CSV job-history row present" || bad "CSV job-history row missing"
 
 title "6.2 XLSX responds with a workbook"
-XLSX_STATUS=$(curl -sS -o /tmp/qa_employee.xlsx -w "%{http_code}" "$BASE/employees.xlsx?document=$D2")
-SIG=$(head -c 2 /tmp/qa_employee.xlsx)
+XLSX_STATUS=$(curl -sS -o /tmp/qa_employee.xlsx.${BACKEND:-default} -w "%{http_code}" "$BASE/employees.xlsx?document=$D2")
+SIG=$(head -c 2 /tmp/qa_employee.xlsx.${BACKEND:-default})
 [ "$XLSX_STATUS" = "200" ] && [ "$SIG" = "PK" ] && ok "XLSX 200 + ZIP signature" || bad "XLSX status=$XLSX_STATUS sig=$SIG"
-rm -f /tmp/qa_employee.xlsx
+rm -f /tmp/qa_employee.xlsx.${BACKEND:-default}
 
 ####################################
 sec "7. GraphQL — same handlers, full mutation set"

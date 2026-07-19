@@ -789,9 +789,9 @@ title "9.7.3 CSV export — every data value present in /users.csv"
 golden_pf "$(curl -sS "$BASE/users.csv?document.eq=$GOLD_DOC" -H "Accept-Language: en-US" | python3 "$GDIR/golden_check.py" flat CSV)"
 
 title "9.7.4 XLSX export — every data value present in /users.xlsx"
-curl -sS "$BASE/users.xlsx?document.eq=$GOLD_DOC" -H "Accept-Language: en-US" -o /tmp/qa-golden.xlsx
-golden_pf "$(unzip -p /tmp/qa-golden.xlsx 'xl/*.xml' 2>/dev/null | python3 "$GDIR/golden_check.py" flat XLSX)"
-rm -f /tmp/qa-golden.xlsx
+curl -sS "$BASE/users.xlsx?document.eq=$GOLD_DOC" -H "Accept-Language: en-US" -o /tmp/qa-golden.xlsx.${BACKEND:-default}
+golden_pf "$(unzip -p /tmp/qa-golden.xlsx.${BACKEND:-default} 'xl/*.xml' 2>/dev/null | python3 "$GDIR/golden_check.py" flat XLSX)"
+rm -f /tmp/qa-golden.xlsx.${BACKEND:-default}
 
 # Clean the golden record so re-runs start cold and it does not skew later counts.
 curl -sS -X DELETE "$BASE/users/$GOLD_ID" -o /dev/null -w "9.7.5 cleanup golden: %{http_code}\n"
@@ -1267,7 +1267,7 @@ show "15.15 ?limit=999 rejected (above default ceiling 100)" \
 title "15.16 cursor issued without filter rejected when filter is added"
 NO_FILTER_CURSOR=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
 if [ -n "$NO_FILTER_CURSOR" ]; then
-  STATUS=$(curl -sS -o /tmp/qa-e2e-filter-mismatch.body -w "%{http_code}" "$BASE/users?limit=1&after=$NO_FILTER_CURSOR&name.startswith=B")
+  STATUS=$(curl -sS -o /tmp/qa-e2e-filter-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?limit=1&after=$NO_FILTER_CURSOR&name.startswith=B")
   if [ "$STATUS" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (status=%s — cursor↔filter mismatch rejected)\n' "$STATUS"
     PASS=$((PASS+1))
@@ -1285,7 +1285,7 @@ NO_SORT_CURSOR=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;pr
 if [ -n "$NO_SORT_CURSOR" ]; then
   # Adding ?sort=name AND keeping the same tuple shape — the tuple-length
   # check would now fail anyway, but the hash check catches it too.
-  STATUS=$(curl -sS -o /tmp/qa-e2e-sort-mismatch.body -w "%{http_code}" "$BASE/users?limit=1&after=$NO_SORT_CURSOR&sort=name")
+  STATUS=$(curl -sS -o /tmp/qa-e2e-sort-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?limit=1&after=$NO_SORT_CURSOR&sort=name")
   if [ "$STATUS" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (status=%s — cursor↔sort mismatch rejected)\n' "$STATUS"
     PASS=$((PASS+1))
@@ -1301,7 +1301,7 @@ fi
 title "15.18 cursor issued without includeArchived rejected when flag is flipped"
 DEFAULT_CTX_CURSOR=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
 if [ -n "$DEFAULT_CTX_CURSOR" ]; then
-  STATUS=$(curl -sS -o /tmp/qa-e2e-archived-mismatch.body -w "%{http_code}" "$BASE/users?limit=1&after=$DEFAULT_CTX_CURSOR&includeArchived=true")
+  STATUS=$(curl -sS -o /tmp/qa-e2e-archived-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?limit=1&after=$DEFAULT_CTX_CURSOR&includeArchived=true")
   if [ "$STATUS" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (status=%s — cursor↔includeArchived mismatch rejected)\n' "$STATUS"
     PASS=$((PASS+1))

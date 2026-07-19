@@ -94,7 +94,7 @@ RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping probes http_hardening view_options httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed integration_events transport auth grpc grpcclient grpc_security"
+SELF_SUITES="audit cache authz schema_evolution rebuild_scale config_validation migrations tracing status_mapping probes http_hardening view_options httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed integration_events transport auth grpc grpcclient grpc_security"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -405,7 +405,17 @@ run_lane() {
   # Drop the schema-evolution-managed registry rows so a leftover version=2 from a
   # prior run's schema_evolution can't trip the downgrade guard when the v1 qa
   # binary boots here (paired with the collection drop above → fresh v1 on boot).
-  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');" 2>/dev/null || true
+  # The qa fixture views go too, so a leftover blue-green SLOT pointer from a prior
+  # run does not survive into a fresh boot (the view FreshInit's bare instead).
+  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons') OR view_name LIKE 'gadget%' OR view_name LIKE 'qa%' OR view_name LIKE 'upstream%';" 2>/dev/null || true
+  # Clear the qa fixture SOURCE tables too. Blue-green classifies "Mongo empty +
+  # relational rows" as DriftMongoWiped and rebuilds online at boot — under Option A
+  # /readyz stays 503 until it finishes. A prior run's leftover source rows (e.g.
+  # orphan gadget_notes a suite dropped from Mongo but not from PG) would otherwise
+  # make a NON-seeding suite (probes) boot straight into a rebuild. Child-first for
+  # the FK; best-effort (a table may not exist on a minimal build).
+  qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
+  qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 
   local run_server_suites="" run_self_suites=""
   for s in $SUITES; do

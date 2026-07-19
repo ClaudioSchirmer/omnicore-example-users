@@ -33,7 +33,7 @@ source "$REPO_ROOT/qa/_backend.sh"
 SERVER_BIN="/tmp/omnicore-example-users-qa-external-embed-${BACKEND:-postgres}"
 SERVER_LOG="/tmp/omnicore-example-users-qa-external-embed-${BACKEND:-postgres}.log"
 QA_YAML="$REPO_ROOT/microservice.qa.yaml"
-GET_TMP="/tmp/qa-ee-get.json"
+GET_TMP="/tmp/qa-ee-get.json.${BACKEND:-default}"
 
 PASS=0; FAIL=0; SERVER_PID=""
 hr()    { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
@@ -43,8 +43,7 @@ ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 drop_collections() {
-  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
-    "db.qa_accounts_view.drop(); db.qa_catalog_view.drop(); db.upstream_items.drop()" >/dev/null 2>&1 || true
+  qa_view_drop qa_accounts_view qa_catalog_view upstream_items
 }
 reset_domain() {
   qa_db_exec "DELETE FROM qa_items;" 2>/dev/null || true
