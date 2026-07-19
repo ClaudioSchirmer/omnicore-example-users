@@ -55,7 +55,12 @@ SCHEMA_SRC="$REPO_ROOT/internal/infra/schemas/user_schema.go"
 ENTITY_SRC="$REPO_ROOT/internal/domain/user.go"
 DTO_ID_SRC="$REPO_ROOT/internal/web/requests/find_user_by_id.go"
 DTO_LIST_SRC="$REPO_ROOT/internal/web/requests/find_users_by_params.go"
-PATCHED=("$VIEW_SRC" "$PERSON_VIEW_SRC" "$SCHEMA_SRC" "$ENTITY_SRC" "$DTO_ID_SRC" "$DTO_LIST_SRC")
+# write side (PATCH): the request + command so a non-null nickname can be SET
+# through the endpoint, not merely projected — this is what makes the value
+# proof in Phase 3 an end-to-end (write→column→CDC→view→read) round-trip.
+PATCH_REQ_SRC="$REPO_ROOT/internal/web/requests/patch_user.go"
+PATCH_CMD_SRC="$REPO_ROOT/internal/application/commands/patch_user_command.go"
+PATCHED=("$VIEW_SRC" "$PERSON_VIEW_SRC" "$SCHEMA_SRC" "$ENTITY_SRC" "$DTO_ID_SRC" "$DTO_LIST_SRC" "$PATCH_REQ_SRC" "$PATCH_CMD_SRC")
 
 # POD B on the lane ports (BASE / GRPC_PORT), the others on +offset. Same sync
 # group / DB / Mongo / broker → one competing-consumer group. run.sh runs this
@@ -217,7 +222,15 @@ patch_add_nickname(){
   # 4) read DTOs: surface it on GET /users/:id and GET /users
   perl -0pi -e 's/(UserName\s+string\s+`json:"userName"[^\n]*\n)/$1\tNickname *string `json:"nickname,omitempty"`\n/' "$DTO_ID_SRC"
   perl -0pi -e 's/(UserName\s+\*string\s+`json:"userName,omitempty"[^\n]*\n)/$1\tNickname         *string `json:"nickname,omitempty"`\n/' "$DTO_LIST_SRC"
-  grep -q 'Version(2)' "$VIEW_SRC" && grep -q 'Nickname' "$ENTITY_SRC" && grep -q '"nickname"' "$SCHEMA_SRC" || return 1
+  # 5) WRITE side (PATCH): request field + ToCommand mapping, then command field
+  #    + ApplyPartiallyTo tri-state mapping. Both entity + command Nickname are
+  #    *string, so the mapping is a straight pointer copy (nil = field not sent).
+  perl -0pi -e 's/(UserName\s+\*string\s+`json:"userName,omitempty"[^\n]*\n)/$1\tNickname          *string `json:"nickname,omitempty"`\n/' "$PATCH_REQ_SRC"
+  perl -0pi -e 's/(UserName:\s+r\.UserName,\n)/$1\t\tNickname:          r.Nickname,\n/'                                                       "$PATCH_REQ_SRC"
+  perl -0pi -e 's/(\tUserName\s+\*string\n)/$1\tNickname          *string\n/'                                                                "$PATCH_CMD_SRC"
+  perl -0pi -e 's/(if c\.UserName != nil \{\n\t\tu\.UserName = \*c\.UserName\n\t\}\n)/$1\tif c.Nickname != nil {\n\t\tu.Nickname = c.Nickname\n\t}\n/' "$PATCH_CMD_SRC"
+  grep -q 'Version(2)' "$VIEW_SRC" && grep -q 'Nickname' "$ENTITY_SRC" && grep -q '"nickname"' "$SCHEMA_SRC" \
+    && grep -q 'Nickname' "$PATCH_REQ_SRC" && grep -q 'Nickname' "$PATCH_CMD_SRC" || return 1
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -381,6 +394,27 @@ sec "Phase 3 — post-flip: drop POD 1 (service 1), boot POD D (service 4), all 
 wait_ready "$A_BASE" "$REBUILD_TIMEOUT" && { PASS=$((PASS+1)); echo "  ✔ POD A (service 2) now serving (readyz OK after flip)"; } || { FAIL=$((FAIL+1)); echo "  ✘ POD A never ready after flip"; }
 title "endpoint inspection: the flipped view serves via the new slot on POD A"
 assert_ge "GET /users total on the new view = seed + concurrent" "$want" "$(wait_total "$A_BASE" "$want" 120)"
+
+title "value proof: a non-null nickname written via the endpoint round-trips through the new slot"
+# The hasOwnProperty checks above prove the column PROJECTS (the key is present
+# on every doc, null for the seeded rows). This proves a VALUE lives end to end:
+# a wire-level write sets the new column, CDC relays it, the SyncEngine recomposes
+# the aggregate onto the flipped slot, and the read endpoint returns it non-null.
+# A separate aggregate (fresh document, never among the seeded sd1..sdN) so the
+# no-loss count above is untouched; Phase-3 count checks are `>=` so +1 is fine.
+NICK_DOC="rsnick${BACKEND}"
+uid_nick=$(curl -sS -X POST "$A_BASE/users" -H 'Content-Type: application/json' \
+  --data "{\"name\":\"nick\",\"email\":\"${NICK_DOC}@t.co\",\"document\":\"${NICK_DOC}\",\"userName\":\"${NICK_DOC}\",\"addresses\":[]}" \
+  | jq -r '.data.id // empty')
+assert_true "POST /users minted a row to carry the nickname" "$([ -n "$uid_nick" ] && echo true)"
+assert_eq "PATCH /users/:id set nickname → 200" "200" \
+  "$(curl -sS -X PATCH "$A_BASE/users/$uid_nick" -H 'Content-Type: application/json' --data '{"nickname":"rs-nick-value"}' -o /dev/null -w '%{http_code}')"
+got_nick=""; d=$(( $(date +%s)+90 ))
+while [ "$(date +%s)" -lt "$d" ]; do
+  got_nick=$(curl -sS "$A_BASE/users/$uid_nick" | jq -r '.data.nickname // empty')
+  [ "$got_nick" = "rs-nick-value" ] && break; sleep 1
+done
+assert_eq "GET /users/:id returns the non-null nickname (write→column→CDC→view→endpoint)" "rs-nick-value" "$got_nick"
 
 title "drop POD B (service 1, V1) now that POD A is ready — then boot POD D (service 4, V2, fresh)"
 kill "$B_PID" 2>/dev/null; wait "$B_PID" 2>/dev/null
