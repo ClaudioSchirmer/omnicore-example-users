@@ -106,10 +106,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 wait_for_health() {
+  # /readyz, not /livez: the framework now runs the boot view rebuild in the
+  # BACKGROUND — /livez comes up at once (so a long rebuild is never killed),
+  # while /readyz stays 503 until the rebuild finishes. This suite asserts the
+  # POST-rebuild registry/Mongo state, so it must wait on readiness, not
+  # liveness. (The abort-path checks below still probe /livez: a synchronous
+  # boot abort — alien/forgot/check/downgrade — exits before HTTP ever starts.)
   local timeout="${1:-30}"
   local deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "$BASE/livez"; then
+    if curl -sf -o /dev/null "$BASE/readyz"; then
       return 0
     fi
     sleep 0.5
