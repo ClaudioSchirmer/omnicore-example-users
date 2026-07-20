@@ -42,7 +42,7 @@ cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   kill_port "${HTTP_PORT:-8080}"; rm -f "$HARDENING_YAML"
   qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
-  docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop()' >/dev/null 2>&1 || true
+  qa_view_drop gadgets gadget_notes
 }
 trap cleanup EXIT INT TERM
 

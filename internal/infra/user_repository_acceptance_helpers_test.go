@@ -102,7 +102,12 @@ func moduleRoot(t *testing.T) string {
 }
 
 // resetState empties the domain tables via neutral SQL so each test starts from
-// a known-empty state. The DELETE order respects the addresses→users FK; the
+// a known-empty state. It clears the WHOLE person identity graph — every role
+// (users, employees) and their children/siblings, the shared base (persons) and
+// its base-child (addresses) — in FK-child-before-parent order. The shared base
+// (persons) MUST be cleared too: a role write goes through LoadForSharedBaseInsert,
+// so a leftover person from a prior run (this suite's own inserts, or another
+// suite sharing the DB) makes the very first insert see a stale identity. The
 // engine's Querier runs the statements through whatever driver the dialect uses.
 // A failure here means the configured database is unreachable or not migrated.
 func resetState(t *testing.T, eng core.RelationalEngine) {
@@ -110,7 +115,19 @@ func resetState(t *testing.T, eng core.RelationalEngine) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	q := eng.Querier()
-	for _, table := range []string{"addresses", "users", "outbox"} {
+	// FK order: children/siblings → roles → base → outbox.
+	for _, table := range []string{
+		"dependent_health_plans",
+		"employee_dependents",
+		"employee_job_histories",
+		"employee_bank_accounts",
+		"employees",
+		"user_configurations",
+		"addresses",
+		"users",
+		"persons",
+		"outbox",
+	} {
 		if err := q.Exec(ctx, "DELETE FROM "+table); err != nil {
 			t.Skipf("cannot reset the configured database (reachable and migrated?): %v", err)
 		}

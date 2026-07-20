@@ -207,7 +207,7 @@ fi
 # --- 3. Private cache CRUD ---------------------------------------------
 
 title "3a. POST /showcase/cache/private/foo {value:bar, ttl:60} → 200"
-STATUS=$(curl -sf -o /tmp/qa-cache.body -w "%{http_code}" \
+STATUS=$(curl -sf -o /tmp/qa-cache.body.${BACKEND:-default} -w "%{http_code}" \
     -X POST -H "Content-Type: application/json" \
     -d '{"value":"bar","ttl_seconds":60}' \
     "$BASE/showcase/cache/private/foo")
@@ -216,12 +216,12 @@ if [ "$STATUS" = "200" ]; then
     pass "private Set succeeded"
 else
     fail "expected 200, got $STATUS"
-    head -c 200 /tmp/qa-cache.body
+    head -c 200 /tmp/qa-cache.body.${BACKEND:-default}
 fi
 
 title "3b. GET /showcase/cache/private/foo → 200 with value=bar"
-STATUS=$(curl -sf -o /tmp/qa-cache.body -w "%{http_code}" "$BASE/showcase/cache/private/foo")
-VALUE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['data']['value'])" < /tmp/qa-cache.body 2>/dev/null)
+STATUS=$(curl -sf -o /tmp/qa-cache.body.${BACKEND:-default} -w "%{http_code}" "$BASE/showcase/cache/private/foo")
+VALUE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['data']['value'])" < /tmp/qa-cache.body.${BACKEND:-default} 2>/dev/null)
 echo "STATUS  : $STATUS"
 echo "VALUE   : $VALUE"
 if [ "$STATUS" = "200" ] && [ "$VALUE" = "bar" ]; then
@@ -273,8 +273,8 @@ else
 fi
 
 title "4b. GET /showcase/cache/shared/global → 200 with value=team-wide"
-STATUS=$(curl -sf -o /tmp/qa-cache.body -w "%{http_code}" "$BASE/showcase/cache/shared/global")
-VALUE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['data']['value'])" < /tmp/qa-cache.body 2>/dev/null)
+STATUS=$(curl -sf -o /tmp/qa-cache.body.${BACKEND:-default} -w "%{http_code}" "$BASE/showcase/cache/shared/global")
+VALUE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['data']['value'])" < /tmp/qa-cache.body.${BACKEND:-default} 2>/dev/null)
 echo "STATUS  : $STATUS"
 echo "VALUE   : $VALUE"
 if [ "$STATUS" = "200" ] && [ "$VALUE" = "team-wide" ]; then

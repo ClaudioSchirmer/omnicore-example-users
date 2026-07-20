@@ -40,7 +40,7 @@ cleanup() {
   kill_port "${HTTP_PORT:-8080}"
   # A qa-binary boot registers the gadget Mongo views; drop them so a later
   # non-qa prd suite (audit/authz) does not abort on foreign collections.
-  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
+  qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped upstream_gadgets
 }
 trap cleanup EXIT INT TERM
 

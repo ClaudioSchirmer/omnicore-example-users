@@ -30,6 +30,13 @@ set -u
 
 BASE="${BASE:-http://localhost:8080}"
 
+# Lane-scoped temp files: run.sh runs the "running already" suites for both wave
+# lanes (e.g. postgres + mysql) CONCURRENTLY, so a hardcoded /tmp path is clobbered
+# mid-write by the sibling lane's identical fetch — the reader then sees a partial
+# doc and routes appear to vanish (intermittent RED). Scope by ${BACKEND}.
+SPEC_FILE="/tmp/qa-openapi.spec.${BACKEND:-default}.json"
+BODY_FILE="/tmp/qa-openapi.body.${BACKEND:-default}"
+
 RED=$'\e[1;31m'
 GREEN=$'\e[1;32m'
 WHITE=$'\e[1;37m'
@@ -50,26 +57,26 @@ show_http() {
     echo "${WHITE}--- ${desc} ---${RESET}"
     echo "REQUEST : GET ${path}"
     local status
-    status=$(curl -s -o /tmp/qa-openapi.body -w "%{http_code}" "${BASE}${path}")
+    status=$(curl -s -o ${BODY_FILE} -w "%{http_code}" "${BASE}${path}")
     echo "STATUS  : ${status}"
     if [ "${status}" = "${expected_status}" ]; then
         echo "${GREEN}PASS${RESET}"
         PASS=$((PASS + 1))
     else
         echo "${RED}FAIL${RESET} (expected ${expected_status})"
-        echo "BODY: $(head -c 200 /tmp/qa-openapi.body)"
+        echo "BODY: $(head -c 200 ${BODY_FILE})"
         FAIL=$((FAIL + 1))
     fi
 }
 
-# assert_spec runs a jq query on the cached /tmp/qa-openapi.spec.json and
+# assert_spec runs a jq query on the cached ${SPEC_FILE} and
 # checks the resulting string equals "expected".
 assert_spec() {
     local desc="$1" jq_query="$2" expected="$3"
     echo "${WHITE}--- ${desc} ---${RESET}"
     echo "QUERY   : ${jq_query}"
     local got
-    got=$("${JQ}" -r "${jq_query}" /tmp/qa-openapi.spec.json)
+    got=$("${JQ}" -r "${jq_query}" ${SPEC_FILE})
     echo "GOT     : ${got}"
     if [ "${got}" = "${expected}" ]; then
         echo "${GREEN}PASS${RESET}"
@@ -80,12 +87,12 @@ assert_spec() {
     fi
 }
 
-# assert_html runs a substring check against /tmp/qa-openapi.body.
+# assert_html runs a substring check against ${BODY_FILE}.
 assert_html() {
     local desc="$1" needle="$2"
     echo "${WHITE}--- ${desc} ---${RESET}"
     echo "NEEDLE  : ${needle}"
-    if grep -qF "${needle}" /tmp/qa-openapi.body; then
+    if grep -qF "${needle}" ${BODY_FILE}; then
         echo "${GREEN}PASS${RESET}"
         PASS=$((PASS + 1))
     else
@@ -98,10 +105,10 @@ assert_html() {
 show_http "/openapi.json reachable" "/openapi.json" 200
 
 # Cache the spec for downstream assertions.
-curl -s "${BASE}/openapi.json" > /tmp/qa-openapi.spec.json
-if ! "${JQ}" empty /tmp/qa-openapi.spec.json 2>/dev/null; then
+curl -s "${BASE}/openapi.json" > ${SPEC_FILE}
+if ! "${JQ}" empty ${SPEC_FILE} 2>/dev/null; then
     echo "${RED}/openapi.json body is not valid JSON; aborting${RESET}"
-    head -c 400 /tmp/qa-openapi.spec.json
+    head -c 400 ${SPEC_FILE}
     exit 1
 fi
 

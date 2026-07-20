@@ -36,7 +36,7 @@ show() {
     echo "REQUEST : ${method} ${path}${query:+?$query}"
     local url="${BASE}${path}${query:+?$query}"
     local response status
-    response=$(curl -s -o /tmp/qa-httpclient.body -w "%{http_code}|%{time_total}" -X "${method}" "${url}")
+    response=$(curl -s -o /tmp/qa-httpclient.body.${BACKEND:-default} -w "%{http_code}|%{time_total}" -X "${method}" "${url}")
     status="${response%%|*}"
     local time_total="${response#*|}"
     echo "STATUS  : ${status}"
@@ -46,7 +46,7 @@ show() {
         PASS=$((PASS + 1))
     else
         echo "${RED}FAIL${RESET} (expected ${expected_status})"
-        echo "BODY: $(head -c 400 /tmp/qa-httpclient.body)"
+        echo "BODY: $(head -c 400 /tmp/qa-httpclient.body.${BACKEND:-default})"
         FAIL=$((FAIL + 1))
     fi
     echo ""
@@ -59,14 +59,14 @@ show_with_body_contains() {
     echo "REQUEST : ${method} ${path}${query:+?$query}"
     local url="${BASE}${path}${query:+?$query}"
     local status
-    status=$(curl -s -o /tmp/qa-httpclient.body -w "%{http_code}" -X "${method}" "${url}")
+    status=$(curl -s -o /tmp/qa-httpclient.body.${BACKEND:-default} -w "%{http_code}" -X "${method}" "${url}")
     echo "STATUS  : ${status}"
-    if [ "${status}" = "${expected_status}" ] && grep -q "${expected_substring}" /tmp/qa-httpclient.body; then
+    if [ "${status}" = "${expected_status}" ] && grep -q "${expected_substring}" /tmp/qa-httpclient.body.${BACKEND:-default}; then
         echo "${GREEN}PASS${RESET}"
         PASS=$((PASS + 1))
     else
         echo "${RED}FAIL${RESET} (expected ${expected_status} and body containing '${expected_substring}')"
-        echo "BODY: $(head -c 400 /tmp/qa-httpclient.body)"
+        echo "BODY: $(head -c 400 /tmp/qa-httpclient.body.${BACKEND:-default})"
         FAIL=$((FAIL + 1))
     fi
     echo ""
@@ -177,16 +177,16 @@ show_post_body_contains() {
     echo "${WHITE}--- ${desc} ---${RESET}"
     echo "REQUEST : POST ${path}"
     local status
-    status=$(curl -s -o /tmp/qa-httpclient.body -w "%{http_code}" \
+    status=$(curl -s -o /tmp/qa-httpclient.body.${BACKEND:-default} -w "%{http_code}" \
         -X POST -H "Content-Type: ${content_type}" --data-binary "${body}" \
         "${BASE}${path}")
     echo "STATUS  : ${status}"
-    if [ "${status}" = "${expected_status}" ] && grep -q "${expected_substring}" /tmp/qa-httpclient.body; then
+    if [ "${status}" = "${expected_status}" ] && grep -q "${expected_substring}" /tmp/qa-httpclient.body.${BACKEND:-default}; then
         echo "${GREEN}PASS${RESET}"
         PASS=$((PASS + 1))
     else
         echo "${RED}FAIL${RESET} (expected ${expected_status} and body containing '${expected_substring}')"
-        echo "BODY: $(head -c 400 /tmp/qa-httpclient.body)"
+        echo "BODY: $(head -c 400 /tmp/qa-httpclient.body.${BACKEND:-default})"
         FAIL=$((FAIL + 1))
     fi
     echo ""
@@ -251,15 +251,15 @@ show_post_body_contains \
 # InlineAuth.Bearer — runtime credential propagated as Authorization.
 echo "${WHITE}--- Showcase: InlineAuth Bearer header propagation ---${RESET}"
 echo "REQUEST : POST /showcase/httpclient/inline-bearer?token=qa-test-bearer"
-INLINE_STATUS=$(curl -s -o /tmp/qa-httpclient.body -w "%{http_code}" \
+INLINE_STATUS=$(curl -s -o /tmp/qa-httpclient.body.${BACKEND:-default} -w "%{http_code}" \
     -X POST "${BASE}/showcase/httpclient/inline-bearer?token=qa-test-bearer")
 echo "STATUS  : ${INLINE_STATUS}"
-if [ "${INLINE_STATUS}" = "200" ] && grep -q '"authorization":"Bearer qa-test-bearer"' /tmp/qa-httpclient.body; then
+if [ "${INLINE_STATUS}" = "200" ] && grep -q '"authorization":"Bearer qa-test-bearer"' /tmp/qa-httpclient.body.${BACKEND:-default}; then
     echo "${GREEN}PASS${RESET}"
     PASS=$((PASS + 1))
 else
     echo "${RED}FAIL${RESET} (expected 200 with Bearer qa-test-bearer in echoed Authorization)"
-    echo "BODY: $(head -c 400 /tmp/qa-httpclient.body)"
+    echo "BODY: $(head -c 400 /tmp/qa-httpclient.body.${BACKEND:-default})"
     FAIL=$((FAIL + 1))
 fi
 echo ""
@@ -381,15 +381,15 @@ show_post_body_contains \
 # the handler substitutes demo-bearer-token when ?token is missing.
 echo "${WHITE}--- InlineAuth: no token param falls back to demo-bearer-token ---${RESET}"
 echo "REQUEST : POST /showcase/httpclient/inline-bearer (no ?token)"
-INLINE_STATUS=$(curl -s -o /tmp/qa-httpclient.body -w "%{http_code}" \
+INLINE_STATUS=$(curl -s -o /tmp/qa-httpclient.body.${BACKEND:-default} -w "%{http_code}" \
     -X POST "${BASE}/showcase/httpclient/inline-bearer")
 echo "STATUS  : ${INLINE_STATUS}"
-if [ "${INLINE_STATUS}" = "200" ] && grep -q '"authorization":"Bearer demo-bearer-token"' /tmp/qa-httpclient.body; then
+if [ "${INLINE_STATUS}" = "200" ] && grep -q '"authorization":"Bearer demo-bearer-token"' /tmp/qa-httpclient.body.${BACKEND:-default}; then
     echo "${GREEN}PASS${RESET}"
     PASS=$((PASS + 1))
 else
     echo "${RED}FAIL${RESET} (expected 200 with Bearer demo-bearer-token default)"
-    echo "BODY: $(head -c 400 /tmp/qa-httpclient.body)"
+    echo "BODY: $(head -c 400 /tmp/qa-httpclient.body.${BACKEND:-default})"
     FAIL=$((FAIL + 1))
 fi
 echo ""

@@ -106,10 +106,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 wait_for_health() {
+  # /readyz, not /livez: the framework now runs the boot view rebuild in the
+  # BACKGROUND — /livez comes up at once (so a long rebuild is never killed),
+  # while /readyz stays 503 until the rebuild finishes. This suite asserts the
+  # POST-rebuild registry/Mongo state, so it must wait on readiness, not
+  # liveness. (The abort-path checks below still probe /livez: a synchronous
+  # boot abort — alien/forgot/check/downgrade — exits before HTTP ever starts.)
   local timeout="${1:-30}"
   local deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    if curl -sf -o /dev/null "$BASE/livez"; then
+    if curl -sf -o /dev/null "$BASE/readyz"; then
       return 0
     fi
     sleep 0.5
@@ -294,8 +300,12 @@ pg_registry_field() {
 }
 
 mongo_users_count() {
+  # After a blue-green rebuild the docs live in the active SLOT (users__0/__1),
+  # not the bare "users" collection — resolve the registry pointer so the count
+  # follows the flip (pre-first-rebuild / no-registry-row → falls back to bare).
+  local coll; coll=$(qa_view_coll users)
   docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
-    "print(db.users.countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
+    "print(db.getCollection('$coll').countDocuments({}))" 2>/dev/null | tail -1 | tr -d ' '
 }
 
 # wait_until_mongo_count polls the Mongo users count every 1s until it reaches

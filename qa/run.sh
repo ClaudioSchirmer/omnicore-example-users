@@ -94,15 +94,23 @@ RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution config_validation migrations tracing status_mapping probes http_hardening view_options httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed integration_events transport auth grpc grpcclient grpc_security"
+SELF_SUITES="audit cache authz schema_evolution rebuild_scale config_validation migrations tracing status_mapping probes http_hardening view_options httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed integration_events transport auth grpc grpcclient grpc_security"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
-# Suites that MUST run alone: schema_evolution mutates the SHARED source tree
-# (internal/infra/views.go) + a shared backup path and rebuilds, so it cannot run
-# concurrently with any other build (the other lane would compile the patched
-# source). They run SERIALLY after the parallel matrix, one lane at a time.
-SERIAL_SUITES="schema_evolution"
+# Suites that MUST run alone: schema_evolution + rebuild_scale both mutate the
+# SHARED source tree (views/schema/DTOs) + a shared backup path and rebuild, so
+# neither can run concurrently with any other build (the other lane would compile
+# the patched source). They run SERIALLY after the parallel matrix, one lane at a
+# time. rebuild_scale is also heavy (a full-aggregate bulk seed + multi-pod
+# blue-green rebuild), so run.sh drives it at a bounded SEED_COUNT (see below).
+SERIAL_SUITES="schema_evolution rebuild_scale"
+
+# rebuild_scale's per-lane seed under run.sh (its standalone default is 1,000,000
+# — far too heavy for the matrix). The SAME seed on every lane, on purpose: the
+# suite doubles as a cross-engine performance yardstick (the backfill throughput
+# is directly comparable only at equal N). Override: REBUILD_SCALE_SEED=30000 ./qa/run.sh
+REBUILD_SCALE_SEED="${REBUILD_SCALE_SEED:-100000}"
 
 if [ -n "${QA_RUN_LOG_DIR:-}" ]; then
   LOG_DIR="$QA_RUN_LOG_DIR"; LOG_DIR_EPHEMERAL=0
@@ -397,7 +405,17 @@ run_lane() {
   # Drop the schema-evolution-managed registry rows so a leftover version=2 from a
   # prior run's schema_evolution can't trip the downgrade guard when the v1 qa
   # binary boots here (paired with the collection drop above → fresh v1 on boot).
-  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');" 2>/dev/null || true
+  # The qa fixture views go too, so a leftover blue-green SLOT pointer from a prior
+  # run does not survive into a fresh boot (the view FreshInit's bare instead).
+  qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons') OR view_name LIKE 'gadget%' OR view_name LIKE 'qa%' OR view_name LIKE 'upstream%';" 2>/dev/null || true
+  # Clear the qa fixture SOURCE tables too. Blue-green classifies "Mongo empty +
+  # relational rows" as DriftMongoWiped and rebuilds online at boot — under Option A
+  # /readyz stays 503 until it finishes. A prior run's leftover source rows (e.g.
+  # orphan gadget_notes a suite dropped from Mongo but not from PG) would otherwise
+  # make a NON-seeding suite (probes) boot straight into a rebuild. Child-first for
+  # the FK; best-effort (a table may not exist on a minimal build).
+  qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
+  qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 
   local run_server_suites="" run_self_suites=""
   for s in $SUITES; do
@@ -509,7 +527,12 @@ while [ "$#" -gt 0 ] && ! stop_requested; do
         for s in $serial_requested; do
           stop_requested && break
           t0=$(date +%s)
-          ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1; rc=$?
+          # rebuild_scale is lane-driven + heavy: pin its seed to the matrix budget
+          # (its own default is 1M for standalone runs) — the SAME N on every lane,
+          # so the per-lane timings are a comparable performance yardstick.
+          suite_env=""
+          [ "$s" = "rebuild_scale" ] && suite_env="SEED_COUNT=$REBUILD_SCALE_SEED"
+          env $suite_env ./qa/$s.sh > "$LOG_DIR/$s-$B.log" 2>&1; rc=$?
           record "$s" "$B" "$LOG_DIR/$s-$B.log" "$rc" "$(( $(date +%s) - t0 ))" || fail_fast "$s" "$B"
         done
       )

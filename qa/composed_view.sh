@@ -64,7 +64,7 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded upstream_gadgets; }
 trap cleanup EXIT INT TERM
 
 mongoq() { docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null | tail -1 | tr -d ' '; }
@@ -111,7 +111,7 @@ title "0.4 Clean baseline"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.deleteMany({}); db.gadget_notes.deleteMany({}); db.upstream_gadgets.deleteMany({})" >/dev/null 2>&1 || true
+qa_view_clear gadgets gadget_notes upstream_gadgets
 sleep 1
 ok "clean baseline"
 
@@ -139,10 +139,11 @@ NB=$(note "$GB" "b-pub" public); NI=$(note "$GB" "x-internal" internal)
 
 title "0.6 Wait for CDC (gadgets ×2, gadget_notes ×6, upstream mirrors ×2)"
 deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); synced=fail
+GCOLL=$(qa_view_coll gadgets); NCOLL=$(qa_view_coll gadget_notes); UCOLL=$(qa_view_coll upstream_gadgets)
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  g=$(mongoq "db.gadgets.countDocuments({})")
-  n=$(mongoq "db.gadget_notes.countDocuments({})")
-  u=$(mongoq "db.upstream_gadgets.countDocuments({})")
+  g=$(mongoq "db.getCollection('$GCOLL').countDocuments({})")
+  n=$(mongoq "db.getCollection('$NCOLL').countDocuments({})")
+  u=$(mongoq "db.getCollection('$UCOLL').countDocuments({})")
   [ "${g:-0}" = "2" ] && [ "${n:-0}" = "6" ] && [ "${u:-0}" = "2" ] && { synced=ok; break; }
   sleep 1
 done
@@ -156,24 +157,24 @@ EXISTS=$(mongoq "db.getCollectionNames().includes('gadgets_full')")
 [ "$EXISTS" = "false" ] && ok "no gadgets_full collection exists — the composition is read-time" || bad "a gadgets_full collection exists ($EXISTS)"
 
 title "1.2 GET /qa/gadgets-full lists both gadgets with mirror + notes window"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
-[ "$COUNT" = "2" ] && ok "2 composed items" || { bad "expected 2 items, got '$COUNT'"; cat /tmp/qa-cv.json; }
-MCODE=$(jget 'd["data"][0]["upstreamMirror"]["code"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?sort=code"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
+[ "$COUNT" = "2" ] && ok "2 composed items" || { bad "expected 2 items, got '$COUNT'"; cat /tmp/qa-cv.json.${BACKEND:-default}; }
+MCODE=$(jget 'd["data"][0]["upstreamMirror"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$MCODE" = "CV-001" ] && ok "1:1 external leg attached (upstreamMirror.code=CV-001)" || bad "mirror missing on item A ('$MCODE')"
-TEXTS=$(jget '",".join(n["text"] for n in d["data"][0]["notes"])' /tmp/qa-cv.json)
+TEXTS=$(jget '",".join(n["text"] for n in d["data"][0]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$TEXTS" = "a1,b2,c3" ] && ok "1:N leg truncated deterministically: first 3 by text (d4 dropped)" || bad "notes window wrong: '$TEXTS'"
-BTEXTS=$(jget '",".join(n["text"] for n in d["data"][1]["notes"])' /tmp/qa-cv.json)
+BTEXTS=$(jget '",".join(n["text"] for n in d["data"][1]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 # The LIST query carries NO overlay by design — internal notes are visible
 # here; the by-id read (overlay Notes.Kind=public) is the R9 counterpart.
 [ "$BTEXTS" = "b-pub,x-internal" ] && ok "item B window ordered by text, overlay-free on the list ($BTEXTS)" || bad "item B notes window wrong: '$BTEXTS'"
-TOTAL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
+TOTAL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$TOTAL" = "2" ] && ok "total is the primary's (2)" || bad "total wrong: '$TOTAL'"
 
 title "1.3 GET /qa/gadgets-full/:id (A) — by-id composed read"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GA"
-MC=$(jget 'd["data"]["upstreamMirror"]["code"]' /tmp/qa-cv.json)
-TX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GA"
+MC=$(jget 'd["data"]["upstreamMirror"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+TX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$MC" = "CV-001" ] && ok "by-id carries the mirror" || bad "by-id mirror missing ('$MC')"
 [ "$TX" = "a1,b2,c3" ] && ok "by-id notes window matches the declared order + cap" || bad "by-id notes wrong: '$TX'"
 
@@ -181,16 +182,16 @@ TX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json)
 sec "2. Row filter vs segment filter (R2) + segment sort rejection (R3)"
 ##############################################################################
 title "2.1 Row filter selects rows: ?code=CV-001 → 1 item"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?code=CV-001"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?code=CV-001"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$COUNT" = "1" ] && ok "row filter selected 1 gadget" || bad "row filter returned '$COUNT'"
 
 title "2.2 Segment filter shapes the segment, never the rows: ?notes.text=a1 → 2 items"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?notes.text=a1&sort=code"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?notes.text=a1&sort=code"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$COUNT" = "2" ] && ok "both gadgets still listed (segment filters never select rows)" || bad "segment filter selected rows: '$COUNT'"
-ATX=$(jget '",".join(n["text"] for n in d["data"][0]["notes"])' /tmp/qa-cv.json)
-BN=$(jget 'len(d["data"][1].get("notes") or [])' /tmp/qa-cv.json)
+ATX=$(jget '",".join(n["text"] for n in d["data"][0]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
+BN=$(jget 'len(d["data"][1].get("notes") or [])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$ATX" = "a1" ] && ok "A's segment filtered to [a1]" || bad "A's segment wrong: '$ATX'"
 [ "$BN" = "0" ] && ok "B's segment emptied (no matching note) — LEFT semantics keep the row" || bad "B's segment wrong: $BN"
 
@@ -202,16 +203,16 @@ ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/?sort=notes.
 sec "3. Keyset cursors carry the COMPOSED context (segment filters included)"
 ##############################################################################
 title "3.1 Page 1 with a segment filter → next_cursor"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?notes.text=a1&sort=code&limit=1"
-C1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
-CUR=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?notes.text=a1&sort=code&limit=1"
+C1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+CUR=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$C1" = "CV-001" ] && [ -n "$CUR" ]; } && ok "page 1 = CV-001 with a cursor" || bad "page 1 wrong (code='$C1' cursor='${CUR:0:12}…')"
 
 title "3.2 Same query + after → page 2"
 ENC=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$CUR")
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?notes.text=a1&sort=code&limit=1&after=$ENC"
-C2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
-[ "$C2" = "CV-002" ] && ok "cursor round-tripped to CV-002" || { bad "page 2 wrong ('$C2')"; cat /tmp/qa-cv.json; }
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?notes.text=a1&sort=code&limit=1&after=$ENC"
+C2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+[ "$C2" = "CV-002" ] && ok "cursor round-tripped to CV-002" || { bad "page 2 wrong ('$C2')"; cat /tmp/qa-cv.json.${BACKEND:-default}; }
 
 title "3.3 Same cursor with a CHANGED segment filter → 400 (context bound)"
 ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/?notes.text=b2&sort=code&limit=1&after=$ENC")
@@ -221,16 +222,16 @@ ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/?notes.text=
 sec "4. onlyTotal + fields projection into segments"
 ##############################################################################
 title "4.1 ?onlyTotal=true → count-only envelope, no leg work"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?onlyTotal=true"
-TOTAL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
-HASDATA=$(jget '"data" in d' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?onlyTotal=true"
+TOTAL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json.${BACKEND:-default})
+HASDATA=$(jget '"data" in d' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$TOTAL" = "2" ] && [ "$HASDATA" = "False" ]; } && ok "count-only short-circuit (total=2, no data)" || bad "onlyTotal wrong (total='$TOTAL' data=$HASDATA)"
 
 title "4.2 ?fields=code,notes.text → sparse render into the segment"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?fields=code,notes.text&sort=code"
-ITEM=$(jget 'sorted(d["data"][0].keys())' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?fields=code,notes.text&sort=code"
+ITEM=$(jget 'sorted(d["data"][0].keys())' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$ITEM" = "['code', 'notes']" ] && ok "item carries only code + notes" || bad "unexpected item keys: $ITEM"
-NKEYS=$(jget 'sorted(d["data"][0]["notes"][0].keys())' /tmp/qa-cv.json)
+NKEYS=$(jget 'sorted(d["data"][0]["notes"][0].keys())' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$NKEYS" = "['text']" ] && ok "note entries carry only text" || bad "unexpected note keys: $NKEYS"
 
 ##############################################################################
@@ -240,56 +241,56 @@ title "5.1 Archive note b-pub → B's default segment empties; ?includeArchived 
 curl -sS -o /dev/null -X PATCH "$BASE/qa/gadget-notes/$NB/archive"
 deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); gated=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB"
-  BN=$(jget 'len(d["data"]["notes"])' /tmp/qa-cv.json)
+  curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GB"
+  BN=$(jget 'len(d["data"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
   [ "$BN" = "0" ] && { gated=ok; break; }
   sleep 1
 done
 [ "$gated" = ok ] && ok "archived note left the default segment (internal one is overlay-hidden)" || bad "archived note still in the segment"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB?includeArchived=true"
-BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json)
-MB=$(jget 'd["data"]["upstreamMirror"]["code"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GB?includeArchived=true"
+BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
+MB=$(jget 'd["data"]["upstreamMirror"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$BTX" = "b-pub" ] && ok "?includeArchived surfaces the archived note (overlay still hides internal)" || bad "includeArchived segment wrong: '$BTX'"
 [ "$MB" = "CV-002" ] && ok "the mirror leg has no soft-delete — the knob is a no-op there" || bad "mirror broken under includeArchived ('$MB')"
 
 title "5.2 Remove B's upstream doc → mirror is LEFT-null; the row survives"
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.upstream_gadgets.deleteOne({code:'CV-002'})" >/dev/null 2>&1
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB"
-ST=$(curl -sS -o /tmp/qa-cv.json -w "%{http_code}" "$BASE/qa/gadgets-full/$GB")
-HASMIRROR=$(jget '"upstreamMirror" in d["data"] and d["data"]["upstreamMirror"] is not None' /tmp/qa-cv.json)
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.getCollection('$(qa_view_coll upstream_gadgets)').deleteOne({code:'CV-002'})" >/dev/null 2>&1
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GB"
+ST=$(curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full/$GB")
+HASMIRROR=$(jget '"upstreamMirror" in d["data"] and d["data"]["upstreamMirror"] is not None' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$ST" = "200" ] && [ "$HASMIRROR" = "False" ]; } && ok "LEFT join: row served, mirror null/absent" || bad "LEFT semantics broken (status=$ST mirror=$HASMIRROR)"
 
 ##############################################################################
 sec "6. Per-leg authorization overlay in ToCriteria (R9/D1)"
 ##############################################################################
 title "6.1 The composed by-id NEVER shows kind=internal (overlay Notes.Kind=public)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB?includeArchived=true"
-BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GB?includeArchived=true"
+BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 case "$BTX" in *x-internal*) bad "overlay leaked the internal note: '$BTX'";; *) ok "internal note absent from the composed read ('$BTX')";; esac
 
 title "6.2 The leg's OWN view still shows it (overlays are per surface, not per view)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadget-notes/?gadgetId=$GB&kind=internal"
-KN=$(jget 'len(d["data"])' /tmp/qa-cv.json)
-KT=$(jget 'd["data"][0]["text"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadget-notes/?gadgetId=$GB&kind=internal"
+KN=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
+KT=$(jget 'd["data"][0]["text"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$KN" = "1" ] && [ "$KT" = "x-internal" ]; } && ok "internal note readable on /qa/gadget-notes" || bad "leg view read wrong (n=$KN text='$KT')"
 
 ##############################################################################
 sec "7. Export + GraphQL over the same composed name"
 ##############################################################################
 title "7.1 GET /qa/gadgets-full.csv renders the leg branches"
-ST=$(curl -sS -o /tmp/qa-cv.csv -w "%{http_code}" "$BASE/qa/gadgets-full.csv?code=CV-001")
-grep -q "a1" /tmp/qa-cv.csv && CSVNOTE=y || CSVNOTE=n
-grep -q "CV-001" /tmp/qa-cv.csv && CSVROOT=y || CSVROOT=n
+ST=$(curl -sS -o /tmp/qa-cv.csv.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full.csv?code=CV-001")
+grep -q "a1" /tmp/qa-cv.csv.${BACKEND:-default} && CSVNOTE=y || CSVNOTE=n
+grep -q "CV-001" /tmp/qa-cv.csv.${BACKEND:-default} && CSVROOT=y || CSVROOT=n
 { [ "$ST" = "200" ] && [ "$CSVNOTE" = y ] && [ "$CSVROOT" = y ]; } && ok "CSV carries root + note rows" || bad "CSV export wrong (status=$ST note=$CSVNOTE root=$CSVROOT)"
-rm -f /tmp/qa-cv.csv
+rm -f /tmp/qa-cv.csv.${BACKEND:-default}
 
 title "7.2 GraphQL gadgetsFull connection serves the composed read"
-curl -sS -o /tmp/qa-cv.json -X POST "$BASE/graphql" -H "Content-Type: application/json" \
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -X POST "$BASE/graphql" -H "Content-Type: application/json" \
   --data '{"query":"{ gadgetsFull(first: 5) { edges { node { code upstreamMirror { code } notes { text } } } } }"}'
-GQL=$(jget '",".join(e["node"]["code"] for e in d["data"]["gadgetsFull"]["edges"])' /tmp/qa-cv.json)
-GQLM=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["upstreamMirror"]["code"]' /tmp/qa-cv.json)
-GQLN=$(jget '",".join(n["text"] for n in d["data"]["gadgetsFull"]["edges"][0]["node"]["notes"])' /tmp/qa-cv.json)
-case "$GQL" in *CV-001*) ok "GraphQL lists the composed items ($GQL)";; *) bad "GraphQL wrong: '$GQL' $(cat /tmp/qa-cv.json)";; esac
+GQL=$(jget '",".join(e["node"]["code"] for e in d["data"]["gadgetsFull"]["edges"])' /tmp/qa-cv.json.${BACKEND:-default})
+GQLM=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["upstreamMirror"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+GQLN=$(jget '",".join(n["text"] for n in d["data"]["gadgetsFull"]["edges"][0]["node"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
+case "$GQL" in *CV-001*) ok "GraphQL lists the composed items ($GQL)";; *) bad "GraphQL wrong: '$GQL' $(cat /tmp/qa-cv.json.${BACKEND:-default})";; esac
 [ "$GQLM" = "CV-001" ] && ok "GraphQL nested mirror resolves" || bad "GraphQL mirror wrong ('$GQLM')"
 [ "$GQLN" = "a1,b2,c3" ] && ok "GraphQL notes window matches" || bad "GraphQL notes wrong ('$GQLN')"
 
@@ -297,14 +298,14 @@ case "$GQL" in *CV-001*) ok "GraphQL lists the composed items ($GQL)";; *) bad "
 sec "8. Primary knobs flow through the composed name unchanged"
 ##############################################################################
 title "8.1 ?search= runs the primary's text index; hits are still enriched"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?search=One"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
-SC=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
-SN=$(jget 'len(d["data"][0].get("notes") or [])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?search=One"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
+SC=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+SN=$(jget 'len(d["data"][0].get("notes") or [])' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$COUNT" = "1" ] && [ "$SC" = "CV-001" ]; } && ok "search selected the matching gadget" || bad "search wrong (count=$COUNT code='$SC')"
 [ "$SN" = "3" ] && ok "search hits are enriched like any composed read" || bad "search hit not enriched ($SN notes)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?search=Composed"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?search=Composed"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$COUNT" = "2" ] && ok "shared token matches both" || bad "search=Composed returned '$COUNT'"
 
 title "8.2 The primary's MaxLimit ceiling guards the composed name (?limit=200 → 400)"
@@ -312,55 +313,55 @@ ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/?limit=200")
 [ "$ST" = "400" ] && ok "limit above the primary ceiling rejected" || bad "limit=200 returned $ST"
 
 title "8.3 An empty result set is a clean page (no legs, no error)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?code=NOPE"
-ST=$(curl -sS -o /tmp/qa-cv.json -w "%{http_code}" "$BASE/qa/gadgets-full/?code=NOPE")
-COUNT=$(jget 'len(d["data"]) if "data" in d else 0' /tmp/qa-cv.json)
-TOTAL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?code=NOPE"
+ST=$(curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full/?code=NOPE")
+COUNT=$(jget 'len(d["data"]) if "data" in d else 0' /tmp/qa-cv.json.${BACKEND:-default})
+TOTAL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$ST" = "200" ] && [ "$COUNT" = "0" ] && [ "$TOTAL" = "0" ]; } && ok "empty page served cleanly" || bad "empty page wrong (st=$ST count=$COUNT total=$TOTAL)"
 
 title "8.4 Backward navigation (?before=) round-trips on the composed name"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code&limit=1"
-P1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
-NC=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?sort=code&limit=1"
+P1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+NC=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json.${BACKEND:-default})
 ENC=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$NC")
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code&limit=1&after=$ENC"
-P2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
-PC=$(jget 'd["pagination"]["prev_cursor"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?sort=code&limit=1&after=$ENC"
+P2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+PC=$(jget 'd["pagination"]["prev_cursor"]' /tmp/qa-cv.json.${BACKEND:-default})
 ENCP=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$PC")
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code&limit=1&before=$ENCP"
-PB=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?sort=code&limit=1&before=$ENCP"
+PB=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$P1" = "CV-001" ] && [ "$P2" = "CV-002" ] && [ "$PB" = "CV-001" ]; } && ok "forward + backward keyset navigation ($P1 → $P2 → $PB)" || bad "cursor navigation wrong ($P1 → $P2 → $PB)"
 
 ##############################################################################
 sec "9. Segment shaping extras — 1:1 filter, AND-ed operators, mirror fields"
 ##############################################################################
 title "9.1 A 1:1 segment filter nulls the sub-document, never the row"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?upstreamMirror.code=ZZZ&sort=code"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
-HASM=$(jget '"upstreamMirror" in d["data"][0] and d["data"][0]["upstreamMirror"] is not None' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?upstreamMirror.code=ZZZ&sort=code"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
+HASM=$(jget '"upstreamMirror" in d["data"][0] and d["data"][0]["upstreamMirror"] is not None' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$COUNT" = "2" ] && [ "$HASM" = "False" ]; } && ok "unmatched 1:1 filter → mirror null, rows intact" || bad "1:1 segment filter wrong (count=$COUNT mirror=$HASM)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?upstreamMirror.code=CV-001&sort=code"
-MC=$(jget 'd["data"][0]["upstreamMirror"]["code"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?upstreamMirror.code=CV-001&sort=code"
+MC=$(jget 'd["data"][0]["upstreamMirror"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$MC" = "CV-001" ] && ok "matched 1:1 filter keeps the sub-document" || bad "matched 1:1 filter lost the mirror ('$MC')"
 
 title "9.2 Multiple operators on one segment field AND-combine"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?notes.text.contains=1&notes.text=a1&sort=code"
-ATX=$(jget '",".join(n["text"] for n in d["data"][0]["notes"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?notes.text.contains=1&notes.text=a1&sort=code"
+ATX=$(jget '",".join(n["text"] for n in d["data"][0]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$ATX" = "a1" ] && ok "contains=1 AND eq=a1 → [a1]" || bad "AND-ed segment operators wrong: '$ATX'"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?notes.text.contains=1&notes.text=b2&sort=code"
-AN=$(jget 'len(d["data"][0].get("notes") or [])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?notes.text.contains=1&notes.text=b2&sort=code"
+AN=$(jget 'len(d["data"][0].get("notes") or [])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$AN" = "0" ] && ok "unsatisfiable AND empties the segment" || bad "AND-ed operators leaked: $AN notes"
 
 title "9.3 ?notes.kind=internal on the LIST — visible here, overlay-hidden on by-id"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?notes.kind=internal&sort=code"
-AN=$(jget 'len(d["data"][0].get("notes") or [])' /tmp/qa-cv.json)
-BTX=$(jget '",".join(n["text"] for n in d["data"][1]["notes"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?notes.kind=internal&sort=code"
+AN=$(jget 'len(d["data"][0].get("notes") or [])' /tmp/qa-cv.json.${BACKEND:-default})
+BTX=$(jget '",".join(n["text"] for n in d["data"][1]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$AN" = "0" ] && [ "$BTX" = "x-internal" ]; } && ok "the list (no overlay) can surface internal notes — the by-id contrast is the R9 proof" || bad "kind filter wrong (A=$AN B='$BTX')"
 
 title "9.4 ?fields= projects into the 1:1 segment"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?fields=code,upstreamMirror.code&code=CV-001"
-ITEM=$(jget 'sorted(d["data"][0].keys())' /tmp/qa-cv.json)
-MK=$(jget 'sorted(d["data"][0]["upstreamMirror"].keys())' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?fields=code,upstreamMirror.code&code=CV-001"
+ITEM=$(jget 'sorted(d["data"][0].keys())' /tmp/qa-cv.json.${BACKEND:-default})
+MK=$(jget 'sorted(d["data"][0]["upstreamMirror"].keys())' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$ITEM" = "['code', 'upstreamMirror']" ] && ok "item carries only code + mirror" || bad "unexpected item keys: $ITEM"
 [ "$MK" = "['code']" ] && ok "mirror entry carries only code" || bad "unexpected mirror keys: $MK"
 
@@ -378,20 +379,20 @@ done
 [ "$parch" = ok ] && ok "archived primary hidden (404)" || bad "archived primary still served ($ST)"
 
 title "10.2 ?includeArchived=true serves it, legs attached (overlay still active)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/$GB?includeArchived=true"
-ST=$(curl -sS -o /tmp/qa-cv.json -w "%{http_code}" "$BASE/qa/gadgets-full/$GB?includeArchived=true")
-BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GB?includeArchived=true"
+ST=$(curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full/$GB?includeArchived=true")
+BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$ST" = "200" ] && [ "$BTX" = "b-pub" ]; } && ok "archived primary readable with legs (notes=[b-pub]: archived note lifted, internal overlay-hidden)" || bad "archived by-id wrong (st=$ST notes='$BTX')"
 
 title "10.3 Default list drops the archived primary; unarchive restores it"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/"
-COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/"
+COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$COUNT" = "1" ] && ok "default list shows only the active gadget" || bad "default list wrong ($COUNT)"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$GB/unarchive"
 deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); prest=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/"
-  COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json)
+  curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/"
+  COUNT=$(jget 'len(d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
   [ "$COUNT" = "2" ] && { prest=ok; break; }
   sleep 1
 done
@@ -401,37 +402,37 @@ done
 sec "11. Export extras — CSV field pruning + XLSX"
 ##############################################################################
 title "11.1 CSV with ?fields=code,notes.text prunes root + segment columns"
-ST=$(curl -sS -o /tmp/qa-cv.csv -w "%{http_code}" "$BASE/qa/gadgets-full.csv?fields=code,notes.text&code=CV-001")
-grep -q "a1" /tmp/qa-cv.csv && HASNOTE=y || HASNOTE=n
-grep -q "tools" /tmp/qa-cv.csv && HASCAT=y || HASCAT=n
+ST=$(curl -sS -o /tmp/qa-cv.csv.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full.csv?fields=code,notes.text&code=CV-001")
+grep -q "a1" /tmp/qa-cv.csv.${BACKEND:-default} && HASNOTE=y || HASNOTE=n
+grep -q "tools" /tmp/qa-cv.csv.${BACKEND:-default} && HASCAT=y || HASCAT=n
 { [ "$ST" = "200" ] && [ "$HASNOTE" = y ] && [ "$HASCAT" = n ]; } && ok "pruned CSV keeps requested columns, drops the rest" || bad "CSV pruning wrong (st=$ST note=$HASNOTE category-leak=$HASCAT)"
-rm -f /tmp/qa-cv.csv
+rm -f /tmp/qa-cv.csv.${BACKEND:-default}
 
 title "11.2 XLSX export responds with a real workbook"
-ST=$(curl -sS -o /tmp/qa-cv.xlsx -w "%{http_code}" "$BASE/qa/gadgets-full.xlsx?code=CV-001")
-MAGIC=$(head -c 2 /tmp/qa-cv.xlsx 2>/dev/null)
-SIZE=$(wc -c < /tmp/qa-cv.xlsx 2>/dev/null | tr -d ' ')
+ST=$(curl -sS -o /tmp/qa-cv.xlsx.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full.xlsx?code=CV-001")
+MAGIC=$(head -c 2 /tmp/qa-cv.xlsx.${BACKEND:-default} 2>/dev/null)
+SIZE=$(wc -c < /tmp/qa-cv.xlsx.${BACKEND:-default} 2>/dev/null | tr -d ' ')
 { [ "$ST" = "200" ] && [ "$MAGIC" = "PK" ] && [ "${SIZE:-0}" -gt 1000 ]; } && ok "XLSX served (zip magic, ${SIZE}B)" || bad "XLSX wrong (st=$ST magic='$MAGIC' size=$SIZE)"
-rm -f /tmp/qa-cv.xlsx
+rm -f /tmp/qa-cv.xlsx.${BACKEND:-default}
 
 ##############################################################################
 sec "12. GraphQL extras — where + cursor navigation on the composed name"
 ##############################################################################
 title "12.1 where folds like REST row filters"
-curl -sS -o /tmp/qa-cv.json -X POST "$BASE/graphql" -H "Content-Type: application/json" \
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -X POST "$BASE/graphql" -H "Content-Type: application/json" \
   --data '{"query":"{ gadgetsFull(where: { code: { eq: \"CV-001\" } }, first: 5) { edges { node { code } } } }"}'
-GN=$(jget 'len(d["data"]["gadgetsFull"]["edges"])' /tmp/qa-cv.json)
-GC=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json)
+GN=$(jget 'len(d["data"]["gadgetsFull"]["edges"])' /tmp/qa-cv.json.${BACKEND:-default})
+GC=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$GN" = "1" ] && [ "$GC" = "CV-001" ]; } && ok "GraphQL where selects rows" || bad "GraphQL where wrong (n=$GN code='$GC')"
 
 title "12.2 Relay cursor navigation over the composed connection"
-curl -sS -o /tmp/qa-cv.json -X POST "$BASE/graphql" -H "Content-Type: application/json" \
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -X POST "$BASE/graphql" -H "Content-Type: application/json" \
   --data '{"query":"{ gadgetsFull(first: 1) { edges { node { code } cursor } } }"}'
-GC1=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json)
-GCUR=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["cursor"]' /tmp/qa-cv.json)
-curl -sS -o /tmp/qa-cv.json -X POST "$BASE/graphql" -H "Content-Type: application/json" \
+GC1=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+GCUR=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["cursor"]' /tmp/qa-cv.json.${BACKEND:-default})
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -X POST "$BASE/graphql" -H "Content-Type: application/json" \
   --data "{\"query\":\"{ gadgetsFull(first: 1, after: \\\"$GCUR\\\") { edges { node { code notes { text } } } } }\"}"
-GC2=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json)
+GC2=$(jget 'd["data"]["gadgetsFull"]["edges"][0]["node"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ -n "$GCUR" ] && [ "$GC1" != "$GC2" ] && [ -n "$GC2" ]; } && ok "Relay after-cursor advanced ($GC1 → $GC2)" || bad "GraphQL cursor navigation wrong ($GC1 → '$GC2')"
 
 ##############################################################################
@@ -450,19 +451,20 @@ GC=$(curl -sS -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
   | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null)
 [ -n "$GC" ] && ok "retired gadget created ($GC)" || bad "retired gadget creation failed"
 deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); seeded=fail
+GCOLL=$(qa_view_coll gadgets)
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  g=$(mongoq "db.gadgets.countDocuments({})")
+  g=$(mongoq "db.getCollection('$GCOLL').countDocuments({})")
   [ "${g:-0}" = "3" ] && { seeded=ok; break; }
   sleep 1
 done
 [ "$seeded" = ok ] && ok "gadgets view carries 3 docs" || bad "CDC never landed the 3rd gadget"
 
 title "13.2 The overlay filters rows: raw view shows 3, composed surface shows 2"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets/"
-RAW=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code"
-FULL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json)
-CODES=$(jget '",".join(i["code"] for i in d["data"])' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets/"
+RAW=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json.${BACKEND:-default})
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?sort=code"
+FULL=$(jget 'd["pagination"]["total"]' /tmp/qa-cv.json.${BACKEND:-default})
+CODES=$(jget '",".join(i["code"] for i in d["data"])' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$RAW" = "3" ] && [ "$FULL" = "2" ]; } && ok "overlay hides the retired gadget from the composed surface (raw=3, composed=2)" || bad "overlay row gate wrong (raw=$RAW composed=$FULL)"
 case "$CODES" in *CV-003*) bad "retired gadget leaked into the composed list ($CODES)";; *) ok "composed list carries only active gadgets ($CODES)";; esac
 
@@ -471,12 +473,12 @@ ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-full/$GC")
 [ "$ST" = "404" ] && ok "retired gadget 404s on the composed by-id" || bad "composed by-id served a non-active gadget ($ST)"
 
 title "13.4 Cursor navigation round-trips WITH the security overlay (the fixed bug)"
-curl -sS -o /tmp/qa-cv.json "$BASE/qa/gadgets-full/?sort=code&limit=1"
-P1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
-NC=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json)
+curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/?sort=code&limit=1"
+P1=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
+NC=$(jget 'd["pagination"]["next_cursor"]' /tmp/qa-cv.json.${BACKEND:-default})
 ENC=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$NC")
-ST=$(curl -sS -o /tmp/qa-cv.json -w "%{http_code}" "$BASE/qa/gadgets-full/?sort=code&limit=1&after=$ENC")
-P2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json)
+ST=$(curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} -w "%{http_code}" "$BASE/qa/gadgets-full/?sort=code&limit=1&after=$ENC")
+P2=$(jget 'd["data"][0]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 { [ "$ST" = "200" ] && [ "$P1" = "CV-001" ] && [ "$P2" = "CV-002" ]; } && ok "?after accepted with the ToCriteria overlay active ($P1 → $P2)" || bad "overlay broke pagination (st=$ST $P1 → '$P2')"
 
 ##############################################################################

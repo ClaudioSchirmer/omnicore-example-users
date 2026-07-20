@@ -47,7 +47,7 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.gadgets_embedded.drop(); db.upstream_gadgets.drop(); db.qa_accounts_view.drop(); db.qa_catalog_view.drop(); db.upstream_items.drop()" >/dev/null 2>&1 || true; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded upstream_gadgets qa_accounts_view qa_catalog_view upstream_items; }
 trap cleanup EXIT INT TERM
 
 # reset_integration_consumer drops the integration consumer's saved position so
@@ -110,7 +110,7 @@ qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM integration_events;" 2>/dev/null || true
 qa_db_exec "DELETE FROM omnicore_integration_processed;" 2>/dev/null || true
 qa_db_exec "DELETE FROM omnicore_integration_failures;" 2>/dev/null || true
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.deleteMany({})' >/dev/null 2>&1 || true
+qa_view_clear gadgets
 sleep 1
 ok "clean baseline"
 
@@ -171,10 +171,10 @@ PENDING=$(qa_db_query "SELECT count(*) FROM omnicore_integration_failures WHERE 
 [ "${PENDING:-0}" = "0" ] && ok "no pending integration failures" || bad "unexpected pending failures: $PENDING"
 
 title "3.2 POST /admin/retries/integration responds 200"
-ST=$(curl -sS -o /tmp/qa-int-retry.json -w "%{http_code}" -X POST "$BASE/admin/retries/integration")
-echo "response: $(cat /tmp/qa-int-retry.json 2>/dev/null)"
+ST=$(curl -sS -o /tmp/qa-int-retry.json.${BACKEND:-default} -w "%{http_code}" -X POST "$BASE/admin/retries/integration")
+echo "response: $(cat /tmp/qa-int-retry.json.${BACKEND:-default} 2>/dev/null)"
 [ "$ST" = "200" ] && ok "admin integration-retry route responds 200" || bad "admin retry status $ST"
-rm -f /tmp/qa-int-retry.json
+rm -f /tmp/qa-int-retry.json.${BACKEND:-default}
 
 ##############################################################################
 sec "Cleanup + Summary"
@@ -184,6 +184,6 @@ qa_db_exec "DELETE FROM gadgets;"
 qa_db_exec "DELETE FROM integration_events;" 2>/dev/null || true
 # DROP the qa collection so a later non-qa suite's boot registry guard does not
 # abort on a foreign collection.
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop()' >/dev/null 2>&1 || true
+qa_view_drop gadgets gadget_notes
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

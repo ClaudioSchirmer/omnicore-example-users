@@ -33,7 +33,7 @@ source "$REPO_ROOT/qa/_backend.sh"
 SERVER_BIN="/tmp/omnicore-example-users-qa-external-embed-${BACKEND:-postgres}"
 SERVER_LOG="/tmp/omnicore-example-users-qa-external-embed-${BACKEND:-postgres}.log"
 QA_YAML="$REPO_ROOT/microservice.qa.yaml"
-GET_TMP="/tmp/qa-ee-get.json"
+GET_TMP="/tmp/qa-ee-get.json.${BACKEND:-default}"
 
 PASS=0; FAIL=0; SERVER_PID=""
 hr()    { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
@@ -43,8 +43,7 @@ ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 drop_collections() {
-  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
-    "db.qa_accounts_view.drop(); db.qa_catalog_view.drop(); db.upstream_items.drop()" >/dev/null 2>&1 || true
+  qa_view_drop qa_accounts_view qa_catalog_view upstream_items
 }
 reset_domain() {
   qa_db_exec "DELETE FROM qa_items;" 2>/dev/null || true
@@ -279,6 +278,54 @@ title "6.2 A1 leaves the OLD account's list"
 wait_items "$ACC_URL" "items" "" && ok "old account items now empty (A1 removed on move)" || bad "old parent not recomposed on move"
 title "6.3 A1 appears in the NEW account's list"
 wait_items "$ACC2_URL" "items" "A1-renamed" && ok "new account items = [A1-renamed] (A1 added on move)" || bad "new parent not recomposed on move"
+
+##############################################################################
+sec "8. Blue-green rebuild — batched embed compose (multi-parent backfill)"
+##############################################################################
+# Sections 2-7 exercise the PER-EVENT compose path (one parent recomposed per CDC
+# event → the per-row applyEmbeds). A full rebuild instead composes MANY parents
+# per batch and resolves each parent's external embed through the SET-BASED
+# applyEmbedsBatch (one $in per embed source, grouped by join key). This step
+# drops BOTH embed views' Mongo collections across every physical slot (keeping
+# the embed SOURCE upstream_items) and reboots, so the boot rebuild backfills them
+# via ComposeBatch → applyEmbedsBatch — then proves the rebuilt docs reproduce the
+# live projection EXACTLY, on BOTH view kinds and across a parent WITH embeds
+# (acct-001) and one WITHOUT/moved-in (acct-002); a mis-grouped $in would surface
+# as a wrong or leaked segment on the wrong parent.
+
+title "8.1 Capture the live projection (post-ripple) before the rebuild"
+acc_feat=$(jval "$ACC_URL" "featuredItem.label"); acc_items=$(jitems "$ACC_URL" "items")
+acc2_feat=$(jval "$ACC2_URL" "featuredItem.label"); acc2_items=$(jitems "$ACC2_URL" "items")
+cat_feat=$(jval "$CAT_URL" "featuredItem.label"); cat_items=$(jitems "$CAT_URL" "items")
+ok "captured account=[$acc_feat|$acc_items] account2=[$acc2_feat|$acc2_items] catalog=[$cat_feat|$cat_items]"
+
+title "8.2 Stop the server + WIPE both embed views (all slots); keep upstream_items"
+if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+kill_port "${HTTP_PORT:-8080}"
+qa_view_drop qa_accounts_view qa_catalog_view
+ok "embed views wiped (registry rows kept → DriftMongoWiped next boot; embed source intact)"
+
+title "8.3 Reboot → the boot rebuild backfills both views (ComposeBatch → applyEmbedsBatch)"
+: > "$SERVER_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
+SERVER_PID=$!
+d=$(( $(date +%s) + 90 )); rok=fail
+while [ "$(date +%s)" -lt "$d" ]; do [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz")" = 200 ] && { rok=ok; break; }; sleep 0.5; done
+[ "$rok" = ok ] && ok "server ready (boot rebuild finished)" || { bad "server never became ready after rebuild"; tail -n 40 "$SERVER_LOG"; }
+
+title "8.4 A blue-green rebuild actually ran (only the wiped embed views drift)"
+grep -q 'view.rebuild.end' "$SERVER_LOG" && ok "boot rebuild ran (view.rebuild.end in the server log)" || bad "no view.rebuild in the server log — the batched embed path was not exercised"
+
+title "8.5 The batch-composed docs reproduce the live projection EXACTLY (embeds grouped per parent)"
+{ wait_val "$ACC_URL" "featuredItem.label" "$acc_feat" && wait_items "$ACC_URL" "items" "$acc_items"; } \
+  && ok "shared-base account embeds survived the rebuild (featuredItem=$acc_feat items=[$acc_items])" \
+  || bad "account embeds diverged after the batched rebuild"
+{ wait_val "$ACC2_URL" "featuredItem.label" "$acc2_feat" && wait_items "$ACC2_URL" "items" "$acc2_items"; } \
+  && ok "second account regrouped correctly — no cross-parent leak (featuredItem=$acc2_feat items=[$acc2_items])" \
+  || bad "second account embeds diverged after the batched rebuild"
+{ wait_val "$CAT_URL" "featuredItem.label" "$cat_feat" && wait_items "$CAT_URL" "items" "$cat_items"; } \
+  && ok "normal-view catalog embeds survived the rebuild (featuredItem=$cat_feat items=[$cat_items])" \
+  || bad "catalog embeds diverged after the batched rebuild"
 
 ##############################################################################
 sec "Cleanup + Summary"

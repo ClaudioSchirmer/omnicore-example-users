@@ -321,7 +321,60 @@ esac
 # Mongo collection wipe used by several suites (lane-independent, but the DB
 # name differs per lane).
 qa_mongo_reset() {
-  docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval "db.users.deleteMany({}); db.employees.deleteMany({}); db.persons.deleteMany({});" >/dev/null 2>&1
+  # Clear the canonical views across ALL physical blue-green slots, not just the
+  # bare collection: once schema_evolution/rebuild_scale have flipped a view, its
+  # live data sits in a slot (users__0/__1) and the bare collection is empty, so a
+  # bare-only deleteMany leaves stale rows in the active slot (they then leak into
+  # the next suite reading that view). deleteMany (not drop) preserves indexes;
+  # a missing slot collection is a harmless no-op.
+  local ev="" v n
+  for v in users employees persons; do
+    for n in "$v" "${v}__0" "${v}__1"; do
+      ev="${ev}db.getCollection('$n').deleteMany({});"
+    done
+  done
+  docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval "$ev" >/dev/null 2>&1
+}
+
+# ── Blue-green view-collection resolution ────────────────────────────────────
+# Online blue-green rebuilds move a view between its bare <view> and the two
+# physical slots <view>__0 / <view>__1 (registry.active_collection names the live
+# one; NULL = bare). The framework's ViewReader resolves this transparently, so
+# suites reading through the HTTP API never notice. Suites that peek at Mongo
+# DIRECTLY (mongosh countDocuments/findOne for CDC-convergence or value checks)
+# must resolve the SAME pointer, or they read an empty bare collection once a view
+# has been rebuilt into a slot and never come back.
+
+# qa_view_coll <view> — echo the physical Mongo collection <view> currently lives
+# in (its active slot, or the bare name when the registry has no row / a NULL
+# pointer). Lane-aware via qa_db_query.
+qa_view_coll() {
+  local c
+  c=$(qa_db_query "SELECT COALESCE(active_collection,'$1') FROM omnicore_mongo_views WHERE view_name='$1'" 2>/dev/null | tr -d '[:space:]')
+  printf '%s' "${c:-$1}"
+}
+
+# qa_view_drop <view...> — drop EVERY physical collection each view can occupy (the
+# bare <view> AND both slots <view>__0 / <view>__1) in the lane's view DB. Removes
+# a view's data regardless of which slot is live, so no orphan slot survives to
+# inflate the next suite's counts. Best-effort (a missing collection is a no-op).
+qa_view_drop() {
+  local list="" v
+  for v in "$@"; do list="${list}'$v','${v}__0','${v}__1',"; done
+  [ -z "$list" ] && return 0
+  docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval \
+    "[${list%,}].forEach(function(n){db.getCollection(n).drop()})" >/dev/null 2>&1 || true
+}
+
+# qa_view_clear <view...> — EMPTY each view's active collection (deleteMany), never
+# drop it. Use for a mid-run reset while the server is UP: a drop would lose the
+# view's declared indexes (e.g. the ?search= text index), which only ApplyMongoSpecs
+# re-creates at boot — an in-flight CDC upsert would recreate the collection bare.
+qa_view_clear() {
+  local ev="" v c
+  for v in "$@"; do c=$(qa_view_coll "$v"); ev="${ev}db.getCollection('$c').deleteMany({});"; done
+  [ -z "$ev" ] && return 0
+  docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval "$ev" >/dev/null 2>&1 || true
 }
 
 # ── CDC pipeline knobs + warmup ──────────────────────────────────────────────
@@ -343,17 +396,18 @@ QA_CDC_DEADLINE="${QA_CDC_DEADLINE:-90}"
 # leftovers). Non-fatal by design — a cold pipeline surfaces as a WARN here and
 # the suite's own deadlines still apply.
 qa_cdc_warmup_gadget() {
-  local base="${BASE:-http://localhost:8080}" code id deadline c
+  local base="${BASE:-http://localhost:8080}" code id deadline c gcoll
   code="QA-WARMUP-$$-$(date +%s)"
   id=$(curl -sS -X POST "$base/qa/gadgets" -H "Content-Type: application/json" \
     --data "{\"code\":\"$code\",\"name\":\"CDC warmup sentinel\",\"category\":\"warmup\",\"status\":\"active\"}" \
     | python3 -c 'import sys,json
 d=json.load(sys.stdin).get("data")
 print(d.get("id","") if isinstance(d,dict) else "")' 2>/dev/null)
+  gcoll=$(qa_view_coll gadgets)   # resolve the active gadgets slot (blue-green)
   deadline=$(( $(date +%s) + 120 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     c=$(docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet \
-      --eval "db.gadgets.countDocuments({code:'$code'})" 2>/dev/null | tail -1 | tr -d ' ')
+      --eval "db.getCollection('$gcoll').countDocuments({code:'$code'})" 2>/dev/null | tail -1 | tr -d ' ')
     [ "${c:-0}" -ge 1 ] 2>/dev/null && break
     sleep 1
   done

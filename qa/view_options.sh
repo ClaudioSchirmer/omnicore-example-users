@@ -31,7 +31,7 @@ cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   kill_port "${HTTP_PORT:-8080}"
   qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
-  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
+  qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped upstream_gadgets
 }
 trap cleanup EXIT INT TERM
 
@@ -63,7 +63,7 @@ qa_cdc_warmup_gadget
 
 title "0.1 Reset + seed 8 gadgets (enough to overflow the MaxLimit(5) cap)"
 qa_db_exec "DELETE FROM gadgets;"
-docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval 'db.gadgets.drop(); db.gadget_notes.drop(); db.gadgets_hot.drop(); db.gadgets_capped.drop(); db.upstream_gadgets.drop()' >/dev/null 2>&1 || true
+qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped upstream_gadgets
 sleep 1
 # Each POST is verified (201) and retried — a transient write failure would
 # otherwise surface later as a misleading CDC timeout. The materialization
