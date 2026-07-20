@@ -34,7 +34,11 @@ func insertUser(t *testing.T, repo *UserRepository, document, name, email, userN
 	fresh := &appdomain.User{Document: document}
 	loaded, existed, err := repo.LoadForSharedBaseInsert(testCtx(), fresh)
 	if err != nil {
-		t.Fatalf("LoadForSharedBaseInsert %q: %v", document, err)
+		// RETURN (don't t.Fatalf): since 775a3c6 the shared-base insert probe
+		// pre-flights the "active role already exists" 409, so a typed conflict now
+		// surfaces HERE rather than from Insert below. The caller decides whether an
+		// error is expected — mirror the Insert path and hand it back.
+		return domain.ID{}, err
 	}
 	loaded.Name = name
 	loaded.Email = email
@@ -176,8 +180,12 @@ func TestUserRepository_ArchiveAndUnarchiveCascade(t *testing.T) {
 	}
 }
 
-// Re-POSTing an ARCHIVED user's document REVIVES it rather than conflicting.
-func TestUserRepository_ReviveArchivedUser(t *testing.T) {
+// Re-POSTing an ARCHIVED user's document does NOT revive it: the SharedBase
+// insert probe is active-only, so the archived role is invisible and the
+// shared-PK constraint arbitrates the remnant → a 409 typed conflict. Revival is
+// EXCLUSIVELY via /unarchive (framework 775a3c6). After the unarchive the user is
+// active again carrying its ORIGINAL fields — the rejected re-POST never applied.
+func TestUserRepository_RePostArchivedDocumentConflictsUnarchiveRevives(t *testing.T) {
 	eng, cleanup := newTestEngine(t)
 	defer cleanup()
 	repo := NewUserRepository(eng)
@@ -189,16 +197,43 @@ func TestUserRepository_ReviveArchivedUser(t *testing.T) {
 		t.Fatalf("Archive: %v", err)
 	}
 
-	// Warm upsert of the same document while the user is archived → revive.
-	if _, err := insertUser(t, repo, "10000000004", "R2", "r2@x.com", "r2", sampleAddress()); err != nil {
-		t.Fatalf("revive Insert: %v", err)
+	// Re-POST the same document while archived → a typed 409 conflict, NOT revival:
+	// the archived role is invisible to the active-only insert probe, so the write
+	// proceeds and the person's remnant constraints arbitrate it. Here the shared
+	// base-child address (person-owned, NOT archived with the role) collides first
+	// → DuplicateAddressNotification. Either way the re-POST is rejected.
+	_, err := insertUser(t, repo, "10000000004", "R2", "r2@x.com", "r2", sampleAddress())
+	if err == nil {
+		t.Fatal("expected re-POST of an archived document to conflict, not revive")
 	}
+	var carrier domain.NotificationCarrier
+	if !errors.As(err, &carrier) {
+		t.Fatalf("expected NotificationCarrier, got %T", err)
+	}
+	if key := domain.NotificationKey(carrier.NotificationContexts()[0].Messages()[0].Notification); key != "DuplicateAddressNotification" {
+		t.Errorf("expected a typed remnant conflict (DuplicateAddressNotification), got %v", key)
+	}
+
+	// /unarchive is the ONLY revival path.
+	archived, err := repo.FindArchivedByID(id)
+	if err != nil {
+		t.Fatalf("FindArchivedByID: %v", err)
+	}
+	una, err := domain.GetUnarchivable(archived, nil, "GetUnarchivable")
+	if err != nil {
+		t.Fatalf("GetUnarchivable: %v", err)
+	}
+	if err := repo.Scope(testCtx()).Unarchive(una); err != nil {
+		t.Fatalf("Unarchive: %v", err)
+	}
+
+	// Active again — with its ORIGINAL fields; the rejected re-POST never applied.
 	got, err := repo.FindByID(id)
 	if err != nil {
-		t.Fatalf("FindByID after revive: %v", err)
+		t.Fatalf("FindByID after unarchive: %v", err)
 	}
-	if got.Email != "r2@x.com" {
-		t.Errorf("expected revived user to carry last-write-wins fields, got %+v", got)
+	if got.Email != "r@x.com" {
+		t.Errorf("expected the unarchived user to keep its original fields, got %+v", got)
 	}
 }
 
