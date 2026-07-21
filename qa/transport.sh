@@ -271,6 +271,64 @@ done
 [ "$dupes" -eq 0 ] && ok "no duplicates — at-least-once redelivery absorbed by keyed upsert" \
   || bad "$dupes code(s) with a count != 1 (idempotency broken)"
 
+# ── 4. TWO pods serving writes concurrently ──────────────────────────────────
+sec "4. Two pods, one consumer group — concurrent writers, exactly-once projection"
+# Coverage audit 2026-07-21: multi-pod consumption existed only inside
+# rebuild_scale's rebuild choreography (one writer at a time). This is the
+# steady-state contract: two app instances share the sync consumer group
+# (partitions split between them), BOTH serve writes concurrently, and every
+# event lands exactly once regardless of which pod consumed it. Then the
+# second pod leaves and the group must rebalance back without losing the
+# in-flight stream.
+title "4.1 Boot POD2 on offset ports (same yaml, same consumer group)"
+POD2_HTTP=":$(( ${HTTP_PORT:-8080} + 50 ))"; POD2_BASE="http://localhost:$(( ${HTTP_PORT:-8080} + 50 ))"
+POD2_LOG="/tmp/omnicore-example-users-qa-transport-pod2-${BACKEND:-postgres}.log"; : > "$POD2_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev HTTP_ADDR="$POD2_HTTP" GRPC_ADDR=":$(( ${GRPC_PORT:-9090} + 50 ))" OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$POD2_LOG" 2>&1 ) &
+POD2_PID=$!
+deadline=$(( $(date +%s) + 60 )); p2=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  curl -sf -o /dev/null "$POD2_BASE/readyz" && { p2=ok; break; }; sleep 1
+done
+[ "$p2" = ok ] && ok "POD2 ready ($POD2_BASE) — group rebalanced to two members" || { bad "POD2 never became ready"; tail -n 20 "$POD2_LOG"; }
+
+title "4.2 Ten interleaved writes alternating pods → every code projects EXACTLY once"
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  code="${CODE_PREFIX}-2p-$i"
+  if [ $(( i % 2 )) = 0 ]; then tgt="$POD2_BASE"; else tgt="$BASE"; fi
+  curl -sS -o /dev/null -X POST "$tgt/qa/gadgets" -H "Content-Type: application/json" \
+    --data "{\"code\":\"$code\",\"name\":\"two-pod $code\",\"category\":\"transport\",\"status\":\"active\"}"
+done
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); conv=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  n=0
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    [ "$(mongo_count_code "${CODE_PREFIX}-2p-$i")" = "1" ] 2>/dev/null && n=$((n+1))
+  done
+  [ "$n" = "10" ] && { conv=ok; break; }
+  sleep 1
+done
+[ "$conv" = ok ] && ok "all 10 interleaved writes projected exactly once across the split group" \
+  || bad "two-pod convergence incomplete ($n/10 codes at count 1)"
+dup2=0
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  c=$(mongo_count_code "${CODE_PREFIX}-2p-$i")
+  [ "${c:-0}" -eq 1 ] 2>/dev/null || { dup2=$((dup2+1)); printf '  code %s → count %s (want 1)\n' "${CODE_PREFIX}-2p-$i" "${c:-?}"; }
+done
+[ "$dup2" -eq 0 ] && ok "no duplicates under two concurrent consumers" || bad "$dup2 code(s) duplicated/missing under two pods"
+
+title "4.3 POD2 leaves (SIGTERM) → the group rebalances back; a next write still projects"
+kill "$POD2_PID" 2>/dev/null; wait "$POD2_PID" 2>/dev/null
+solo_code="${CODE_PREFIX}-2p-after"
+curl -sS -o /dev/null -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
+  --data "{\"code\":\"$solo_code\",\"name\":\"post-rebalance\",\"category\":\"transport\",\"status\":\"active\"}"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); rb=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  [ "$(mongo_count_code "$solo_code")" = "1" ] 2>/dev/null && { rb=ok; break; }
+  sleep 1
+done
+[ "$rb" = ok ] && ok "post-rebalance write projected (surviving pod reclaimed the partitions)" \
+  || { bad "post-rebalance write never projected"; tail -n 20 "$SERVER_LOG"; }
+
 # ── summary ──────────────────────────────────────────────────────────────────
 sec "Summary"
 printf 'Transport: %s   Backend: %s\n' "${QA_TRANSPORT_TAG:-?}" "$BACKEND"

@@ -56,6 +56,44 @@ type AccountHolderResult struct {
 
 var _ pipeline.SharedBaseInsertCommand[*qadomain.AccountHolder, AccountHolderResult] = (*InsertAccountHolderCommand)(nil)
 
+// UpdateAccountCommand is the PATCH driving the ENTITY-side 1:1 embed lever:
+// repointing FeaturedItemID re-references the featured item WITHOUT any item
+// event — the projected segment must converge through the write-side repair
+// (or the newly-referenced item's own ripple), never through luck. DisplayName
+// exercises a base-field update through the role; HolderName a role-private
+// one. Non-nil fields apply; nil is left unchanged (partial semantics — an
+// explicit null clear is not expressible here; the null outcome is covered by
+// the source-item delete path).
+type UpdateAccountCommand struct {
+	pipeline.CommandWithBodyIDBase
+	DisplayName    *string
+	FeaturedItemID *string
+	HolderName     *string
+}
+
+func (c *UpdateAccountCommand) ApplyPartiallyTo(_ *configuration.AppContext, a *qadomain.AccountHolder) error {
+	if c.DisplayName != nil {
+		a.DisplayName = *c.DisplayName
+	}
+	if c.FeaturedItemID != nil {
+		a.FeaturedItemID = c.FeaturedItemID
+	}
+	if c.HolderName != nil {
+		a.HolderName = *c.HolderName
+	}
+	return nil
+}
+
+func (c *UpdateAccountCommand) FromEntity(_ *configuration.AppContext, a *qadomain.AccountHolder) (AccountHolderResult, error) {
+	return AccountHolderResult{
+		ID:             *a.GetID(),
+		AccountRef:     a.AccountRef,
+		DisplayName:    a.DisplayName,
+		FeaturedItemID: a.FeaturedItemID,
+		HolderName:     a.HolderName,
+	}, nil
+}
+
 // ─── AccountHolder query (read the composed shared-base document) ─────────────
 
 // FindAccountByIDQuery is the by-id read of the `qa_accounts_view`

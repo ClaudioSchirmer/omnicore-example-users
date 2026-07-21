@@ -284,6 +284,21 @@ fi
 # generously (a cold relay's first event is slow, Oracle LogMiner most of all).
 tot=$(wait_total "$BOOT_BASE" 1 "$SMOKE_CDC_TIMEOUT")
 assert_ge "GET /users total >= 1 after insert (CDC)" "1" "$tot"
+# Make the smoke tail SELF-CANCELLING before the pod stops: hard-delete the
+# smoke user THROUGH the API and wait for the projection to drop it. Whatever
+# part of the insert+edit+delete tail replays later — uncommitted consumer
+# offsets, or a capture-stage lag shipping events into the broker AFTER the
+# offset reset below (the schema_evolution lesson: qa_broker_reset cannot
+# ground events the relay has not shipped yet) — the topic-ordered replay ends
+# in the DELETE, so no ghost document can survive into the seeded slots.
+if [ -n "$uid" ]; then
+  curl -sS -X DELETE "$BOOT_BASE/users/$uid" -o /dev/null
+  d=$(( $(date +%s) + SMOKE_CDC_TIMEOUT )); gone=fail
+  while [ "$(date +%s)" -lt "$d" ]; do
+    [ "$(api_total "$BOOT_BASE")" = "0" ] && { gone=ok; break; }; sleep 1
+  done
+  assert_eq "smoke user hard-deleted + projection drained (self-cancelling tail)" "ok" "$gone"
+fi
 kill_all
 
 title "reset domain + drop Mongo slots (keep registry → reboot = DriftMongoWiped)"

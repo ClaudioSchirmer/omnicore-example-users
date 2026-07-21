@@ -328,6 +328,139 @@ title "8.5 The batch-composed docs reproduce the live projection EXACTLY (embeds
   || bad "catalog embeds diverged after the batched rebuild"
 
 ##############################################################################
+sec "9. Surgical commute — a rapid same-parent burst converges to the exact set"
+##############################################################################
+# Concurrent ripples for DIFFERENT items of one parent are per-element edits
+# that commute — no snapshot write may erase a sibling's element. A back-to-back
+# burst is the behavioral probe: any lost-update leaves the final array short.
+title "9.1 Four items created back-to-back for acct-001"
+B1_ID=$(new_item "{\"label\":\"B1\",\"accountId\":\"$ACC_ID\"}")
+B2_ID=$(new_item "{\"label\":\"B2\",\"accountId\":\"$ACC_ID\"}")
+B3_ID=$(new_item "{\"label\":\"B3\",\"accountId\":\"$ACC_ID\"}")
+B4_ID=$(new_item "{\"label\":\"B4\",\"accountId\":\"$ACC_ID\"}")
+wait_items "$ACC_URL" "items" "B1,B2,B3,B4" && ok "burst converged to the exact set [B1,B2,B3,B4] (commuting per-element edits)" || bad "burst lost an element (snapshot lost-update)"
+
+title "9.2 Interleaved delete + move settle to the exact final sets on BOTH parents"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/items/$B2_ID"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$B3_ID" -H "Content-Type: application/json" --data "{\"accountId\":\"$ACC2_ID\"}"
+wait_items "$ACC_URL" "items" "B1,B4" && ok "old parent settled to [B1,B4] (delete + move-out interleaved)" || bad "old parent items wrong after interleaved delete+move"
+wait_items "$ACC2_URL" "items" "A1-renamed,B3" && ok "new parent settled to [A1-renamed,B3] (move-in landed)" || bad "new parent items wrong after move-in"
+
+##############################################################################
+sec "10. 1:1 source deletion — featuredItem clears to null (both view kinds)"
+##############################################################################
+# The unresolved 1:1 contract: the source doc vanishing must write an EXPLICIT
+# null over the stale sub-document ($set-merged docs would otherwise keep it).
+title "10.1 Delete the account's featured item → featuredItem null on the shared-base view"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/items/$FA_ID"
+wait_val "$ACC_URL" "featuredItem.label" "" && ok "account featuredItem cleared to null after source delete" || bad "account featuredItem still holds the deleted item"
+
+title "10.2 Delete the catalog's featured item → featuredItem null on the normal view"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/items/$FC_ID"
+wait_val "$CAT_URL" "featuredItem.label" "" && ok "catalog featuredItem cleared to null after source delete" || bad "catalog featuredItem still holds the deleted item"
+
+##############################################################################
+sec "11. Online rebuild — ripples fired mid-window survive the flip (dual-apply)"
+##############################################################################
+# Every writer of a view doc must reach the SHADOW slot during a rebuild
+# window. The widened fence lease keeps qa_accounts_view's window open for
+# seconds while items are written: their ripples land while the shadow is
+# live, and after the flip the served collection IS that shadow — a ripple
+# that skipped it surfaces as missing items here.
+title "11.1 Wipe both embed views + reboot with a widened rebuild window (pointerLeaseSeconds: 6)"
+if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+kill_port "${HTTP_PORT:-8080}"
+qa_view_drop qa_accounts_view qa_catalog_view
+LEASE_YAML="/tmp/qa-embed-lease-${BACKEND}.yaml"
+sed 's/pointerLeaseSeconds: 2/pointerLeaseSeconds: 6/' "$QA_YAML" > "$LEASE_YAML"
+: > "$SERVER_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$LEASE_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
+SERVER_PID=$!
+ok "server rebooting with the widened window (DriftMongoWiped → online rebuild)"
+
+title "11.2 Fire item writes while qa_accounts_view rebuilds"
+d=$(( $(date +%s) + 120 )); marker=fail
+while [ "$(date +%s)" -lt "$d" ]; do
+  grep -q 'view.rebuild.start.*qa_accounts_view' "$SERVER_LOG" 2>/dev/null && { marker=ok; break; }
+  sleep 0.5
+done
+[ "$marker" = ok ] && ok "qa_accounts_view rebuild window open" || bad "qa_accounts_view rebuild never started"
+for i in 1 2 3 4 5; do
+  new_item "{\"label\":\"W$i\",\"accountId\":\"$ACC_ID\"}" >/dev/null
+  sleep 2
+done
+ok "five items written across the rebuild window"
+
+title "11.3 Server ready (rebuild finished, flip done)"
+d=$(( $(date +%s) + 240 )); rok=fail
+while [ "$(date +%s)" -lt "$d" ]; do [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz")" = 200 ] && { rok=ok; break; }; sleep 1; done
+[ "$rok" = ok ] && ok "server ready after the widened-window rebuild" || bad "server never became ready after the widened-window rebuild"
+
+title "11.4 Every mid-window item is present in the FLIPPED view (zero loss)"
+wait_items "$ACC_URL" "items" "B1,B4,W1,W2,W3,W4,W5" && ok "all mid-rebuild ripples survived the flip (dual-apply to the shadow)" || bad "the flipped view lost mid-rebuild ripples"
+
+##############################################################################
+sec "12. ENTITY-side 1:1 FK change — the parent repoints featuredItemId (upsert)"
+##############################################################################
+# Coverage audit 2026-07-21: every 1:1 mutation so far came from the ITEM side
+# (rename/delete). The parent repointing its own FK was never exercised — and
+# was in fact INEXPRESSIBLE (re-POST of the same holder is a 409, matching the
+# users semantics), so the fixture gained PATCH /qa/accounts/:id. This is
+# exactly the dangling-FK case the post-write repair handshake closes:
+# ownership forbids the consult write from touching the segment, so the repair
+# (or the item's own ripple) must converge it. An explicit null clear stays
+# inexpressible under partial semantics — the null outcome is §10's
+# source-delete path.
+title "12.1 null → FN (a fresh item): segment materializes from the new reference"
+FN_ID=$(new_item '{"label":"FN-repoint"}')
+st=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/qa/accounts/$ACC_ID" -H "Content-Type: application/json" --data "{\"featuredItemId\":\"$FN_ID\"}")
+[ "$st" = "200" ] && ok "PATCH accepted (200)" || bad "PATCH status $st"
+wait_val "$ACC_URL" "featuredItem.label" "FN-repoint" && ok "featuredItem repointed null → FN-repoint (entity-side FK change)" || bad "featuredItem never converged to FN-repoint"
+
+title "12.2 FN → FN2 (both items already exist): pure repoint between live references"
+FN2_ID=$(new_item '{"label":"FN2-repoint"}')
+st=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/qa/accounts/$ACC_ID" -H "Content-Type: application/json" --data "{\"featuredItemId\":\"$FN2_ID\"}")
+[ "$st" = "200" ] && ok "PATCH accepted (200)" || bad "PATCH status $st"
+wait_val "$ACC_URL" "featuredItem.label" "FN2-repoint" && ok "featuredItem repointed FN → FN2 (segment follows the FK, no item event involved)" || bad "featuredItem never converged to FN2-repoint"
+
+##############################################################################
+sec "13. workers > 1 — commuting edits under real worker concurrency"
+##############################################################################
+# Coverage audit 2026-07-21: every lane runs the items subscription with
+# workers: 1, so in-process concurrency between ripples of DIFFERENT items was
+# never exercised end to end. The surgical per-element edits must commute
+# across three workers (same-item ordering stays guaranteed by the
+# hash-bucketed dispatch); any snapshot-style lost-update surfaces as a short
+# array.
+title "13.1 Reboot with workers: 3 on the upstream subscriptions"
+if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+kill_port "${HTTP_PORT:-8080}"
+WORKERS_YAML="/tmp/qa-embed-workers-${BACKEND}.yaml"
+sed 's/workers: 1/workers: 3/' "$QA_YAML" > "$WORKERS_YAML"
+: > "$SERVER_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$WORKERS_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
+SERVER_PID=$!
+d=$(( $(date +%s) + 90 )); rok=fail
+while [ "$(date +%s)" -lt "$d" ]; do [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz")" = 200 ] && { rok=ok; break; }; sleep 1; done
+[ "$rok" = ok ] && ok "server ready with 3 subscription workers" || bad "server never ready on the workers-3 yaml"
+
+title "13.2 Six-item burst on acct-002 across 3 workers → exact set"
+K1_ID=$(new_item "{\"label\":\"K1\",\"accountId\":\"$ACC2_ID\"}")
+K2_ID=$(new_item "{\"label\":\"K2\",\"accountId\":\"$ACC2_ID\"}")
+K3_ID=$(new_item "{\"label\":\"K3\",\"accountId\":\"$ACC2_ID\"}")
+K4_ID=$(new_item "{\"label\":\"K4\",\"accountId\":\"$ACC2_ID\"}")
+K5_ID=$(new_item "{\"label\":\"K5\",\"accountId\":\"$ACC2_ID\"}")
+K6_ID=$(new_item "{\"label\":\"K6\",\"accountId\":\"$ACC2_ID\"}")
+wait_items "$ACC2_URL" "items" "A1-renamed,B3,K1,K2,K3,K4,K5,K6" && ok "burst converged to the exact set under 3 workers" || bad "workers-3 burst lost an element"
+
+title "13.3 Interleaved delete + rename + move across workers → exact final sets"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/items/$K2_ID"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$K3_ID" -H "Content-Type: application/json" --data '{"label":"K3-r"}'
+curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$K4_ID" -H "Content-Type: application/json" --data "{\"accountId\":\"$ACC_ID\"}"
+wait_items "$ACC2_URL" "items" "A1-renamed,B3,K1,K3-r,K5,K6" && ok "acct-002 settled exactly (delete+rename+move interleaved on 3 workers)" || bad "acct-002 items wrong under workers-3 interleave"
+wait_items "$ACC_URL" "items" "B1,B4,K4,W1,W2,W3,W4,W5" && ok "acct-001 gained exactly the moved K4" || bad "acct-001 items wrong after cross-worker move"
+
+##############################################################################
 sec "Cleanup + Summary"
 ##############################################################################
 reset_domain

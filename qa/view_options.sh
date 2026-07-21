@@ -159,6 +159,20 @@ DEF_ARCH=$(list_count "/qa/gadgets?code.eq=RX-1&includeArchived=true")
 [ "$DEF_DEFAULT" = "0" ] && ok "default view hides the archived RX-1 by default" || bad "default view still shows RX-1 (count=$DEF_DEFAULT)"
 [ "$DEF_ARCH" = "1" ] && ok "default view surfaces RX-1 with ?includeArchived=true (kept, not dropped)" || bad "?includeArchived did not surface RX-1 (count=$DEF_ARCH)"
 
+title "3.4 UNARCHIVE round-trip — RX-1 re-materializes in the DeleteOnArchive view"
+# Coverage audit 2026-07-21: §3 only proved the archive side of DeleteOnArchive.
+# The UNARCHIVED event must re-materialize the doc in gadgets_hot (the hot tier
+# converges back) and flip it visible-by-default in the kept view.
+st=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/qa/gadgets/$GID/unarchive")
+[ "$st" = "200" ] && ok "unarchive accepted (200)" || bad "unarchive status $st"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); back=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  [ "$(list_count "/qa/gadgets-hot?code.eq=RX-1")" = "1" ] && { back=ok; break; }
+  sleep 1
+done
+[ "$back" = "ok" ] && ok "gadgets_hot re-materialized RX-1 after unarchive" || bad "RX-1 never returned to gadgets_hot"
+[ "$(list_count "/qa/gadgets?code.eq=RX-1")" = "1" ] && ok "default view shows RX-1 again without ?includeArchived" || bad "default view still hides unarchived RX-1"
+
 ##############################################################################
 sec "Summary"
 ##############################################################################

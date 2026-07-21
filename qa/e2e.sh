@@ -2175,6 +2175,55 @@ else
 fi
 
 ####################################
+sec "28 Sibling CLEAR via PUT — user_configurations row removed by null flags"
+####################################
+# The PUT (strict) contract: notification flags sent as null CLEAR the
+# user_configurations sibling row (the bank-sibling twin of employee §4.4).
+# Coverage audit 2026-07-21: set/upsert was covered (6.8, 9.5.e), the clear
+# never was.
+DOC28="10000000280"
+show "28.1 POST user with both flags set (sibling materializes)" POST "/users/" \
+  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","document":"'"$DOC28"'","userName":"sibclear","emailNotification":true,"smsNotification":true,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"}]}' 201
+UID28=$(qa_db_query "SELECT $(qa_uuid_select id) FROM persons WHERE document='$DOC28';" | tr -d '[:space:]')
+SIB28_B=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
+if [ "$SIB28_B" = "1" ]; then
+  printf '\033[1;32mPASS\033[0m 28.2 sibling row materialized (1)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.2 sibling row after POST: %s, want 1\n' "$SIB28_B"; FAIL=$((FAIL+1))
+fi
+show "28.3 PUT with BOTH flags null — clears the sibling row" PUT "/users/$UID28" \
+  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","userName":"sibclear","emailNotification":null,"smsNotification":null,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"}]}' 200
+SIB28_A=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
+if [ "$SIB28_A" = "0" ]; then
+  printf '\033[1;32mPASS\033[0m 28.4 sibling row REMOVED by the null-flags PUT (0)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.4 sibling row after null PUT: %s, want 0\n' "$SIB28_A"; FAIL=$((FAIL+1))
+fi
+# Read side follows: the projected doc's sibling fields drop to null/absent.
+D28=$(( $(date +%s) + 60 )); SIBVIEW=fail
+while [ "$(date +%s)" -lt "$D28" ]; do
+  EMN=$(curl -sS "$BASE/users/$UID28" | python3 -c 'import sys,json
+try: d=json.load(sys.stdin).get("data",{})
+except Exception: d={}
+v=d.get("emailNotification","ABSENT")
+print("clear" if v in (None,"ABSENT") else "set")' 2>/dev/null)
+  [ "$EMN" = "clear" ] && { SIBVIEW=ok; break; }; sleep 1
+done
+if [ "$SIBVIEW" = "ok" ]; then
+  printf '\033[1;32mPASS\033[0m 28.5 view no longer carries the cleared sibling flags\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.5 view still carries emailNotification after the clear\n'; FAIL=$((FAIL+1))
+fi
+show "28.6 PATCH re-sets one flag — sibling row returns" PATCH "/users/$UID28" '{"emailNotification":true}' 200
+SIB28_R=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
+if [ "$SIB28_R" = "1" ]; then
+  printf '\033[1;32mPASS\033[0m 28.7 sibling row re-materialized after re-set (1)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.7 sibling row after re-set: %s, want 1\n' "$SIB28_R"; FAIL=$((FAIL+1))
+fi
+show "28.8 Cleanup" DELETE "/users/$UID28" "" 204
+
+####################################
 sec "Summary"
 ####################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"

@@ -773,6 +773,73 @@ echo "$CSV" | grep -q ",Maria," && ok "CSV includeArchived surfaces archived Mar
 echo "$CSV" | grep -q ",Pedro," && ok "CSV includeArchived surfaces archived Pedro" || bad "CSV includeArchived missing Pedro"
 
 ####################################
+sec "14. ONE PUT, mixed child operations — keep-changed + drop + add + identical-keep"
+####################################
+# Coverage audit 2026-07-21: every child operation existed only in ISOLATION
+# (replace-all §13, dedup §10.3, subresource change e2e §13). This section fires
+# them TOGETHER in a single strict PUT — the replace contract (e2e 5.1:
+# archive-old + insert-new for every re-sent, id-less child) must categorize
+# per child in one write: Rita re-sent with a CHANGED plan value (the update
+# expression; the A2b value must follow), Saulo omitted (archive-only), Tania
+# new (insert), and the address collection churned alongside. Also locks the
+# A2b plan VALUE change, which was never asserted (only create + clear were).
+# The true child NOOP is a different route by design (the address subresource
+# leaves the other children untouched — e2e §13.5/§26).
+DA5="40000000040"
+A5_1='{"street":"Mix1","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"95020","country":"US"}'
+
+title "14.1 Fixture: dependents [Rita(Amil), Saulo] + address A1"
+req POST /employees "{\"name\":\"Mixed Ops\",\"email\":\"mixed@example.com\",\"document\":\"$DA5\",\"employeeNumber\":\"EMP-MX\",
+  \"addresses\":[$A5_1],
+  \"dependents\":[
+    {\"name\":\"Rita\",\"birthDate\":\"2014-05-05T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Amil\",\"healthPlanCard\":\"AM-1\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Saulo\",\"birthDate\":\"2016-06-06T00:00:00Z\",\"relationship\":\"son\"}]}"
+expect_status "create mixed fixture" 201
+EIDA5=$(jsonq "d['data']['id']")
+wait_view_total "document=$DA5" 1 || bad "mixed fixture never reached the view"
+
+title "14.2 The mixed PUT: Rita plan Amil→Bradesco, Saulo dropped, Tania added, A1 identical, A2 new"
+req PUT "/employees/$EIDA5" "{\"name\":\"Mixed Ops\",\"email\":\"mixed@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-MX\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,
+  \"addresses\":[$A5_1,{\"street\":\"Mix2\",\"number\":\"2\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95021\",\"country\":\"US\"}],
+  \"dependents\":[
+    {\"name\":\"Rita\",\"birthDate\":\"2014-05-05T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Bradesco\",\"healthPlanCard\":\"BR-9\",\"healthPlanExpiry\":\"2028-12-31T00:00:00Z\"},
+    {\"name\":\"Tania\",\"birthDate\":\"2019-09-09T00:00:00Z\",\"relationship\":\"daughter\"}],
+  \"jobHistories\":[]}"
+expect_status "mixed PUT" 200
+
+title "14.3 Write side: per-child categorization in ONE write"
+D5ACT=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$EIDA5") AND deleted_at IS NULL;" | tr -d '[:space:]')
+D5ARCH=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=$(qa_uuid_lit "$EIDA5") AND deleted_at IS NOT NULL;" | tr -d '[:space:]')
+[ "$D5ACT" = "2" ] && ok "2 active dependents (new Rita + Tania)" || bad "active dependents = $D5ACT (want 2)"
+[ "$D5ARCH" = "2" ] && ok "2 archived dependents (old Rita + Saulo)" || bad "archived dependents = $D5ARCH (want 2)"
+NEWPLAN=$(qa_db_query "SELECT hp.provider FROM dependent_health_plans hp JOIN employee_dependents d ON hp.id=d.id WHERE d.employee_id=$(qa_uuid_lit "$EIDA5") AND d.name='Rita' AND d.deleted_at IS NULL;" | tr -d '[:space:]')
+OLDPLAN=$(qa_db_query "SELECT hp.provider FROM dependent_health_plans hp JOIN employee_dependents d ON hp.id=d.id WHERE d.employee_id=$(qa_uuid_lit "$EIDA5") AND d.name='Rita' AND d.deleted_at IS NOT NULL;" | tr -d '[:space:]')
+[ "$NEWPLAN" = "Bradesco" ] && ok "active Rita's A2b plan carries the CHANGED value (Bradesco)" || bad "active Rita plan = '$NEWPLAN' (want Bradesco)"
+[ "$OLDPLAN" = "Amil" ] && ok "archived Rita keeps the OLD plan value (Amil) — history preserved" || bad "archived Rita plan = '$OLDPLAN' (want Amil)"
+A5ACT=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA5") AND deleted_at IS NULL;" | tr -d '[:space:]')
+A5ARCH=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA5") AND deleted_at IS NOT NULL;" | tr -d '[:space:]')
+[ "$A5ACT" = "2" ] && ok "2 active addresses after the replace" || bad "active addresses = $A5ACT (want 2)"
+[ "$A5ARCH" = "1" ] && ok "original A1 archived by the replace contract (archive-old + insert-new)" || bad "archived addresses = $A5ARCH (want 1)"
+
+title "14.4 Default view: exactly [Rita(Bradesco), Tania]; includeArchived surfaces all four"
+deadline=$(( $(date +%s) + 60 )); mixv=fail; got=""; plan=""
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  req GET "/employees?document=$DA5"
+  got=$(jsonq "','.join(sorted(x['name'] for x in d['data'][0].get('dependents') or []))" 2>/dev/null)
+  plan=$(jsonq "next((x.get('healthPlanProvider') for x in d['data'][0].get('dependents') or [] if x['name']=='Rita'), '')" 2>/dev/null)
+  [ "$got" = "Rita,Tania" ] && [ "$plan" = "Bradesco" ] && { mixv=ok; break; }
+  sleep 1
+done
+[ "$mixv" = "ok" ] && ok "default view = [Rita(Bradesco), Tania]" || bad "default view dependents='$got' plan='$plan' (want Rita,Tania / Bradesco)"
+req GET "/employees?document=$DA5&includeArchived=true"
+gotall=$(jsonq "','.join(sorted(x['name'] for x in d['data'][0].get('dependents') or []))" 2>/dev/null)
+[ "$gotall" = "Rita,Rita,Saulo,Tania" ] && ok "includeArchived surfaces all four dependent rows" || bad "includeArchived dependents='$gotall' (want Rita,Rita,Saulo,Tania)"
+
+title "14.5 Cleanup"
+req DELETE "/employees/$EIDA5"
+expect_status "delete mixed fixture" 204
+
+####################################
 sec "Summary"
 ####################################
 hr
