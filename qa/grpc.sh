@@ -62,6 +62,10 @@ kill_port "${HTTP_PORT:-8080}"; kill_port "${GRPC_PORT:-9090}"
 title "0.2 Reset bench (relational domain tables + Mongo users view)"
 qa_db_reset_domain
 qa_mongo_reset
+# A pre-wipe INSERT still in the CDC relay backlog (SQL Server capture job ~5s)
+# would replay as a ghost document after the wipe — ground the broker tail too,
+# matching schema_evolution / rebuild_scale.
+qa_broker_reset
 sleep 2
 
 title "0.3 Start server (config=microservice.qa.yaml)"
