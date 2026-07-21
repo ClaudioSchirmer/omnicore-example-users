@@ -58,6 +58,7 @@ import (
 func PersonBase() *core.TableSchema {
 	return core.NewSharedBase("persons").
 		PK("id").
+		Revision("revision").
 		Field("Document", "document").
 		Field("Name", "name").
 		Field("Email", "email").

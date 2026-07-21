@@ -214,6 +214,9 @@ reset_state() {
   qa_db_reset_domain
   qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','employees','persons');"
   qa_mongo_reset
+  # v2 payload-direct: an out-of-band wipe must also ground the broker tail, or
+  # the pre-wipe uncommitted events replay as ghost documents (see qa_broker_reset).
+  qa_broker_reset
   echo "OK — clean baseline"
   sleep 1
 }
@@ -432,6 +435,41 @@ echo "OK — user_view.go backed up to: $VIEWS_BAK"
 sec "Phase 1 — fresh boot under autoRun=true (DriftFreshInit)"
 reset_state
 start_server || exit 1
+
+# Ground the RELAY backlog, not just the consumer offsets: qa_broker_reset (in
+# reset_state) moves the sync group to LATEST, but a lagging capture stage can
+# ship pre-wipe outbox events into the broker AFTER that reset (SQL Server's
+# CDC capture job polls ~5s behind; Oracle LogMiner mines ~2-3s behind) — and
+# under the v2 payload-direct projection those late events materialize ghost
+# documents. A sentinel write proves the users topic is past the wipe (topic
+# order: when the sentinel doc appears, every earlier users event was already
+# consumed; when its delete propagates, the tail is quiet), then the ghosts the
+# late backlog let through are swept out of Mongo.
+title "Ground the relay backlog (sentinel drain) before counting anything"
+sentinel_body='{"name":"Drain Sentinel","email":"drain.scm@example.test","phone":"14155552671","document":"10000000999","userName":"10000000999","addresses":[]}'
+curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
+  --data "$sentinel_body" -o "/tmp/qa-scm-sentinel-${BACKEND}.json" 2>/dev/null
+sentinel_id=$(jq -r '.data.id // .id // empty' "/tmp/qa-scm-sentinel-${BACKEND}.json")
+if [ -n "$sentinel_id" ]; then
+  d=$(( $(date +%s) + CDC_WAIT_SEC ))
+  while [ "$(date +%s)" -lt "$d" ]; do
+    n=$(docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+      "print(db.getCollection('$(qa_view_coll users)').countDocuments({_id:'$sentinel_id'}))" 2>/dev/null | tail -1 | tr -d ' ')
+    [ "$n" = "1" ] && break
+    sleep 1
+  done
+  curl -sS -X DELETE "$BASE/users/$sentinel_id" -o /dev/null 2>/dev/null
+  d=$(( $(date +%s) + CDC_WAIT_SEC ))
+  while [ "$(date +%s)" -lt "$d" ]; do
+    n=$(docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+      "print(db.getCollection('$(qa_view_coll users)').countDocuments({_id:'$sentinel_id'}))" 2>/dev/null | tail -1 | tr -d ' ')
+    [ "$n" = "0" ] && break
+    sleep 1
+  done
+fi
+docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval \
+  "db.getCollection('$(qa_view_coll users)').deleteMany({});" >/dev/null 2>&1
+echo "OK — relay backlog drained (sentinel $sentinel_id), ghosts swept"
 
 title "Verify registry row initialized"
 status=$(pg_registry_field "status")

@@ -19,6 +19,7 @@ import (
 func ProductSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Product]("qa_products").
 		PK("id").
+		Revision("revision").
 		Field("Code", "code").
 		Field("Category", "category").
 		Field("PriceCents", "price_cents").
@@ -59,6 +60,7 @@ func ProvisionProductTable(ctx context.Context, eng fwdb.RelationalEngine) error
 	if postgres {
 		products = `CREATE TABLE IF NOT EXISTS qa_products (
 			id          UUID             PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			code        VARCHAR(64)      NOT NULL,
 			category    VARCHAR(128)     NOT NULL,
 			price_cents BIGINT           NOT NULL,
@@ -70,6 +72,7 @@ func ProvisionProductTable(ctx context.Context, eng fwdb.RelationalEngine) error
 	} else {
 		products = `CREATE TABLE IF NOT EXISTS qa_products (
 			id          BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			code        VARCHAR(64)  NOT NULL,
 			category    VARCHAR(128) NOT NULL,
 			price_cents BIGINT       NOT NULL,

@@ -2083,15 +2083,16 @@ echo "deleted both roles for document $D26"
 ####################################
 sec "27. Outbox granularity B — the aggregate is the event unit"
 ####################################
-# lifecycle-map contract: each write lands a deterministic set of outbox rows
-# in the SAME TX — one row per AGGREGATE operation, never per child. On the
-# SharedBase design a role write is two aggregate ops (the role + the shared
-# base), so the exact fingerprint per verb is:
-#   POST            → users INSERTED +1, persons UPDATED +1
-#   PUT / PATCH     → users UPDATED  +1, persons UPDATED +1
+# lifecycle-map contract (v2, single-row): each write lands EXACTLY ONE outbox
+# row — the self-sufficient v2 payload carries the whole closure (role ∪ base ∪
+# children + structural ids), so the historical empty persons UPDATED fan-out
+# row NO LONGER EXISTS. The exact fingerprint per verb is:
+#   POST            → users INSERTED +1, persons UPDATED +0
+#   PUT / PATCH     → users UPDATED  +1, persons UPDATED +0
 #   ARCHIVE         → users ARCHIVED +1
 #   UNARCHIVE       → users UNARCHIVED +1
-#   DELETE (orphan) → users DELETED  +1, persons DELETED +1  (refcount purge)
+#   DELETE (orphan) → users DELETED  +1, persons DELETED +1  (refcount purge —
+#                     the ONE base-table event kept: external cascade needs it)
 # Addresses NEVER get their own outbox rows (granularity B): asserted after
 # every verb, on writes that touch 2-3 address children.
 
@@ -2110,7 +2111,7 @@ assert_outbox_delta() {
 D27="39000002701"
 ADDR_OUTBOX_27=$(qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='addresses';")
 
-title "27.1 POST with two addresses → users INSERTED +1, persons UPDATED +1, zero address rows"
+title "27.1 POST with two addresses → users INSERTED +1, persons UPDATED +0 (v2 single row), zero address rows"
 UI_B=$(outbox_count users INSERTED); PU_B=$(outbox_count persons UPDATED)
 RESP_27=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Outbox Probe","email":"outbox.qa27@example.com","phone":"14155552671",
@@ -2122,17 +2123,17 @@ RESP_27=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --d
 UID27=$(echo "$RESP_27" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 UI_A=$(outbox_count users INSERTED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users INSERTED" "$UI_B" "$UI_A" 1
-assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 0
 
-title "27.2 PATCH name → users UPDATED +1, persons UPDATED +1"
+title "27.2 PATCH name → users UPDATED +1, persons UPDATED +0 (v2 single row)"
 UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
 curl -sS -o /dev/null -X PATCH "$BASE/users/$UID27" -H "Content-Type: application/json" \
   --data '{"name":"Outbox Probe Renamed"}'
 UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
-assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 0
 
-title "27.3 PUT replacing both addresses with three → users UPDATED +1, persons UPDATED +1"
+title "27.3 PUT replacing both addresses with three → users UPDATED +1, persons UPDATED +0 (v2 single row)"
 UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
 curl -sS -o /dev/null -X PUT "$BASE/users/$UID27" -H "Content-Type: application/json" --data '{
   "name":"Outbox Probe Renamed","email":"outbox.qa27@example.com","phone":"14155552671",
@@ -2144,7 +2145,7 @@ curl -sS -o /dev/null -X PUT "$BASE/users/$UID27" -H "Content-Type: application/
   ]}'
 UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
-assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 0
 
 title "27.4 ARCHIVE → users ARCHIVED +1"
 AR_B=$(outbox_count users ARCHIVED)

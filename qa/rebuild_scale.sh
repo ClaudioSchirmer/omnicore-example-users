@@ -172,6 +172,7 @@ cleanup(){
   drop_nickname_col
   reset_registry
   qa_db_reset_domain 2>/dev/null || true
+  qa_broker_reset
   drop_mongo_slots
 }
 trap cleanup EXIT INT TERM
@@ -261,6 +262,7 @@ title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + 
 # duplicate userName → 422) before the seed's own reset (further down) runs.
 # Best-effort + guarded so a truly fresh lane (tables not migrated yet) is a no-op.
 qa_db_reset_domain 2>/dev/null || true
+qa_broker_reset
 reset_registry
 drop_nickname_col
 drop_mongo_slots
@@ -286,6 +288,11 @@ kill_all
 
 title "reset domain + drop Mongo slots (keep registry → reboot = DriftMongoWiped)"
 qa_db_reset_domain
+# kill_all above stopped the smoke server INSIDE the async-commit window — the
+# smoke user's tail events are uncommitted and would replay into the next pod
+# as ghost documents (event-carried state materializes them; consult used to
+# absorb this). Ground the broker at THIS wipe too, while no consumer runs.
+qa_broker_reset
 mq "['users','users__0','users__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null
 
 title "bulk-seed $SEED_COUNT FULL aggregates (persons + users + addresses + configs)"

@@ -11,7 +11,7 @@
 #   - autoRun=true             → boot APPLIES the pending migration
 #   - dirty state              → boot ABORTS; Force (dirty=$QA_SQL_FALSE) recovers
 #
-# It never edits the on-disk 0001 migration: a throwaway version 0002 is
+# It never edits the on-disk migrations: a throwaway version (service max+1) is
 # synthesized into a TEMP dir (a copy of migrations/$BACKEND) and MIGRATIONS_DIR
 # points the boot at it. The control table (omnicore_migrations) + the probe
 # table are reset to the 0001 baseline on the way out. (The service's own
@@ -42,11 +42,19 @@ bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
 
+# SERVICE_V = the service sequence's own top version (from the on-disk files);
+# the throwaway probe is synthesized as SERVICE_V+1 so it NEVER collides with a
+# real migration (0002_revision taught us that the hard way).
+SERVICE_V=$(ls "$REPO_ROOT/migrations/$BACKEND/"*.up.sql | sed -E 's|.*/0*([0-9]+)_.*|\1|' | sort -n | tail -1)
+PROBE_V=$((SERVICE_V + 1))
+PROBE_FILE=$(printf '%04d_qa_probe' "$PROBE_V")
+
 reset_baseline() {
   qa_db_exec "DROP TABLE IF EXISTS $PROBE_TABLE;"
-  # Restore omnicore_migrations to the single 0001 baseline row.
+  # Restore omnicore_migrations to the fully-applied service sequence (the lane
+  # DB physically carries every service migration).
   qa_db_exec "DELETE FROM omnicore_migrations;"
-  qa_db_exec "INSERT INTO omnicore_migrations (version, dirty) VALUES (1, $QA_SQL_FALSE);"
+  qa_db_exec "INSERT INTO omnicore_migrations (version, dirty) VALUES ($SERVICE_V, $QA_SQL_FALSE);"
 }
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
@@ -111,41 +119,41 @@ db_version() {  # per-dialect row cap: TOP (T-SQL), FETCH FIRST (Oracle), LIMIT 
 }
 
 ##############################################################################
-sec "0. Build + baseline + synthesize a pending version 0002"
+sec "0. Build + baseline + synthesize a pending version $PROBE_V"
 ##############################################################################
 (cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$SERVER_BIN" ./bootstrap) || { bad "build failed"; exit 1; }
 kill_port "${HTTP_PORT:-8080}"
 reset_baseline
-V=$(db_version); [ "$V" = "1" ] && ok "baseline omnicore_migrations at version 1" || bad "baseline version=$V (want 1)"
+V=$(db_version); [ "$V" = "$SERVICE_V" ] && ok "baseline omnicore_migrations at version $SERVICE_V" || bad "baseline version=$V (want $SERVICE_V)"
 
 rm -rf "$TMP_MIG_DIR"; mkdir -p "$TMP_MIG_DIR"
 cp "$REPO_ROOT/migrations/$BACKEND/"*.sql "$TMP_MIG_DIR/"
 case "$BACKEND" in
   mysql)
-    printf 'CREATE TABLE %s (id BINARY(16) NOT NULL, note VARCHAR(64) NOT NULL, PRIMARY KEY (id));\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+    printf 'CREATE TABLE %s (id BINARY(16) NOT NULL, note VARCHAR(64) NOT NULL, PRIMARY KEY (id));\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/$PROBE_FILE.up.sql" ;;
   sqlserver)
-    printf 'CREATE TABLE %s (id BINARY(16) NOT NULL PRIMARY KEY, note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+    printf 'CREATE TABLE %s (id BINARY(16) NOT NULL PRIMARY KEY, note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/$PROBE_FILE.up.sql" ;;
   oracle)
-    printf 'CREATE TABLE %s (id RAW(16) NOT NULL PRIMARY KEY, note VARCHAR2(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+    printf 'CREATE TABLE %s (id RAW(16) NOT NULL PRIMARY KEY, note VARCHAR2(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/$PROBE_FILE.up.sql" ;;
   *)
-    printf 'CREATE TABLE %s (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.up.sql" ;;
+    printf 'CREATE TABLE %s (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), note VARCHAR(64) NOT NULL);\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/$PROBE_FILE.up.sql" ;;
 esac
-printf 'DROP TABLE IF EXISTS %s;\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/0002_qa_probe.down.sql"
-ok "synthesized pending 0002_qa_probe in $TMP_MIG_DIR"
+printf 'DROP TABLE IF EXISTS %s;\n' "$PROBE_TABLE" > "$TMP_MIG_DIR/$PROBE_FILE.down.sql"
+ok "synthesized pending $PROBE_FILE in $TMP_MIG_DIR"
 
 ##############################################################################
-sec "1. autoRun=check + pending 0002 → boot ABORTS"
+sec "1. autoRun=check + pending $PROBE_V → boot ABORTS"
 ##############################################################################
 Y_CHECK=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-${BACKEND}-check.log
 if boot_expect_abort "$Y_CHECK" "$LOG"; then
   [ "$LAST_CODE" -ne 0 ] && ok "check-mode boot aborted (exit $LAST_CODE)" || bad "check-mode exited 0 (expected abort)"
   grep -qF "pending migration(s) detected" "$LOG" && ok "diagnostic: 'pending migration(s) detected'" || { bad "pending diagnostic missing"; tail -n 15 "$LOG"; }
-  grep -qE "version 2|required: 2" "$LOG" && ok "diagnostic names version 2" || bad "diagnostic did not name version 2"
+  grep -qE "version $PROBE_V|required: $PROBE_V" "$LOG" && ok "diagnostic names version $PROBE_V" || bad "diagnostic did not name version $PROBE_V"
 else
   bad "check-mode did not exit within 20s"
 fi
-[ "$(probe_exists)" = no ] && ok "check mode did NOT apply 0002 (probe absent)" || bad "check mode created the probe table"
-[ "$(db_version)" = "1" ] && ok "DB still at version 1 after check" || bad "DB version advanced under check"
+[ "$(probe_exists)" = no ] && ok "check mode did NOT apply the probe (absent)" || bad "check mode created the probe table"
+[ "$(db_version)" = "$SERVICE_V" ] && ok "DB still at version $SERVICE_V after check" || bad "DB version advanced under check"
 rm -f "$Y_CHECK"
 
 ##############################################################################
@@ -155,22 +163,22 @@ Y_FALSE=$(mk_autorun_yaml false); LOG=/tmp/qa-mig-${BACKEND}-false.log
 if boot_healthy "$Y_FALSE" "$LOG"; then
   ok "false-mode server booted healthy"
   grep -qF "migrations skipped (autoRun=false)" "$LOG" && ok "log: 'migrations skipped (autoRun=false)'" || bad "skip log line missing"
-  [ "$(probe_exists)" = no ] && ok "false mode did NOT apply 0002" || bad "false mode created the probe table"
-  [ "$(db_version)" = "1" ] && ok "DB still at version 1 after false" || bad "DB version advanced under false"
+  [ "$(probe_exists)" = no ] && ok "false mode did NOT apply the probe" || bad "false mode created the probe table"
+  [ "$(db_version)" = "$SERVICE_V" ] && ok "DB still at version $SERVICE_V after false" || bad "DB version advanced under false"
 else
   bad "false-mode server did not become healthy"; tail -n 15 "$LOG"
 fi
 stop_server; rm -f "$Y_FALSE"
 
 ##############################################################################
-sec "3. autoRun=true → boot APPLIES 0002"
+sec "3. autoRun=true → boot APPLIES the pending probe"
 ##############################################################################
 Y_TRUE=$(mk_autorun_yaml true); LOG=/tmp/qa-mig-${BACKEND}-true.log
 if boot_healthy "$Y_TRUE" "$LOG"; then
   ok "true-mode server booted healthy"
   grep -qF "migrations applied" "$LOG" && ok "log: 'migrations applied'" || bad "applied log line missing"
-  [ "$(probe_exists)" = yes ] && ok "true mode APPLIED 0002 (probe table exists)" || bad "probe table missing after true"
-  [ "$(db_version)" = "2" ] && ok "DB advanced to version 2" || bad "DB version=$(db_version) (want 2)"
+  [ "$(probe_exists)" = yes ] && ok "true mode APPLIED the probe (table exists)" || bad "probe table missing after true"
+  [ "$(db_version)" = "$PROBE_V" ] && ok "DB advanced to version $PROBE_V" || bad "DB version=$(db_version) (want $PROBE_V)"
 else
   bad "true-mode server did not become healthy"; tail -n 15 "$LOG"
 fi
@@ -179,8 +187,8 @@ stop_server; rm -f "$Y_TRUE"
 ##############################################################################
 sec "4. Dirty state → boot ABORTS; Force recovers"
 ##############################################################################
-title "4.1 Mark version 2 dirty, boot check → dirty abort"
-qa_db_exec "UPDATE omnicore_migrations SET dirty = $QA_SQL_TRUE WHERE version = 2;"
+title "4.1 Mark version $PROBE_V dirty, boot check → dirty abort"
+qa_db_exec "UPDATE omnicore_migrations SET dirty = $QA_SQL_TRUE WHERE version = $PROBE_V;"
 Y_CHECK2=$(mk_autorun_yaml check); LOG=/tmp/qa-mig-${BACKEND}-dirty.log
 if boot_expect_abort "$Y_CHECK2" "$LOG"; then
   [ "$LAST_CODE" -ne 0 ] && ok "dirty boot aborted (exit $LAST_CODE)" || bad "dirty boot exited 0"
@@ -190,7 +198,7 @@ else
 fi
 
 title "4.2 Force clean (dirty=$QA_SQL_FALSE), boot check → healthy"
-qa_db_exec "UPDATE omnicore_migrations SET dirty = $QA_SQL_FALSE WHERE version = 2;"
+qa_db_exec "UPDATE omnicore_migrations SET dirty = $QA_SQL_FALSE WHERE version = $PROBE_V;"
 LOG=/tmp/qa-mig-${BACKEND}-recovered.log
 if boot_healthy "$Y_CHECK2" "$LOG"; then
   ok "recovered server booted healthy under check"
@@ -204,5 +212,5 @@ stop_server; rm -f "$Y_CHECK2"
 sec "Summary"
 ##############################################################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
-# cleanup trap resets omnicore_migrations to (1,false) + drops the probe table.
+# cleanup trap resets omnicore_migrations to (SERVICE_V,false) + drops the probe table.
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

@@ -22,6 +22,7 @@ import (
 func accountBase() *fwdb.TableSchema {
 	return fwdb.NewSharedBase("qa_accounts").
 		PK("id").
+		Revision("revision").
 		Field("AccountRef", "account_ref").
 		Field("DisplayName", "display_name").
 		Field("FeaturedItemID", "featured_item_id").
@@ -36,6 +37,7 @@ func accountBase() *fwdb.TableSchema {
 func AccountHolderSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.AccountHolder]("qa_account_holders").
 		PK("id").
+		Revision("revision").
 		SharedBase(accountBase(), "id").
 		Field("HolderName", "holder_name").
 		SoftDelete("deleted_at").
@@ -110,6 +112,7 @@ func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) erro
 	if postgres {
 		base = `CREATE TABLE IF NOT EXISTS qa_accounts (
 			id                UUID         PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			account_ref       VARCHAR(64)  NOT NULL,
 			display_name      VARCHAR(255) NOT NULL,
 			featured_item_id  VARCHAR(36),
@@ -120,6 +123,7 @@ func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) erro
 		)`
 		role = `CREATE TABLE IF NOT EXISTS qa_account_holders (
 			id           UUID         PRIMARY KEY REFERENCES qa_accounts (id) ON DELETE CASCADE,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			holder_name  VARCHAR(255) NOT NULL,
 			deleted_at   TIMESTAMP,
 			created_at   TIMESTAMP    NOT NULL DEFAULT NOW(),
@@ -128,6 +132,7 @@ func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) erro
 	} else {
 		base = `CREATE TABLE IF NOT EXISTS qa_accounts (
 			id                BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			account_ref       VARCHAR(64)  NOT NULL,
 			display_name      VARCHAR(255) NOT NULL,
 			featured_item_id  VARCHAR(36)  NULL,
@@ -139,6 +144,7 @@ func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) erro
 		)`
 		role = `CREATE TABLE IF NOT EXISTS qa_account_holders (
 			id           BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			holder_name  VARCHAR(255) NOT NULL,
 			deleted_at   DATETIME     NULL,
 			created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,

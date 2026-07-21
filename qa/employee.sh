@@ -355,13 +355,16 @@ PACT=$(qa_db_query "SELECT count(*) FROM persons WHERE id = $(qa_uuid_lit "$EID5
 [ "$PACT" = "1" ] && ok "person stays ACTIVE while the user role is active (keep-by-default across roles)" || bad "person active rows = $PACT"
 
 title "5.3 Read-side: archived employee hidden by default, visible with includeArchived"
-# Gate on the RIGHT predicate: the ARCHIVED doc materialized (visible via
-# includeArchived). The default-read total is 0 BEFORE the doc lands too, so
-# waiting on it is vacuous — it cannot tell "hidden because archived" from
-# "not projected yet" (the race the Oracle lane's ~2-3s LogMiner floor loses;
-# the other relays answer in sub-second and never exposed it). The asserts
-# below stay untouched — this only honors the documented eventual consistency.
+# TWO gates, in order — each alone is vacuous on some lane speed:
+#  1. materialization: includeArchived >= 1 waits for the §5.1 INSERT to land
+#     at all (on a slow relay — Oracle LogMiner ~2-3s — the doc may not exist
+#     yet when 5.3 starts; default-read 0 would then be "not projected", not
+#     "archived");
+#  2. archive applied: with the doc known to exist, default-read 1 → 0 can
+#     ONLY mean the ARCHIVED projection landed (the fast-lane race the old
+#     includeArchived-only gate missed).
 wait_view_total "document=$D5&includeArchived=true" 1 || true
+wait_view_total "document=$D5" 0 || true
 req GET "/employees?document=$D5&onlyTotal=true"
 [ "$(jsonq "d['pagination']['total']")" = "0" ] && ok "default read hides archived" || bad "archived doc still listed: $RESP"
 req GET "/employees?document=$D5&includeArchived=true&onlyTotal=true"
@@ -540,13 +543,13 @@ wait_memp "var d=db.users.findOne({document:'$D9'}); print(d ? d.name : 'absent'
 wait_memp "var d=db.employees.findOne({document:'$D9'}); print(d ? d.name : 'absent')" "Cross ZZZ" \
   && ok "EMPLOYEE view recomposed to 'Cross ZZZ' after the USER patch" || bad "employee view stale after user patch"
 
-title "9.5 Audit isolation: the USER patch produced NO Employee audit event, and one persons UPDATED outbox row"
+title "9.5 Audit isolation: the USER patch produced NO Employee audit event, and NO persons outbox row (v2 single-row: the fan-out rides the role event)"
 AUD_EMP_AFTER=$(qa_db_query "SELECT count(*) FROM audit_events WHERE entity_type='Employee';")
 OUTBOX_P_AFTER=$(qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='persons' AND event_type='UPDATED';")
 [ "$AUD_EMP_BEFORE" = "$AUD_EMP_AFTER" ] && ok "no Employee audit row from a /users operation" \
   || bad "Employee audit rows grew on a /users op: $AUD_EMP_BEFORE -> $AUD_EMP_AFTER"
-[ "$OUTBOX_P_AFTER" = "$((OUTBOX_P_BEFORE + 1))" ] && ok "exactly one persons UPDATED outbox row for the shared change" \
-  || bad "persons UPDATED outbox: $OUTBOX_P_BEFORE -> $OUTBOX_P_AFTER (want +1)"
+[ "$OUTBOX_P_AFTER" = "$OUTBOX_P_BEFORE" ] && ok "no persons UPDATED outbox row — the v2 role event carries the base change (single-row contract)" \
+  || bad "persons UPDATED outbox: $OUTBOX_P_BEFORE -> $OUTBOX_P_AFTER (want +0 under the v2 single-row contract)"
 # audit_events.aggregate_id is CHAR(36) canonical text on BOTH dialects (the
 # audit control table is text-keyed, unlike the BINARY(16) domain tables), so
 # the literal is plain quoted text — not qa_uuid_lit.

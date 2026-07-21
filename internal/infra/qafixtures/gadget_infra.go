@@ -32,6 +32,7 @@ import (
 func GadgetSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Gadget]("gadgets").
 		PK("id").
+		Revision("revision").
 		Field("Code", "code").
 		Field("Name", "name").
 		Field("Category", "category").
@@ -297,6 +298,7 @@ func ProvisionGadgetTables(ctx context.Context, eng fwdb.RelationalEngine) error
 	if postgres {
 		gadgets = `CREATE TABLE IF NOT EXISTS gadgets (
 			id          UUID         PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			code        VARCHAR(64)  NOT NULL,
 			name        VARCHAR(255) NOT NULL,
 			category    VARCHAR(128) NOT NULL,
@@ -323,6 +325,7 @@ func ProvisionGadgetTables(ctx context.Context, eng fwdb.RelationalEngine) error
 	} else {
 		gadgets = `CREATE TABLE IF NOT EXISTS gadgets (
 			id          BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			code        VARCHAR(64)  NOT NULL,
 			name        VARCHAR(255) NOT NULL,
 			category    VARCHAR(128) NOT NULL,
