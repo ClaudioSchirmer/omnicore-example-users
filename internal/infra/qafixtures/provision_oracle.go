@@ -11,13 +11,13 @@ var (
 	// The revision token column ships as `NOT NULL DEFAULT 0` in the shared
 	// DDL — same clause-order swap (Oracle wants DEFAULT first).
 	reNotNullDefaultZero = regexp.MustCompile(`NOT NULL DEFAULT 0\b`)
-	reDefaultNow        = regexp.MustCompile(`DEFAULT CURRENT_TIMESTAMP\b`)
-	reVarchar           = regexp.MustCompile(`\bVARCHAR\(`)
-	reBinary16          = regexp.MustCompile(`\bBINARY\(16\)`)
-	reBigint            = regexp.MustCompile(`\bBIGINT\b`)
-	reUniqueKeyOra      = regexp.MustCompile(`UNIQUE KEY (\w+) \(`)
-	reDatetimeOra       = regexp.MustCompile(`\bDATETIME\b`)
-	reDoubleOra         = regexp.MustCompile(`\bDOUBLE\b`)
+	reDefaultNow         = regexp.MustCompile(`DEFAULT CURRENT_TIMESTAMP\b`)
+	reVarchar            = regexp.MustCompile(`\bVARCHAR\(`)
+	reBinary16           = regexp.MustCompile(`\bBINARY\(16\)`)
+	reBigint             = regexp.MustCompile(`\bBIGINT\b`)
+	reUniqueKeyOra       = regexp.MustCompile(`UNIQUE KEY (\w+) \(`)
+	reDatetimeOra        = regexp.MustCompile(`\bDATETIME\b`)
+	reDoubleOra          = regexp.MustCompile(`\bDOUBLE\b`)
 )
 
 // mysqlDDLToOracle rewrites the MySQL DDL idioms the QA fixtures use into
