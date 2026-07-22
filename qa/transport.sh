@@ -329,6 +329,31 @@ done
 [ "$rb" = ok ] && ok "post-rebalance write projected (surviving pod reclaimed the partitions)" \
   || { bad "post-rebalance write never projected"; tail -n 20 "$SERVER_LOG"; }
 
+title "4.4 final drain — remove this suite's gadgets THROUGH the API so no uncommitted tail can haunt the next suite"
+# The raw-SQL purge in cleanup() writes no outbox row, but the LAST projected
+# event's offset may still be uncommitted (async CommitInterval=1s) when this
+# server exits — the NEXT suite's server, joining the same group, would then
+# redeliver it and re-materialize a ghost document AFTER our purge swept the
+# collection (observed as a +1 count in grpc §6e on the sqlserver lane). API
+# deletes emit DELETED events consumed by OUR OWN server; waiting for the view
+# to reach zero and settling past one commit interval leaves the group's
+# offsets beyond every event this suite produced. The cleanup purge remains as
+# the backstop for aborted runs.
+IDS=$(curl -sS "$BASE/qa/gadgets?code.startswith=QA-TRANSPORT&limit=100" | python3 -c 'import sys,json
+try:
+  d=json.load(sys.stdin).get("data",[]); print(" ".join(x["id"] for x in d))
+except Exception: pass' 2>/dev/null)
+for gid in $IDS; do curl -sS -o /dev/null -X DELETE "$BASE/qa/gadgets/$gid" || true; done
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); drained=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  n=$(docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet     --eval "print(db.getCollection('$(qa_view_coll gadgets)').countDocuments({code:{\$regex:'^QA-TRANSPORT-'}}))" 2>/dev/null | tail -1 | tr -d '[:space:]')
+  [ "${n:-1}" = "0" ] && { drained=ok; break; }
+  sleep 1
+done
+sleep 2  # settle past the async offset-commit interval
+[ "$drained" = ok ] && ok "suite gadgets drained through the API (no tail left for the next suite)" \
+  || ok "drain best-effort (cleanup purge remains the backstop)"
+
 # ── summary ──────────────────────────────────────────────────────────────────
 sec "Summary"
 printf 'Transport: %s   Backend: %s\n' "${QA_TRANSPORT_TAG:-?}" "$BACKEND"

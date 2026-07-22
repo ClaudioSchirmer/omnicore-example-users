@@ -376,6 +376,12 @@ if wait_for_view "$USER_C2" "200" 30; then
 else
   echo "TIMEOUT waiting for view (30s) — continuing anyway to record the failure"
 fi
+# The single-partition order above holds per AGGREGATE, not across them: the
+# SyncEngine dispatches by aggregate-id hash to its worker pool, so the newest
+# aggregate's document can surface while an EARLIER aggregate's event is still
+# mid-flight on another worker (each shared-base event also does its registry
+# round-trips). Gate the by-id read below on ITS OWN aggregate too.
+wait_for_view "$USER_A" "200" 30 >/dev/null || echo "TIMEOUT waiting for USER_A (Jane) — continuing to record the failure"
 
 show "4.1 GET /users/:id (Jane, populated via CDC)" GET "/users/$USER_A" "" 200
 

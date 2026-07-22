@@ -290,6 +290,26 @@ if [ -n "$UREV" ] && wait_eq "$UREV" tombstone_rev users "$UID1"; then
   ok "tombstone doc:users:<id> == last row revision ($UREV)"
 else bad "user tombstone missing/wrong (want $UREV, got $(tombstone_rev users "$UID1"))"; fi
 
+title "4.2 REBIRTH: re-create the SAME natural key after the purge — the old tombstone must not kill the new life"
+# The incarnation discriminator's in-run proof (the real-world case: delete a
+# person, re-register the same CPF): the deterministic id returns with its
+# revision restarted at 1 while doc:users tombstones from 4.1 still sit in the
+# registry — only the created_at scope lets the new life materialize.
+req POST /users "{\"name\":\"Reg One Reborn\",\"email\":\"reg1.reborn.pc@example.com\",\"document\":\"$DP1\",\"userName\":\"regreborn\"}"
+expect_status "POST /users (same document, reborn identity)" 201
+UID1B=$(jsonq "d['data']['id']")
+[ "$UID1B" = "$UID1" ] && ok "deterministic id returned (same UUIDv5 as the dead life)" || bad "reborn id differs: $UID1B vs $UID1"
+wait_view "/users?document=$DP1" "len(d['data']) == 1 and d['data'][0]['name'] == 'Reg One Reborn'" \
+  && ok "reborn users doc materialized past the old tombstone" || bad "old tombstone killed the reborn document"
+wait_view "/persons?document=$DP1&onlyTotal=true" "d['pagination']['total'] == 1" \
+  && ok "reborn person doc materialized" || bad "person doc missing after rebirth"
+# The old tombstone is still there (TTL owns its removal) — proof the doc
+# survived BECAUSE of the created_at scope, not because the tombstone vanished.
+TOMB=$(tombstone_rev users "$UID1")
+[ "${TOMB:--1}" -ge 1 ] 2>/dev/null && ok "old tombstone still present (rev $TOMB) — the reborn doc lives beside it" || ok "old tombstone already expired (TTL) — rebirth unblocked either way"
+req DELETE "/users/$UID1B"
+expect_status "cleanup: delete the reborn user" 204
+
 ##############################################################################
 sec "5. Same-identity burst under syncWorkers=4 — convergence to the SoR"
 ##############################################################################
