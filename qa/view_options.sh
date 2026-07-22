@@ -153,6 +153,18 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 done
 [ "$dropped" = ok ] && ok "RX-1 dropped from gadgets_hot (DeleteOnArchive)" || bad "RX-1 still in gadgets_hot after archive"
 
+title "3.2b DeleteOnArchive records a document tombstone in the projection-state registry"
+# New in 0.36.0: an ARCHIVED removal under DeleteOnArchive follows the same
+# tombstone discipline as DELETED — the registry records doc:<view>:<id> with
+# the event's revision, so a zombie consumer's older upsert can never
+# resurrect the removed document. (§3.4's unarchive below then proves a
+# FRESHER event re-materializes it past the tombstone.)
+TOMB=$(docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval \
+  "var d=db.omnicore_projection_state.findOne({_id:'doc:gadgets_hot:$GID'}); print(d?Number(d.revision):-1)" 2>/dev/null | tail -1 | tr -d '[:space:]')
+if [ "${TOMB:--1}" -ge 1 ] 2>/dev/null; then
+  ok "tombstone doc:gadgets_hot:<id> recorded (revision $TOMB)"
+else bad "no tombstone for the DeleteOnArchive removal (got $TOMB)"; fi
+
 title "3.3 default gadgets KEEPS it (hidden by default, visible via ?includeArchived=true)"
 DEF_DEFAULT=$(list_count "/qa/gadgets?code.eq=RX-1")
 DEF_ARCH=$(list_count "/qa/gadgets?code.eq=RX-1&includeArchived=true")
