@@ -43,6 +43,8 @@ github.com/ClaudioSchirmer/omnicore v0.31.0 h1:SHk8im3/IP1urR7LjGv+Xst9MFkmGCsML
 github.com/ClaudioSchirmer/omnicore v0.31.0/go.mod h1:xUwny9E5Vl9iisT9WO0lFGXr8GvTVdFz0rW4YLEc0BY=
 github.com/ClaudioSchirmer/omnicore v0.35.0 h1:UWWpBiBklYogxX06Dk64UCQbVnvbpDc0fX6c7+VwDxQ=
 github.com/ClaudioSchirmer/omnicore v0.35.0/go.mod h1:cAANSHTsZuFsCdcK/osowoxAD42lZoVt103XE4v3pvs=
+github.com/ClaudioSchirmer/omnicore v0.36.0 h1:90q4oOqumH9/0UCIYbLCi8w2n+xHPKUD8DWiE9iggMg=
+github.com/ClaudioSchirmer/omnicore v0.36.0/go.mod h1:cAANSHTsZuFsCdcK/osowoxAD42lZoVt103XE4v3pvs=
 github.com/MicahParks/jwkset v0.11.0 h1:yc0zG+jCvZpWgFDFmvs8/8jqqVBG9oyIbmBtmjOhoyQ=
 github.com/MicahParks/jwkset v0.11.0/go.mod h1:U2oRhRaLgDCLjtpGL2GseNKGmZtLs/3O7p+OZaL5vo0=
 github.com/MicahParks/keyfunc/v3 v3.8.0 h1:Hx2dgIjAXGk9slakM6rV9BOeaWDPEXXZ4Us8guNBfds=
