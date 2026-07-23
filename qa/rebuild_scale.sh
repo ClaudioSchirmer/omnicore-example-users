@@ -10,7 +10,12 @@
 #     readyz 200 — it does NOT abort; it serves the active slot until the flip),
 #   • writes fired during the rebuild DUAL-WRITE into BOTH the new and old slots,
 #   • after the flip a fresh pod (POD D) and POD A/C read the NEW view,
-#   • zero data loss, inspected via BOTH the database AND the HTTP endpoints.
+#   • zero data loss, inspected via BOTH the database AND the HTTP endpoints,
+#   • a DETERMINISTIC mixed-binary window (relay paused → the V1 pod as the SOLE
+#     sync consumer + a stale base-revision stamp): the old binary's consult
+#     repair advances the document watermark ahead of the event stream, and the
+#     new binary's EQUAL-REVISION event must still land its column values (the
+#     payload-direct equal re-assert) — no partition-assignment coin flip.
 #
 # LANE-DRIVEN like every other qa suite: `BACKEND=postgres|mysql|sqlserver|oracle`
 # selects the whole leg (engine + transport + relay + Mongo DB + ports) via
@@ -108,6 +113,30 @@ drop_nickname_col(){   # best-effort — tolerate "column does not exist"
 }
 reset_registry(){ qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','persons')" 2>/dev/null || true; }
 drop_mongo_slots(){ mq "['users','users__0','users__1','persons','persons__0','persons__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null 2>&1 || true; }
+# The domain reset above deletes rows via raw SQL, bypassing the app's DELETED
+# path — so the projection-state registry (tombstones `doc:<view>:<id>`, base
+# stamps `base:persons:<id>`) never gets its own cleanup and the records leak
+# across runs. The suite's aggregate ids are DETERMINISTIC (UUIDv5 from the
+# document), so a stale `base:persons:*` stamp from a prior run reads as a
+# base-revision race and triggers a spurious consult repair mid-test.
+purge_projection_state(){ mq "db.getCollection('omnicore_projection_state').deleteMany({_id:{\$regex:'^(doc:users:|doc:persons:|base:persons:)'}})" >/dev/null 2>&1 || true; }
+
+# ── relay freeze — the determinism lever of Phase 3.5 ────────────────────────
+# `docker pause` freezes the lane's CDC relay process (cgroup freezer), so
+# committed writes sit in the outbox/WAL and NO event reaches the broker until
+# `unpause`. Works uniformly on both relay flavors (Kafka Connect worker and
+# Debezium Server). Used to stage events while the consumer topology is
+# rearranged; resume_relay is also in cleanup so no exit path leaves it frozen.
+relay_container(){
+  case "$BACKEND" in
+    postgres)  echo "omnicore-qa-connect" ;;
+    mysql)     echo "omnicore-qa-debezium" ;;
+    sqlserver) echo "omnicore-qa-connect-sqlserver" ;;
+    oracle)    echo "omnicore-qa-debezium-oracle" ;;
+  esac
+}
+pause_relay(){ docker pause "$(relay_container)" >/dev/null 2>&1; }
+resume_relay(){ docker unpause "$(relay_container)" >/dev/null 2>&1 || true; }
 
 # Bulk-seed N full aggregates (persons + users + addresses + user_configurations)
 # via raw SQL — the rebuild backfill reads the relational source directly, and the
@@ -163,6 +192,7 @@ kill_all(){
 }
 restore_src(){ [ "${#PATCHED[@]}" -gt 0 ] || return 0; for f in "${PATCHED[@]}"; do [ -f "$f.rsbak" ] && mv "$f.rsbak" "$f"; done; }
 cleanup(){
+  resume_relay   # never leave the lane's CDC relay frozen (Phase 3.5 pauses it)
   kill_all
   restore_src
   # Leave the lane's bench pristine for the next run / the next serial suite:
@@ -253,7 +283,7 @@ free_ports   # evict any orphan pod on this lane's ports before touching Mongo
 title "build BIN_V1 (Version 1)"
 ( cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$BIN_V1" ./bootstrap ) || { echo "build V1 failed"; exit 1; }
 
-title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + stale column from any prior run"
+title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + projection-state records + stale column from any prior run"
 # BOTH views are bumped by this suite (persons is a SharedBaseView over the user
 # schema), so BOTH registry rows must reset or a V1 boot trips the downgrade guard.
 # The DOMAIN reset makes the suite idempotent to a prior run that died WITHOUT its
@@ -266,6 +296,7 @@ qa_broker_reset
 reset_registry
 drop_nickname_col
 drop_mongo_slots
+purge_projection_state
 
 title "boot V1 once (throwaway ports) → apply migrations (create tables) → FreshInit"
 pid=$(start_pod "$BIN_V1" "$BOOT_HTTP" "$BOOT_GRPC" /tmp/omnicore-rs-boot.log)
@@ -341,7 +372,7 @@ sec "Phase 2 — multi-pod version-bump rebuild"
 mq "db.getCollection('users__1').drop()" >/dev/null
 title "boot POD A (V2, driver) — livez up at once, readyz 503 during the rebuild"
 sleep 2; a_live=$(curl -s -o /dev/null -w '%{http_code}' "$A_BASE/livez")   # before boot: expect no server
-pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A.log)
+pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A.log); A_PID=$pid
 title "wait for the dual-apply window (shadow_collection set)"
 sh=""; d=$(( $(date +%s)+REBUILD_TIMEOUT )); while [ "$(date +%s)" -lt "$d" ]; do sh=$(reg shadow_collection); [ -n "$sh" ] && break; sleep 0.3; done
 assert_eq "POD A recorded shadow slot users__1" "users__1" "$sh"
@@ -353,7 +384,7 @@ assert_eq "POD A /readyz 503 during rebuild"  "503" "$(curl -s -o /dev/null -w '
 assert_eq "old active users__0 (v1) docs lack 'nickname'" "false" "$(mq "print(db.getCollection('users__0').findOne().hasOwnProperty('nickname'))")"
 
 title "boot POD C (V2) mid-rebuild alongside POD A — follower proof checked after the flip"
-pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C.log)
+pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C.log); C_PID=$pid
 # Boot POD C concurrently but do NOT block on it here, so the users dual-apply
 # window stays open for the write burst below. POD C follows POD A on the USERS
 # lock (no abort) and may itself drive the PERSONS view's rebuild (the nickname
@@ -443,6 +474,65 @@ while [ "$(date +%s)" -lt "$d" ]; do
   [ "$got_nick" = "rs-nick-value" ] && break; sleep 1
 done
 assert_eq "GET /users/:id returns the non-null nickname (write→column→CDC→view→endpoint)" "rs-nick-value" "$got_nick"
+
+sec "Phase 3.5 — deterministic mixed-binary window: V1 sole consumer × equal-revision event"
+# The value proof above can be served by EITHER consumer — the users partition
+# lands on POD A (V2) or POD B (V1) by group assignment, a per-run coin flip.
+# When B owns it, the historically-flaky interleave arises: B's payload apply
+# writes the insert (nickname:null — the V2 payload passes through a V1 pod's
+# decode), a stale/racing base-revision stamp triggers B's pull-side consult
+# repair, the V1 composer (no nickname in its ReadColumns) advances the doc
+# watermark to the row's CURRENT revision, and the rev-2 update event then
+# arrives at the EQUAL revision carrying the only copy of the value. This phase
+# forces that exact order deterministically:
+#   relay PAUSED → V2 writes commit (events staged in the outbox/WAL) → stamp
+#   planted → every V2 pod leaves the sync group → relay RESUMED → the V1 pod
+#   is the SOLE consumer of both events.
+# The value must survive (equal revision ⇒ same committed state ⇒ the payload
+# re-assert is authoritative). Asserted on the Mongo document — the V1 pod's
+# HTTP surface does not know the column, and the check must be binary-agnostic.
+title "freeze the relay, write via V2 (POD A), plant the stale base stamp"
+# C must be READY before it can be SIGTERM-ed (a pod mid-rebuild defers the
+# signal, which would leave its SyncEngine alive in the group).
+wait_ready "$C_BASE" "$REBUILD_TIMEOUT" || { FAIL=$((FAIL+1)); echo "  ✘ POD C never ready before the mixed-binary window"; }
+if pause_relay; then
+  PASS=$((PASS+1)); echo "  ✔ relay paused ($(relay_container))"
+else
+  FAIL=$((FAIL+1)); echo "  ✘ could not pause the relay ($(relay_container))"
+fi
+MIX_DOC="rsmix${BACKEND}"
+uid_mx=$(curl -sS -X POST "$A_BASE/users" -H 'Content-Type: application/json' \
+  --data "{\"name\":\"mix\",\"email\":\"${MIX_DOC}@t.co\",\"document\":\"${MIX_DOC}\",\"userName\":\"${MIX_DOC}\",\"addresses\":[]}" \
+  | jq -r '.data.id // empty')
+assert_true "POST /users (relay frozen) minted the mixed-window row" "$([ -n "$uid_mx" ] && echo true)"
+assert_eq "PATCH /users/:id set nickname → 200 (relay frozen)" "200" \
+  "$(curl -sS -X PATCH "$A_BASE/users/$uid_mx" -H 'Content-Type: application/json' --data '{"nickname":"rs-mixed-value"}' -o /dev/null -w '%{http_code}')"
+# The stamp a prior-run leak or a REAL concurrent shared-base write leaves:
+# stamped > the insert's base_revision → the consumer's pull-side repair fires.
+mq "db.getCollection('omnicore_projection_state').updateOne({_id:'base:persons:$uid_mx'},{\$set:{base_revision:NumberLong(999999)}},{upsert:true})" >/dev/null
+
+title "every V2 pod leaves the sync group — POD B (V1) becomes the sole consumer"
+kill "$A_PID" 2>/dev/null; wait "$A_PID" 2>/dev/null
+kill "$C_PID" 2>/dev/null; wait "$C_PID" 2>/dev/null
+resume_relay
+echo "  relay resumed — insert rev1 + update rev2 now flow to POD B only"
+
+title "the equal-revision value must survive the V1 consult interleave"
+d=$(( $(date +%s)+SMOKE_CDC_TIMEOUT )); mx_rev=""; mx_nick=""
+while [ "$(date +%s)" -lt "$d" ]; do
+  mx_nick=$(mq "const d=db.getCollection('users__1').findOne({_id:'$uid_mx'}); print(d && d.nickname ? d.nickname : '')" | tr -d '[:space:]')
+  [ "$mx_nick" = "rs-mixed-value" ] && break; sleep 1
+done
+mx_rev=$(mq "const d=db.getCollection('users__1').findOne({_id:'$uid_mx'}); print(d ? ''+d._revision : '')" | tr -d '[:space:]')
+assert_eq "mixed-window doc reached _revision 2 (V1 pod consumed both events + ran the consult repair)" "2" "$mx_rev"
+assert_eq "equal-revision payload re-assert: the nickname VALUE survives on the V1-consumed path" "rs-mixed-value" "$mx_nick"
+# Un-plant the stamp so the rest of the run (and the next suite) is unaffected.
+mq "db.getCollection('omnicore_projection_state').deleteOne({_id:'base:persons:$uid_mx'})" >/dev/null
+
+title "restore the V2 pods (A, C) for the remainder of Phase 3"
+pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A2.log); A_PID=$pid
+pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C2.log); C_PID=$pid
+wait_ready "$A_BASE" "$REBUILD_TIMEOUT" || { FAIL=$((FAIL+1)); echo "  ✘ POD A never ready after the mixed-binary window"; }
 
 title "drop POD B (service 1, V1) now that POD A is ready — then boot POD D (service 4, V2, fresh)"
 kill "$B_PID" 2>/dev/null; wait "$B_PID" 2>/dev/null
