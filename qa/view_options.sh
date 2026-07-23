@@ -153,11 +153,37 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 done
 [ "$dropped" = ok ] && ok "RX-1 dropped from gadgets_hot (DeleteOnArchive)" || bad "RX-1 still in gadgets_hot after archive"
 
+title "3.2b DeleteOnArchive records a document tombstone in the projection-state registry"
+# New in 0.36.0: an ARCHIVED removal under DeleteOnArchive follows the same
+# tombstone discipline as DELETED — the registry records doc:<view>:<id> with
+# the event's revision, so a zombie consumer's older upsert can never
+# resurrect the removed document. (§3.4's unarchive below then proves a
+# FRESHER event re-materializes it past the tombstone.)
+TOMB=$(docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval \
+  "var d=db.omnicore_projection_state.findOne({_id:'doc:gadgets_hot:$GID'}); print(d?Number(d.revision):-1)" 2>/dev/null | tail -1 | tr -d '[:space:]')
+if [ "${TOMB:--1}" -ge 1 ] 2>/dev/null; then
+  ok "tombstone doc:gadgets_hot:<id> recorded (revision $TOMB)"
+else bad "no tombstone for the DeleteOnArchive removal (got $TOMB)"; fi
+
 title "3.3 default gadgets KEEPS it (hidden by default, visible via ?includeArchived=true)"
 DEF_DEFAULT=$(list_count "/qa/gadgets?code.eq=RX-1")
 DEF_ARCH=$(list_count "/qa/gadgets?code.eq=RX-1&includeArchived=true")
 [ "$DEF_DEFAULT" = "0" ] && ok "default view hides the archived RX-1 by default" || bad "default view still shows RX-1 (count=$DEF_DEFAULT)"
 [ "$DEF_ARCH" = "1" ] && ok "default view surfaces RX-1 with ?includeArchived=true (kept, not dropped)" || bad "?includeArchived did not surface RX-1 (count=$DEF_ARCH)"
+
+title "3.4 UNARCHIVE round-trip — RX-1 re-materializes in the DeleteOnArchive view"
+# Coverage audit 2026-07-21: §3 only proved the archive side of DeleteOnArchive.
+# The UNARCHIVED event must re-materialize the doc in gadgets_hot (the hot tier
+# converges back) and flip it visible-by-default in the kept view.
+st=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/qa/gadgets/$GID/unarchive")
+[ "$st" = "200" ] && ok "unarchive accepted (200)" || bad "unarchive status $st"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); back=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  [ "$(list_count "/qa/gadgets-hot?code.eq=RX-1")" = "1" ] && { back=ok; break; }
+  sleep 1
+done
+[ "$back" = "ok" ] && ok "gadgets_hot re-materialized RX-1 after unarchive" || bad "RX-1 never returned to gadgets_hot"
+[ "$(list_count "/qa/gadgets?code.eq=RX-1")" = "1" ] && ok "default view shows RX-1 again without ?includeArchived" || bad "default view still hides unarchived RX-1"
 
 ##############################################################################
 sec "Summary"

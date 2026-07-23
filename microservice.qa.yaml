@@ -62,6 +62,10 @@ mongo:
   rebuild:
     autoRun: true            # dev default; sandbox iteration without boot abort
     allowDowngrade: false    # default; opt-in for canary / blue-green rollback
+    pointerLeaseSeconds: 2   # single-pod dev/QA profile: no other pod to bound
+                             # staleness against, so the blue-green fence+settle
+                             # leases are trimmed from the 15s multi-pod default
+                             # (prd profiles keep the safe default).
 
 transport:
   endpoints:
@@ -374,7 +378,10 @@ upstreamSubscriptions:
     collection: upstream_gadgets
     consumerGroup: omnicore-example-users-upstream-gadgets
     workers: 1
-    filter: [id, code, name]
+    # deleted_at is REQUIRED here: GadgetUpstreamMirrorSchema declares SoftDelete
+    # (archive-aware mirror), and the §8.5 boot guard aborts if a declared
+    # soft-delete column is filtered out — an archived gadget must reach the mirror.
+    filter: [id, code, name, deleted_at]
     startFrom: earliest
     onUpstreamDelete: cascade
   # QA-only shared-base embed showcase — the service subscribes to its OWN

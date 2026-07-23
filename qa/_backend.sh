@@ -418,3 +418,33 @@ print(d.get("id","") if isinstance(d,dict) else "")' 2>/dev/null)
   fi
   [ -n "$id" ] && curl -sS -o /dev/null -X DELETE "$base/qa/gadgets/$id" 2>/dev/null || true
 }
+
+
+# qa_broker_reset — ground the ENTITY event backlog after an out-of-band SQL
+# wipe. Under the v2 payload-direct projection, redelivered/stale events are
+# STATE (not routing hints): a leftover broker tail from before the wipe would
+# materialize ghost documents for rows that no longer exist (the old
+# consult-always model silently absorbed this; event-carried state cannot, by
+# design — see the framework's read-lifecycle contract). Mirrors what an
+# operator must do alongside out-of-band table surgery.
+#   kafka: reset the sync group's offsets to LATEST (the group is empty while
+#          the server is down; the PRODUCER side — Debezium and its topics —
+#          is never touched, so the CDC pipeline stays healthy);
+#   nats:  purge the shared JetStream stream (publisher-safe; durables survive,
+#          messages gone).
+# Best-effort: tooling failures are warnings — the caller's asserts remain the
+# gate.
+qa_broker_reset() {
+  local group="${1:-omnicore-example-users-sync}"
+  case "${QA_TRANSPORT_TAG:-kafka}" in
+    kafka)
+      docker exec "${QA_KAFKA_CONTAINER:-omnicore-qa-kafka}" \
+        kafka-consumer-groups --bootstrap-server localhost:9092 --group "$group" \
+        --reset-offsets --to-latest --all-topics --execute >/dev/null 2>&1 || true
+      ;;
+    nats)
+      docker run --rm --network omnicore-qa_default natsio/nats-box:latest \
+        nats -s "${QA_NATS_URL:-nats://nats:4222}" stream purge OMNICORE_EVENTS -f >/dev/null 2>&1 || true
+      ;;
+  esac
+}

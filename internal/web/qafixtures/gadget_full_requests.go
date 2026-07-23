@@ -108,13 +108,13 @@ func (r FindGadgetsFullRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.
 // `?fields=` sparse rendering works — including into the segments
 // (`?fields=code,notes.text`).
 type FindGadgetsFullResponse struct {
-	ID             *string                  `json:"id,omitempty"`
-	Code           *string                  `json:"code,omitempty"`
-	Name           *string                  `json:"name,omitempty"`
-	Category       *string                  `json:"category,omitempty"`
-	Status         *string                  `json:"status,omitempty"`
-	UpstreamMirror *GadgetFullMirrorOutput  `json:"upstreamMirror,omitempty"`
-	Notes          []GadgetFullNoteOutput   `json:"notes,omitempty"`
+	ID             *string                 `json:"id,omitempty"`
+	Code           *string                 `json:"code,omitempty"`
+	Name           *string                 `json:"name,omitempty"`
+	Category       *string                 `json:"category,omitempty"`
+	Status         *string                 `json:"status,omitempty"`
+	UpstreamMirror *GadgetFullMirrorOutput `json:"upstreamMirror,omitempty"`
+	Notes          []GadgetFullNoteOutput  `json:"notes,omitempty"`
 }
 
 // GadgetFullMirrorOutput is the 1:1 external segment: null while the upstream

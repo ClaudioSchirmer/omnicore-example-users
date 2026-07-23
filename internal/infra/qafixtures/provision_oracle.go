@@ -8,13 +8,16 @@ var (
 	// `NOT NULL DEFAULT CURRENT_TIMESTAMP` must ALSO swap the clause order:
 	// Oracle requires DEFAULT before the column constraints.
 	reNotNullDefaultNow = regexp.MustCompile(`NOT NULL DEFAULT CURRENT_TIMESTAMP\b`)
-	reDefaultNow        = regexp.MustCompile(`DEFAULT CURRENT_TIMESTAMP\b`)
-	reVarchar           = regexp.MustCompile(`\bVARCHAR\(`)
-	reBinary16          = regexp.MustCompile(`\bBINARY\(16\)`)
-	reBigint            = regexp.MustCompile(`\bBIGINT\b`)
-	reUniqueKeyOra      = regexp.MustCompile(`UNIQUE KEY (\w+) \(`)
-	reDatetimeOra       = regexp.MustCompile(`\bDATETIME\b`)
-	reDoubleOra         = regexp.MustCompile(`\bDOUBLE\b`)
+	// The revision token column ships as `NOT NULL DEFAULT 0` in the shared
+	// DDL — same clause-order swap (Oracle wants DEFAULT first).
+	reNotNullDefaultZero = regexp.MustCompile(`NOT NULL DEFAULT 0\b`)
+	reDefaultNow         = regexp.MustCompile(`DEFAULT CURRENT_TIMESTAMP\b`)
+	reVarchar            = regexp.MustCompile(`\bVARCHAR\(`)
+	reBinary16           = regexp.MustCompile(`\bBINARY\(16\)`)
+	reBigint             = regexp.MustCompile(`\bBIGINT\b`)
+	reUniqueKeyOra       = regexp.MustCompile(`UNIQUE KEY (\w+) \(`)
+	reDatetimeOra        = regexp.MustCompile(`\bDATETIME\b`)
+	reDoubleOra          = regexp.MustCompile(`\bDOUBLE\b`)
 )
 
 // mysqlDDLToOracle rewrites the MySQL DDL idioms the QA fixtures use into
@@ -33,6 +36,7 @@ var (
 // PRIMARY KEY, FOREIGN KEY … ON DELETE CASCADE) is already valid Oracle.
 func mysqlDDLToOracle(ddl string) string {
 	ddl = reNotNullDefaultNow.ReplaceAllString(ddl, "DEFAULT SYSTIMESTAMP NOT NULL")
+	ddl = reNotNullDefaultZero.ReplaceAllString(ddl, "DEFAULT 0 NOT NULL")
 	ddl = reDefaultNow.ReplaceAllString(ddl, "DEFAULT SYSTIMESTAMP")
 	ddl = reDatetimeOra.ReplaceAllString(ddl, "TIMESTAMP(6)")
 	ddl = reBinary16.ReplaceAllString(ddl, "RAW(16)")

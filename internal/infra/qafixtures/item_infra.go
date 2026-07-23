@@ -19,6 +19,7 @@ import (
 func ItemSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Item]("qa_items").
 		PK("id").
+		Revision("revision").
 		Field("AccountID", "account_id").
 		Field("CatalogID", "catalog_id").
 		Field("Label", "label").
@@ -74,6 +75,7 @@ func ProvisionItemTable(ctx context.Context, eng fwdb.RelationalEngine) error {
 	if postgres {
 		items = `CREATE TABLE IF NOT EXISTS qa_items (
 			id          UUID         PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			account_id  VARCHAR(36),
 			catalog_id  VARCHAR(36),
 			label       VARCHAR(255) NOT NULL,
@@ -84,6 +86,7 @@ func ProvisionItemTable(ctx context.Context, eng fwdb.RelationalEngine) error {
 	} else {
 		items = `CREATE TABLE IF NOT EXISTS qa_items (
 			id          BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			account_id  VARCHAR(36)  NULL,
 			catalog_id  VARCHAR(36)  NULL,
 			label       VARCHAR(255) NOT NULL,

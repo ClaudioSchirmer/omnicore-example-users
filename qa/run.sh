@@ -94,7 +94,7 @@ RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution rebuild_scale config_validation migrations tracing status_mapping probes http_hardening view_options httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed integration_events transport auth grpc grpcclient grpc_security"
+SELF_SUITES="audit cache authz schema_evolution rebuild_scale config_validation migrations tracing status_mapping probes http_hardening view_options projection_convergence httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed integration_events transport auth grpc grpcclient grpc_security"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 

@@ -32,6 +32,7 @@ import (
 func GadgetSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Gadget]("gadgets").
 		PK("id").
+		Revision("revision").
 		Field("Code", "code").
 		Field("Name", "name").
 		Field("Category", "category").
@@ -96,17 +97,24 @@ func GadgetCappedView() *query.ViewDefinition {
 // `upstream_gadgets` Mongo collection — the local, filtered projection the
 // UpstreamSubscriber materializes from the service's OWN gadgets CDC topic
 // (declared under upstreamSubscriptions in microservice.qa.yaml, filter
-// [id, code, name]). It carries only the allow-listed columns; there is no Go
-// struct to anchor it (the columns belong to the upstream event), so the leaf
-// names are declared inline. PK("id") is the collection's document key — the
+// [id, code, name, deleted_at]). It carries only the allow-listed columns; there
+// is no Go struct to anchor it (the columns belong to the upstream event), so the
+// leaf names are declared inline. PK("id") is the collection's document key — the
 // UpstreamSubscriber upserts each doc under _id = the gadget's aggregate id, so
 // the composer's one-to-one join (parent gadget.id → source _id) resolves the
 // mirror.
+//
+// SoftDelete("deleted_at") makes the mirror ARCHIVE-AWARE: the upstream gadget
+// soft-deletes, so an ARCHIVED event carries deleted_at populated and the mirror
+// must keep it to reflect the archive. The §8.5 boot guard enforces the pairing —
+// declaring the soft-delete column here REQUIRES the subscription filter to keep
+// it (or boot aborts), which is why the yaml filter lists deleted_at.
 func GadgetUpstreamMirrorSchema() *fwdb.TableSchema {
 	return fwdb.NewExternalSchema("upstream_gadgets").
 		PK("id").
 		Field("Code", "code").
-		Field("Name", "name")
+		Field("Name", "name").
+		SoftDelete("deleted_at")
 }
 
 // GadgetEmbeddedView is a FOURTH projection over the SAME `gadgets` root,
@@ -297,6 +305,7 @@ func ProvisionGadgetTables(ctx context.Context, eng fwdb.RelationalEngine) error
 	if postgres {
 		gadgets = `CREATE TABLE IF NOT EXISTS gadgets (
 			id          UUID         PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			code        VARCHAR(64)  NOT NULL,
 			name        VARCHAR(255) NOT NULL,
 			category    VARCHAR(128) NOT NULL,
@@ -323,6 +332,7 @@ func ProvisionGadgetTables(ctx context.Context, eng fwdb.RelationalEngine) error
 	} else {
 		gadgets = `CREATE TABLE IF NOT EXISTS gadgets (
 			id          BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			code        VARCHAR(64)  NOT NULL,
 			name        VARCHAR(255) NOT NULL,
 			category    VARCHAR(128) NOT NULL,

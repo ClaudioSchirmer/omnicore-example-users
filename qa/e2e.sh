@@ -376,6 +376,12 @@ if wait_for_view "$USER_C2" "200" 30; then
 else
   echo "TIMEOUT waiting for view (30s) — continuing anyway to record the failure"
 fi
+# The single-partition order above holds per AGGREGATE, not across them: the
+# SyncEngine dispatches by aggregate-id hash to its worker pool, so the newest
+# aggregate's document can surface while an EARLIER aggregate's event is still
+# mid-flight on another worker (each shared-base event also does its registry
+# round-trips). Gate the by-id read below on ITS OWN aggregate too.
+wait_for_view "$USER_A" "200" 30 >/dev/null || echo "TIMEOUT waiting for USER_A (Jane) — continuing to record the failure"
 
 show "4.1 GET /users/:id (Jane, populated via CDC)" GET "/users/$USER_A" "" 200
 
@@ -2083,15 +2089,16 @@ echo "deleted both roles for document $D26"
 ####################################
 sec "27. Outbox granularity B — the aggregate is the event unit"
 ####################################
-# lifecycle-map contract: each write lands a deterministic set of outbox rows
-# in the SAME TX — one row per AGGREGATE operation, never per child. On the
-# SharedBase design a role write is two aggregate ops (the role + the shared
-# base), so the exact fingerprint per verb is:
-#   POST            → users INSERTED +1, persons UPDATED +1
-#   PUT / PATCH     → users UPDATED  +1, persons UPDATED +1
+# lifecycle-map contract (v2, single-row): each write lands EXACTLY ONE outbox
+# row — the self-sufficient v2 payload carries the whole closure (role ∪ base ∪
+# children + structural ids), so the historical empty persons UPDATED fan-out
+# row NO LONGER EXISTS. The exact fingerprint per verb is:
+#   POST            → users INSERTED +1, persons UPDATED +0
+#   PUT / PATCH     → users UPDATED  +1, persons UPDATED +0
 #   ARCHIVE         → users ARCHIVED +1
 #   UNARCHIVE       → users UNARCHIVED +1
-#   DELETE (orphan) → users DELETED  +1, persons DELETED +1  (refcount purge)
+#   DELETE (orphan) → users DELETED  +1, persons DELETED +1  (refcount purge —
+#                     the ONE base-table event kept: external cascade needs it)
 # Addresses NEVER get their own outbox rows (granularity B): asserted after
 # every verb, on writes that touch 2-3 address children.
 
@@ -2110,7 +2117,7 @@ assert_outbox_delta() {
 D27="39000002701"
 ADDR_OUTBOX_27=$(qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='addresses';")
 
-title "27.1 POST with two addresses → users INSERTED +1, persons UPDATED +1, zero address rows"
+title "27.1 POST with two addresses → users INSERTED +1, persons UPDATED +0 (v2 single row), zero address rows"
 UI_B=$(outbox_count users INSERTED); PU_B=$(outbox_count persons UPDATED)
 RESP_27=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Outbox Probe","email":"outbox.qa27@example.com","phone":"14155552671",
@@ -2122,17 +2129,17 @@ RESP_27=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --d
 UID27=$(echo "$RESP_27" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 UI_A=$(outbox_count users INSERTED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users INSERTED" "$UI_B" "$UI_A" 1
-assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 0
 
-title "27.2 PATCH name → users UPDATED +1, persons UPDATED +1"
+title "27.2 PATCH name → users UPDATED +1, persons UPDATED +0 (v2 single row)"
 UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
 curl -sS -o /dev/null -X PATCH "$BASE/users/$UID27" -H "Content-Type: application/json" \
   --data '{"name":"Outbox Probe Renamed"}'
 UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
-assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 0
 
-title "27.3 PUT replacing both addresses with three → users UPDATED +1, persons UPDATED +1"
+title "27.3 PUT replacing both addresses with three → users UPDATED +1, persons UPDATED +0 (v2 single row)"
 UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
 curl -sS -o /dev/null -X PUT "$BASE/users/$UID27" -H "Content-Type: application/json" --data '{
   "name":"Outbox Probe Renamed","email":"outbox.qa27@example.com","phone":"14155552671",
@@ -2144,7 +2151,7 @@ curl -sS -o /dev/null -X PUT "$BASE/users/$UID27" -H "Content-Type: application/
   ]}'
 UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
-assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 1
+assert_outbox_delta "persons UPDATED" "$PU_B" "$PU_A" 0
 
 title "27.4 ARCHIVE → users ARCHIVED +1"
 AR_B=$(outbox_count users ARCHIVED)
@@ -2172,6 +2179,55 @@ if [ "$ADDR_OUTBOX_27_AFTER" = "$ADDR_OUTBOX_27" ] && [ "$ADDR_OUTBOX_27_AFTER" 
 else
   printf '\033[1;31mFAIL\033[0m (addresses outbox rows: %s → %s, want 0)\n' "$ADDR_OUTBOX_27" "$ADDR_OUTBOX_27_AFTER"; FAIL=$((FAIL+1))
 fi
+
+####################################
+sec "28 Sibling CLEAR via PUT — user_configurations row removed by null flags"
+####################################
+# The PUT (strict) contract: notification flags sent as null CLEAR the
+# user_configurations sibling row (the bank-sibling twin of employee §4.4).
+# Coverage audit 2026-07-21: set/upsert was covered (6.8, 9.5.e), the clear
+# never was.
+DOC28="10000000280"
+show "28.1 POST user with both flags set (sibling materializes)" POST "/users/" \
+  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","document":"'"$DOC28"'","userName":"sibclear","emailNotification":true,"smsNotification":true,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"}]}' 201
+UID28=$(qa_db_query "SELECT $(qa_uuid_select id) FROM persons WHERE document='$DOC28';" | tr -d '[:space:]')
+SIB28_B=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
+if [ "$SIB28_B" = "1" ]; then
+  printf '\033[1;32mPASS\033[0m 28.2 sibling row materialized (1)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.2 sibling row after POST: %s, want 1\n' "$SIB28_B"; FAIL=$((FAIL+1))
+fi
+show "28.3 PUT with BOTH flags null — clears the sibling row" PUT "/users/$UID28" \
+  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","userName":"sibclear","emailNotification":null,"smsNotification":null,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"}]}' 200
+SIB28_A=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
+if [ "$SIB28_A" = "0" ]; then
+  printf '\033[1;32mPASS\033[0m 28.4 sibling row REMOVED by the null-flags PUT (0)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.4 sibling row after null PUT: %s, want 0\n' "$SIB28_A"; FAIL=$((FAIL+1))
+fi
+# Read side follows: the projected doc's sibling fields drop to null/absent.
+D28=$(( $(date +%s) + 60 )); SIBVIEW=fail
+while [ "$(date +%s)" -lt "$D28" ]; do
+  EMN=$(curl -sS "$BASE/users/$UID28" | python3 -c 'import sys,json
+try: d=json.load(sys.stdin).get("data",{})
+except Exception: d={}
+v=d.get("emailNotification","ABSENT")
+print("clear" if v in (None,"ABSENT") else "set")' 2>/dev/null)
+  [ "$EMN" = "clear" ] && { SIBVIEW=ok; break; }; sleep 1
+done
+if [ "$SIBVIEW" = "ok" ]; then
+  printf '\033[1;32mPASS\033[0m 28.5 view no longer carries the cleared sibling flags\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.5 view still carries emailNotification after the clear\n'; FAIL=$((FAIL+1))
+fi
+show "28.6 PATCH re-sets one flag — sibling row returns" PATCH "/users/$UID28" '{"emailNotification":true}' 200
+SIB28_R=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
+if [ "$SIB28_R" = "1" ]; then
+  printf '\033[1;32mPASS\033[0m 28.7 sibling row re-materialized after re-set (1)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m 28.7 sibling row after re-set: %s, want 1\n' "$SIB28_R"; FAIL=$((FAIL+1))
+fi
+show "28.8 Cleanup" DELETE "/users/$UID28" "" 204
 
 ####################################
 sec "Summary"

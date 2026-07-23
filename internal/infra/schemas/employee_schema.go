@@ -19,6 +19,7 @@ import (
 func EmployeeSchema() *core.TableSchema {
 	return core.NewTableSchema[*appdomain.Employee]("employees").
 		PK("id").
+		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("EmployeeNumber", "employee_number").
 		SoftDelete("deleted_at").

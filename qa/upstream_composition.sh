@@ -30,7 +30,40 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_ROOT/qa/_backend.sh"
 SERVER_BIN="/tmp/omnicore-example-users-qa-upstream-comp-${BACKEND:-postgres}"
 SERVER_LOG="/tmp/omnicore-example-users-qa-upstream-comp-${BACKEND:-postgres}.log"
-QA_YAML="$REPO_ROOT/microservice.qa.yaml"
+QA_YAML_SRC="$REPO_ROOT/microservice.qa.yaml"
+# This suite runs on a DERIVED yaml adding two policy-twin subscriptions over
+# the same gadgets.events topic (anonymize + keep) for §4 — kept OUT of the
+# shared microservice.qa.yaml so the other qa suites never materialize the
+# twin mirrors (a later prd-profile boot would abort on the foreign
+# collections its registry cannot certify).
+QA_YAML="/tmp/qa-upstream-policies-${BACKEND:-postgres}.yaml"
+python3 - "$QA_YAML_SRC" "$QA_YAML" <<'PYEOF'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+twins = """  - topic: gadgets.events
+    collection: upstream_gadgets_anon
+    consumerGroup: omnicore-example-users-upstream-gadgets-anon
+    workers: 1
+    filter: [id, code, name]
+    startFrom: earliest
+    onUpstreamDelete: anonymize
+    anonymizeFields: [name]
+  - topic: gadgets.events
+    collection: upstream_gadgets_keep
+    consumerGroup: omnicore-example-users-upstream-gadgets-keep
+    workers: 1
+    filter: [id, code, name]
+    startFrom: earliest
+    onUpstreamDelete: keep
+"""
+out, done = [], False
+for line in open(src):
+    out.append(line)
+    if not done and line.strip() == "onUpstreamDelete: cascade":
+        out.append(twins)
+        done = True
+open(dst, "w").writelines(out)
+PYEOF
 UP_COLL="upstream_gadgets"
 
 PASS=0; FAIL=0; SERVER_PID=""
@@ -40,7 +73,7 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded upstream_gadgets; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded upstream_gadgets upstream_gadgets_anon upstream_gadgets_keep; }
 trap cleanup EXIT INT TERM
 
 mongo_up() {  # eval a mongosh expression against the upstream collection
@@ -57,7 +90,7 @@ kill_port "${HTTP_PORT:-8080}"
 title "0.2 Ensure the outbox Debezium connector is registered (routes gadgets.events)"
 "$REPO_ROOT/devops/debezium/register-connector.sh" "$QA_CONNECTOR_DIALECT" >/dev/null 2>&1 && ok "outbox connector registered" || bad "outbox connector registration failed"
 
-title "0.3 Start server (APP_PROFILE=dev, config=microservice.qa.yaml → upstreamSubscriptions active)"
+title "0.3 Start server (APP_PROFILE=dev, config=derived policy yaml → upstreamSubscriptions active incl. anonymize/keep twins)"
 : > "$SERVER_LOG"
 ( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
 SERVER_PID=$!
@@ -174,6 +207,120 @@ done
 [ "$notfound" = ok ] && ok "embedded endpoint returns 404 once the root gadget is gone" || bad "embedded endpoint still served the deleted gadget (status $ST)"
 
 ##############################################################################
+sec "4. ONE upstream DELETE, all THREE onUpstreamDelete policies side by side"
+##############################################################################
+# Coverage audit 2026-07-21: only cascade was ever exercised. The qa yaml now
+# mirrors gadgets.events into two policy twins (upstream_gadgets_anon:
+# anonymize [name]; upstream_gadgets_keep: keep) — one hard delete must
+# cascade-remove the first mirror, blank-and-keep the second, and leave the
+# third intact.
+title "4.1 POST UP-002 → all three mirrors materialize"
+RESP=$(curl -sS -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
+  --data '{"code":"UP-002","name":"Policy Probe","category":"cat","status":"active"}')
+G2ID=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null)
+[ -n "$G2ID" ] && ok "gadget UP-002 created ($G2ID)" || bad "create failed: $RESP"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); three=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  a=$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-002'})")
+  b=$(mongo_up "db.upstream_gadgets_anon.countDocuments({code:'UP-002'})")
+  c=$(mongo_up "db.upstream_gadgets_keep.countDocuments({code:'UP-002'})")
+  [ "${a:-0}" = "1" ] && [ "${b:-0}" = "1" ] && [ "${c:-0}" = "1" ] && { three=ok; break; }
+  sleep 1
+done
+[ "$three" = ok ] && ok "cascade + anonymize + keep mirrors all carry UP-002" || bad "mirrors incomplete (cascade=$a anon=$b keep=$c)"
+
+title "4.2 DELETE UP-002 → cascade removes / anonymize blanks-and-keeps / keep leaves intact"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/gadgets/$G2ID"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); pol=fail; a=""; b=""; c=""
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  a=$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-002'})")
+  b=$(mongo_up "var d=db.upstream_gadgets_anon.findOne({code:'UP-002'}); print(d ? (d.name===null ? 'blanked':'kept') : 'gone')")
+  c=$(mongo_up "var d=db.upstream_gadgets_keep.findOne({code:'UP-002'}); print(d && d.name==='Policy Probe' ? 'intact':'wrong')")
+  [ "${a:-1}" = "0" ] && [ "$b" = "blanked" ] && [ "$c" = "intact" ] && { pol=ok; break; }
+  sleep 1
+done
+[ "$pol" = ok ] && ok "cascade=removed, anonymize=doc kept with name blanked, keep=doc intact" \
+               || bad "policy outcomes wrong (cascade_count=$a anon=$b keep=$c)"
+
+##############################################################################
+sec "5. Upstream ARCHIVED / UNARCHIVED — mirror survives with deleted_at (no deleteOnArchive)"
+##############################################################################
+# Coverage audit 2026-07-21: the ARCHIVED branch of the subscriber was never
+# exercised. Without deleteOnArchive the contract is doc-survives-with-
+# deleted_at (the upsert lands the archived state); UNARCHIVED clears it.
+title "5.1 POST UP-003 + archive it → mirror doc SURVIVES carrying deleted_at"
+RESP=$(curl -sS -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
+  --data '{"code":"UP-003","name":"Archive Probe","category":"cat","status":"active"}')
+G3ID=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null)
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  [ "$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-003'})")" = "1" ] && break; sleep 1
+done
+curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$G3ID/archive"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); arch=fail; st=""
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  st=$(mongo_up "var d=db.$UP_COLL.findOne({code:'UP-003'}); print(d ? (d.deleted_at ? 'archived':'active') : 'gone')")
+  [ "$st" = "archived" ] && { arch=ok; break; }
+  sleep 1
+done
+[ "$arch" = ok ] && ok "mirror kept the doc with deleted_at set (archived state mirrored, not removed)" || bad "mirror state after ARCHIVED: $st (want archived)"
+
+title "5.2 Unarchive → the mirror doc's deleted_at clears"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$G3ID/unarchive"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); unarch=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  st=$(mongo_up "var d=db.$UP_COLL.findOne({code:'UP-003'}); print(d ? (d.deleted_at ? 'archived':'active') : 'gone')")
+  [ "$st" = "active" ] && { unarch=ok; break; }
+  sleep 1
+done
+[ "$unarch" = ok ] && ok "UNARCHIVED cleared deleted_at on the mirror" || bad "mirror state after UNARCHIVED: $st (want active)"
+
+##############################################################################
+sec "6. deleteOnArchive: true — ARCHIVED removes the mirror; UNARCHIVED re-materializes"
+##############################################################################
+# The other half of the archive contract, via a derived yaml flipping the main
+# subscription to deleteOnArchive: true (reboot; consumer group resumes).
+title "6.1 Reboot on the deleteOnArchive variant"
+if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+kill_port "${HTTP_PORT:-8080}"
+DOA_YAML="/tmp/qa-upstream-doa-${BACKEND}.yaml"
+python3 - "$QA_YAML" "$DOA_YAML" <<'PYEOF'
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+out = []
+for line in open(src):
+    out.append(line)
+    if line.strip() == "collection: upstream_gadgets":
+        out.append("    deleteOnArchive: true\n")
+open(dst, "w").writelines(out)
+PYEOF
+: > "$SERVER_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$DOA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
+SERVER_PID=$!
+deadline=$(( $(date +%s) + 90 )); rok=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz")" = 200 ] && { rok=ok; break; }; sleep 1; done
+[ "$rok" = ok ] && ok "server up on deleteOnArchive variant" || bad "server never ready on the variant yaml"
+
+title "6.2 ARCHIVE UP-003 → the mirror doc is REMOVED"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$G3ID/archive"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); doa=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  [ "$(mongo_up "db.$UP_COLL.countDocuments({code:'UP-003'})")" = "0" ] && { doa=ok; break; }
+  sleep 1
+done
+[ "$doa" = ok ] && ok "deleteOnArchive removed the archived doc from the mirror" || bad "mirror doc survived ARCHIVED under deleteOnArchive"
+
+title "6.3 UNARCHIVE UP-003 → the mirror re-materializes"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$G3ID/unarchive"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); rem=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  st=$(mongo_up "var d=db.$UP_COLL.findOne({code:'UP-003'}); print(d ? (d.deleted_at ? 'archived':'active') : 'gone')")
+  [ "$st" = "active" ] && { rem=ok; break; }
+  sleep 1
+done
+[ "$rem" = ok ] && ok "UNARCHIVED re-materialized the mirror doc (active)" || bad "mirror after unarchive: $st (want active)"
+
+##############################################################################
 sec "3. Failure registry + admin drain route"
 ##############################################################################
 title "3.1 omnicore_upstream_failures has no pending rows on the happy path"
@@ -192,6 +339,6 @@ sec "Cleanup + Summary"
 qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 # DROP the qa collections so the canonical (non-qa) binary's boot registry
 # guard does not later abort on foreign collections it cannot map to a view.
-qa_view_drop gadgets gadget_notes gadgets_embedded "$UP_COLL" || true
+qa_view_drop gadgets gadget_notes gadgets_embedded "$UP_COLL" upstream_gadgets_anon upstream_gadgets_keep || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

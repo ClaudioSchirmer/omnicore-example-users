@@ -48,6 +48,21 @@ func MountAccounts(
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
 
+	patchH, patchSpec := fwweb.CommandWithBodyIDSpec(d.Pipeline,
+		UpdateAccountRequest{},
+		InsertAccountResponse{}.FromResult,
+		&handlers.PartialUpdateCommandHandler[*qadomain.AccountHolder, *appqa.UpdateAccountCommand, appqa.AccountHolderResult]{
+			Repo: repo,
+		}, fiber.StatusOK)
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id",
+		patchH, patchSpec,
+		fwopenapi.Doc{
+			Summary:     "Patch an account (displayName / holderName / featuredItemId)",
+			Description: "The ENTITY-side 1:1 embed lever: repointing `featuredItemId` re-references the featured item with no item event — the projected `featuredItem` segment converges through the write-side repair (or the referenced item's own ripple).",
+			Tags:        []string{"QA Accounts (shared-base embed)"},
+		},
+		fwopenapi.RequirePermission("gadgets:write"))
+
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindAccountByIDRequest{},
 		fwresponses.AutoFromDoc[FindAccountByIDResponse],
@@ -116,6 +131,22 @@ type InsertAccountRequest struct {
 func (r InsertAccountRequest) ToCommand() *appqa.InsertAccountHolderCommand {
 	return &appqa.InsertAccountHolderCommand{
 		AccountRef:     r.AccountRef,
+		DisplayName:    r.DisplayName,
+		FeaturedItemID: r.FeaturedItemID,
+		HolderName:     r.HolderName,
+	}
+}
+
+// UpdateAccountRequest is the JSON body of PATCH /qa/accounts/:id (partial:
+// absent field untouched).
+type UpdateAccountRequest struct {
+	DisplayName    *string `json:"displayName,omitempty"`
+	FeaturedItemID *string `json:"featuredItemId,omitempty"`
+	HolderName     *string `json:"holderName,omitempty"`
+}
+
+func (r UpdateAccountRequest) ToCommand() *appqa.UpdateAccountCommand {
+	return &appqa.UpdateAccountCommand{
 		DisplayName:    r.DisplayName,
 		FeaturedItemID: r.FeaturedItemID,
 		HolderName:     r.HolderName,

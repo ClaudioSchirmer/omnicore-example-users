@@ -20,6 +20,7 @@ import (
 func GadgetNoteSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.GadgetNote]("gadget_notes").
 		PK("id").
+		Revision("revision").
 		Field("GadgetID", "gadget_id").
 		Field("Text", "text").
 		Field("Kind", "kind").
@@ -104,6 +105,7 @@ func ProvisionGadgetNoteTable(ctx context.Context, eng fwdb.RelationalEngine) er
 	if postgres {
 		notes = `CREATE TABLE IF NOT EXISTS gadget_notes (
 			id          UUID         PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			gadget_id   UUID         NOT NULL,
 			text        VARCHAR(255) NOT NULL,
 			kind        VARCHAR(16)  NOT NULL,
@@ -114,6 +116,7 @@ func ProvisionGadgetNoteTable(ctx context.Context, eng fwdb.RelationalEngine) er
 	} else {
 		notes = `CREATE TABLE IF NOT EXISTS gadget_notes (
 			id          BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			gadget_id   BINARY(16)   NOT NULL,
 			text        VARCHAR(255) NOT NULL,
 			kind        VARCHAR(16)  NOT NULL,

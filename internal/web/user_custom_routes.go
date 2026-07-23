@@ -163,7 +163,7 @@ func MountUsersCustom(
 							"and raises `EntityAlreadyAddedNotification` (semantic `Conflict`), mapping " +
 							"to HTTP 409. (A concurrency race that slips past the probe loses on " +
 							"the PRIMARY KEY (shared-PK) and surfaces the identical envelope.) If the existing " +
-							"user is archived, the remnant vetoes the insert on the shared PK — "+
+							"user is archived, the remnant vetoes the insert on the shared PK — " +
 							"409; /unarchive is the explicit way back.",
 						Value: map[string]any{
 							"success":     false,

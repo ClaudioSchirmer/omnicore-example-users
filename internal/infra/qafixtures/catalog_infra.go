@@ -19,6 +19,7 @@ import (
 func CatalogSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Catalog]("qa_catalogs").
 		PK("id").
+		Revision("revision").
 		Field("Name", "name").
 		Field("FeaturedItemID", "featured_item_id").
 		SoftDelete("deleted_at").
@@ -83,6 +84,7 @@ func ProvisionCatalogTable(ctx context.Context, eng fwdb.RelationalEngine) error
 	if postgres {
 		catalogs = `CREATE TABLE IF NOT EXISTS qa_catalogs (
 			id                UUID         PRIMARY KEY,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			name              VARCHAR(255) NOT NULL,
 			featured_item_id  VARCHAR(36),
 			deleted_at        TIMESTAMP,
@@ -92,6 +94,7 @@ func ProvisionCatalogTable(ctx context.Context, eng fwdb.RelationalEngine) error
 	} else {
 		catalogs = `CREATE TABLE IF NOT EXISTS qa_catalogs (
 			id                BINARY(16)   NOT NULL,
+			revision          BIGINT       NOT NULL DEFAULT 0,
 			name              VARCHAR(255) NOT NULL,
 			featured_item_id  VARCHAR(36)  NULL,
 			deleted_at        DATETIME     NULL,

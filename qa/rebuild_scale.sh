@@ -10,7 +10,15 @@
 #     readyz 200 — it does NOT abort; it serves the active slot until the flip),
 #   • writes fired during the rebuild DUAL-WRITE into BOTH the new and old slots,
 #   • after the flip a fresh pod (POD D) and POD A/C read the NEW view,
-#   • zero data loss, inspected via BOTH the database AND the HTTP endpoints.
+#   • zero data loss, inspected via BOTH the database AND the HTTP endpoints,
+#   • a DETERMINISTIC mixed-binary window (relay paused → the V1 pod as the SOLE
+#     sync consumer + a stale base-revision stamp): the old binary's consult
+#     repair advances the document watermark ahead of the event stream, and the
+#     new binary's EQUAL-REVISION event must still land its column values (the
+#     payload-direct equal re-assert) — no partition-assignment coin flip. The
+#     window is proven at BOTH grains: a root scalar (users.nickname) AND an
+#     OWN-child column (employee jobHistories[].notes, the surgical per-element
+#     child ops).
 #
 # LANE-DRIVEN like every other qa suite: `BACKEND=postgres|mysql|sqlserver|oracle`
 # selects the whole leg (engine + transport + relay + Mongo DB + ports) via
@@ -60,7 +68,17 @@ DTO_LIST_SRC="$REPO_ROOT/internal/web/requests/find_users_by_params.go"
 # proof in Phase 3 an end-to-end (write→column→CDC→view→read) round-trip.
 PATCH_REQ_SRC="$REPO_ROOT/internal/web/requests/patch_user.go"
 PATCH_CMD_SRC="$REPO_ROOT/internal/application/commands/patch_user_command.go"
-PATCHED=("$VIEW_SRC" "$PERSON_VIEW_SRC" "$SCHEMA_SRC" "$ENTITY_SRC" "$DTO_ID_SRC" "$DTO_LIST_SRC" "$PATCH_REQ_SRC" "$PATCH_CMD_SRC")
+# The OWN-CHILD half of the version bump (Phase 3.5's second grain): a nullable
+# `notes` column on the Employee's JobHistory child — entity + child schema +
+# wire request + application DTO + the employees view Version. The persons
+# SharedBaseView already rides the same bump (it embeds employee.jobHistories).
+EMPLOYEE_VIEW_SRC="$REPO_ROOT/internal/infra/views/employee_view.go"
+JOBHIST_ENTITY_SRC="$REPO_ROOT/internal/domain/job_history.go"
+JOBHIST_SCHEMA_SRC="$REPO_ROOT/internal/infra/schemas/job_history_schema.go"
+JOBHIST_REQ_SRC="$REPO_ROOT/internal/web/requests/job_history.go"
+JOBHIST_DTO_SRC="$REPO_ROOT/internal/application/dtos/job_history_input.go"
+PATCHED=("$VIEW_SRC" "$PERSON_VIEW_SRC" "$SCHEMA_SRC" "$ENTITY_SRC" "$DTO_ID_SRC" "$DTO_LIST_SRC" "$PATCH_REQ_SRC" "$PATCH_CMD_SRC" \
+         "$EMPLOYEE_VIEW_SRC" "$JOBHIST_ENTITY_SRC" "$JOBHIST_SCHEMA_SRC" "$JOBHIST_REQ_SRC" "$JOBHIST_DTO_SRC")
 
 # POD B on the lane ports (BASE / GRPC_PORT), the others on +offset. Same sync
 # group / DB / Mongo / broker → one competing-consumer group. run.sh runs this
@@ -106,8 +124,46 @@ drop_nickname_col(){   # best-effort — tolerate "column does not exist"
     *)        qa_db_exec "ALTER TABLE users DROP COLUMN nickname"           2>/dev/null || true ;;
   esac
 }
-reset_registry(){ qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','persons')" 2>/dev/null || true; }
-drop_mongo_slots(){ mq "['users','users__0','users__1','persons','persons__0','persons__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null 2>&1 || true; }
+add_notes_col(){       # the own-child column of the same version bump
+  case "$REL_DIALECT" in
+    postgres)  qa_db_exec "ALTER TABLE employee_job_histories ADD COLUMN IF NOT EXISTS notes VARCHAR(100)" ;;
+    mysql)     qa_db_exec "ALTER TABLE employee_job_histories ADD COLUMN notes VARCHAR(100)" ;;
+    sqlserver) qa_db_exec "ALTER TABLE employee_job_histories ADD notes VARCHAR(100)" ;;
+    oracle)    qa_db_exec "ALTER TABLE employee_job_histories ADD notes VARCHAR2(100)" ;;
+  esac
+}
+drop_notes_col(){
+  case "$REL_DIALECT" in
+    postgres) qa_db_exec "ALTER TABLE employee_job_histories DROP COLUMN IF EXISTS notes" 2>/dev/null || true ;;
+    *)        qa_db_exec "ALTER TABLE employee_job_histories DROP COLUMN notes"           2>/dev/null || true ;;
+  esac
+}
+reset_registry(){ qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name IN ('users','persons','employees')" 2>/dev/null || true; }
+drop_mongo_slots(){ mq "['users','users__0','users__1','persons','persons__0','persons__1','employees','employees__0','employees__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null 2>&1 || true; }
+# The domain reset above deletes rows via raw SQL, bypassing the app's DELETED
+# path — so the projection-state registry (tombstones `doc:<view>:<id>`, base
+# stamps `base:persons:<id>`) never gets its own cleanup and the records leak
+# across runs. The suite's aggregate ids are DETERMINISTIC (UUIDv5 from the
+# document), so a stale `base:persons:*` stamp from a prior run reads as a
+# base-revision race and triggers a spurious consult repair mid-test.
+purge_projection_state(){ mq "db.getCollection('omnicore_projection_state').deleteMany({_id:{\$regex:'^(doc:users:|doc:persons:|doc:employees:|base:persons:)'}})" >/dev/null 2>&1 || true; }
+
+# ── relay freeze — the determinism lever of Phase 3.5 ────────────────────────
+# `docker pause` freezes the lane's CDC relay process (cgroup freezer), so
+# committed writes sit in the outbox/WAL and NO event reaches the broker until
+# `unpause`. Works uniformly on both relay flavors (Kafka Connect worker and
+# Debezium Server). Used to stage events while the consumer topology is
+# rearranged; resume_relay is also in cleanup so no exit path leaves it frozen.
+relay_container(){
+  case "$BACKEND" in
+    postgres)  echo "omnicore-qa-connect" ;;
+    mysql)     echo "omnicore-qa-debezium" ;;
+    sqlserver) echo "omnicore-qa-connect-sqlserver" ;;
+    oracle)    echo "omnicore-qa-debezium-oracle" ;;
+  esac
+}
+pause_relay(){ docker pause "$(relay_container)" >/dev/null 2>&1; }
+resume_relay(){ docker unpause "$(relay_container)" >/dev/null 2>&1 || true; }
 
 # Bulk-seed N full aggregates (persons + users + addresses + user_configurations)
 # via raw SQL — the rebuild backfill reads the relational source directly, and the
@@ -163,6 +219,7 @@ kill_all(){
 }
 restore_src(){ [ "${#PATCHED[@]}" -gt 0 ] || return 0; for f in "${PATCHED[@]}"; do [ -f "$f.rsbak" ] && mv "$f.rsbak" "$f"; done; }
 cleanup(){
+  resume_relay   # never leave the lane's CDC relay frozen (Phase 3.5 pauses it)
   kill_all
   restore_src
   # Leave the lane's bench pristine for the next run / the next serial suite:
@@ -170,8 +227,10 @@ cleanup(){
   # downgrade guard) and wipe the seeded domain (else the next suite inherits
   # 100k+ leftover rows). All best-effort — the DB may already be down on abort.
   drop_nickname_col
+  drop_notes_col
   reset_registry
   qa_db_reset_domain 2>/dev/null || true
+  qa_broker_reset
   drop_mongo_slots
 }
 trap cleanup EXIT INT TERM
@@ -214,7 +273,7 @@ patch_add_nickname(){
   #    SharedBaseView (its user-role sub-doc gains the column too — a shared-schema
   #    column ripples into every view over it, so every one must be version-bumped
   #    or the V2 pods abort at boot with DriftForgotToBump on the un-bumped view).
-  perl -pi -e 's/\bVersion\(\d+\)/Version(2)/g' "$VIEW_SRC" "$PERSON_VIEW_SRC"
+  perl -pi -e 's/\bVersion\(\d+\)/Version(2)/g' "$VIEW_SRC" "$PERSON_VIEW_SRC" "$EMPLOYEE_VIEW_SRC"
   # 2) entity: exported Nickname field (required before the schema .Field, or it panics)
   perl -0pi -e 's/(UserName\s+string[^\n]*\n)/$1\tNickname                    *string\n/' "$ENTITY_SRC"
   # 3) schema: map the column so ToGoDoc keeps it and the DTO renders it
@@ -229,8 +288,22 @@ patch_add_nickname(){
   perl -0pi -e 's/(UserName:\s+r\.UserName,\n)/$1\t\tNickname:          r.Nickname,\n/'                                                       "$PATCH_REQ_SRC"
   perl -0pi -e 's/(\tUserName\s+\*string\n)/$1\tNickname          *string\n/'                                                                "$PATCH_CMD_SRC"
   perl -0pi -e 's/(if c\.UserName != nil \{\n\t\tu\.UserName = \*c\.UserName\n\t\}\n)/$1\tif c.Nickname != nil {\n\t\tu.Nickname = c.Nickname\n\t}\n/' "$PATCH_CMD_SRC"
+  # 6) OWN-CHILD column (Phase 3.5's second grain): JobHistory.Notes threaded
+  #    entity → child schema → wire request → application DTO. The wire carries
+  #    no child ids (collection replace), which is fine — the mixed-binary
+  #    window loses the whole surgical child op at the equal revision, ids or
+  #    not.
+  perl -0pi -e 's/(TerminatedAt \*time\.Time `labelKey:"JobHistoryTerminatedAtField"`\n)/$1\tNotes        *string\n/' "$JOBHIST_ENTITY_SRC"
+  perl -0pi -e 's/(Field\("TerminatedAt", "terminated_at"\)\.\n)/$1\t\tField("Notes", "notes").\n/' "$JOBHIST_SCHEMA_SRC"
+  perl -0pi -e 's/(TerminatedAt \*time\.Time `json:"terminatedAt[^\n]*\n)/$1\tNotes        *string   `json:"notes,omitempty"`\n/' "$JOBHIST_REQ_SRC"
+  perl -0pi -e 's/(TerminatedAt: h\.TerminatedAt,\n)/$1\t\tNotes:        h.Notes,\n/' "$JOBHIST_REQ_SRC"
+  perl -0pi -e 's/(\tTerminatedAt \*time\.Time\n)/$1\tNotes        *string\n/' "$JOBHIST_DTO_SRC"
+  perl -0pi -e 's/(TerminatedAt: h\.TerminatedAt,\n)/$1\t\tNotes:        h.Notes,\n/' "$JOBHIST_DTO_SRC"
   grep -q 'Version(2)' "$VIEW_SRC" && grep -q 'Nickname' "$ENTITY_SRC" && grep -q '"nickname"' "$SCHEMA_SRC" \
-    && grep -q 'Nickname' "$PATCH_REQ_SRC" && grep -q 'Nickname' "$PATCH_CMD_SRC" || return 1
+    && grep -q 'Nickname' "$PATCH_REQ_SRC" && grep -q 'Nickname' "$PATCH_CMD_SRC" \
+    && grep -q 'Version(2)' "$EMPLOYEE_VIEW_SRC" && grep -q 'Notes' "$JOBHIST_ENTITY_SRC" \
+    && grep -q '"notes"' "$JOBHIST_SCHEMA_SRC" && grep -q 'Notes' "$JOBHIST_REQ_SRC" \
+    && grep -q 'Notes' "$JOBHIST_DTO_SRC" || return 1
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -252,7 +325,7 @@ free_ports   # evict any orphan pod on this lane's ports before touching Mongo
 title "build BIN_V1 (Version 1)"
 ( cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$BIN_V1" ./bootstrap ) || { echo "build V1 failed"; exit 1; }
 
-title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + stale column from any prior run"
+title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + projection-state records + stale column from any prior run"
 # BOTH views are bumped by this suite (persons is a SharedBaseView over the user
 # schema), so BOTH registry rows must reset or a V1 boot trips the downgrade guard.
 # The DOMAIN reset makes the suite idempotent to a prior run that died WITHOUT its
@@ -261,9 +334,12 @@ title "clean slate — drop users+persons DOMAIN rows + registry rows + slots + 
 # duplicate userName → 422) before the seed's own reset (further down) runs.
 # Best-effort + guarded so a truly fresh lane (tables not migrated yet) is a no-op.
 qa_db_reset_domain 2>/dev/null || true
+qa_broker_reset
 reset_registry
 drop_nickname_col
+drop_notes_col
 drop_mongo_slots
+purge_projection_state
 
 title "boot V1 once (throwaway ports) → apply migrations (create tables) → FreshInit"
 pid=$(start_pod "$BIN_V1" "$BOOT_HTTP" "$BOOT_GRPC" /tmp/omnicore-rs-boot.log)
@@ -282,10 +358,30 @@ fi
 # generously (a cold relay's first event is slow, Oracle LogMiner most of all).
 tot=$(wait_total "$BOOT_BASE" 1 "$SMOKE_CDC_TIMEOUT")
 assert_ge "GET /users total >= 1 after insert (CDC)" "1" "$tot"
+# Make the smoke tail SELF-CANCELLING before the pod stops: hard-delete the
+# smoke user THROUGH the API and wait for the projection to drop it. Whatever
+# part of the insert+edit+delete tail replays later — uncommitted consumer
+# offsets, or a capture-stage lag shipping events into the broker AFTER the
+# offset reset below (the schema_evolution lesson: qa_broker_reset cannot
+# ground events the relay has not shipped yet) — the topic-ordered replay ends
+# in the DELETE, so no ghost document can survive into the seeded slots.
+if [ -n "$uid" ]; then
+  curl -sS -X DELETE "$BOOT_BASE/users/$uid" -o /dev/null
+  d=$(( $(date +%s) + SMOKE_CDC_TIMEOUT )); gone=fail
+  while [ "$(date +%s)" -lt "$d" ]; do
+    [ "$(api_total "$BOOT_BASE")" = "0" ] && { gone=ok; break; }; sleep 1
+  done
+  assert_eq "smoke user hard-deleted + projection drained (self-cancelling tail)" "ok" "$gone"
+fi
 kill_all
 
 title "reset domain + drop Mongo slots (keep registry → reboot = DriftMongoWiped)"
 qa_db_reset_domain
+# kill_all above stopped the smoke server INSIDE the async-commit window — the
+# smoke user's tail events are uncommitted and would replay into the next pod
+# as ghost documents (event-carried state materializes them; consult used to
+# absorb this). Ground the broker at THIS wipe too, while no consumer runs.
+qa_broker_reset
 mq "['users','users__0','users__1'].forEach(c=>db.getCollection(c).drop())" >/dev/null
 
 title "bulk-seed $SEED_COUNT FULL aggregates (persons + users + addresses + configs)"
@@ -309,8 +405,9 @@ fi
 # POD B stays running for the multi-pod phase.
 
 sec "Phase 1 — the edit: add nullable column, project it, bump the view; build V2"
-title "ALTER users ADD nickname + patch (entity + schema + DTOs + Version→2)"
+title "ALTER users ADD nickname + employee_job_histories ADD notes + patch (entity + schema + DTOs + Version→2)"
 add_nickname_col
+add_notes_col
 patch_add_nickname || { echo "FATAL: source patch failed"; FAIL=$((FAIL+1)); }
 ( cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$BIN_V2" ./bootstrap ) && echo "BIN_V2 built (Version 2 + nickname)" || { echo "FATAL: V2 build failed"; FAIL=$((FAIL+1)); }
 restore_src   # tree clean again; BIN_V2 keeps the change
@@ -319,7 +416,7 @@ sec "Phase 2 — multi-pod version-bump rebuild"
 mq "db.getCollection('users__1').drop()" >/dev/null
 title "boot POD A (V2, driver) — livez up at once, readyz 503 during the rebuild"
 sleep 2; a_live=$(curl -s -o /dev/null -w '%{http_code}' "$A_BASE/livez")   # before boot: expect no server
-pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A.log)
+pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A.log); A_PID=$pid
 title "wait for the dual-apply window (shadow_collection set)"
 sh=""; d=$(( $(date +%s)+REBUILD_TIMEOUT )); while [ "$(date +%s)" -lt "$d" ]; do sh=$(reg shadow_collection); [ -n "$sh" ] && break; sleep 0.3; done
 assert_eq "POD A recorded shadow slot users__1" "users__1" "$sh"
@@ -331,7 +428,7 @@ assert_eq "POD A /readyz 503 during rebuild"  "503" "$(curl -s -o /dev/null -w '
 assert_eq "old active users__0 (v1) docs lack 'nickname'" "false" "$(mq "print(db.getCollection('users__0').findOne().hasOwnProperty('nickname'))")"
 
 title "boot POD C (V2) mid-rebuild alongside POD A — follower proof checked after the flip"
-pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C.log)
+pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C.log); C_PID=$pid
 # Boot POD C concurrently but do NOT block on it here, so the users dual-apply
 # window stays open for the write burst below. POD C follows POD A on the USERS
 # lock (no abort) and may itself drive the PERSONS view's rebuild (the nickname
@@ -421,6 +518,112 @@ while [ "$(date +%s)" -lt "$d" ]; do
   [ "$got_nick" = "rs-nick-value" ] && break; sleep 1
 done
 assert_eq "GET /users/:id returns the non-null nickname (write→column→CDC→view→endpoint)" "rs-nick-value" "$got_nick"
+
+sec "Phase 3.5 — deterministic mixed-binary window: V1 sole consumer × equal-revision event"
+# The value proof above can be served by EITHER consumer — the users partition
+# lands on POD A (V2) or POD B (V1) by group assignment, a per-run coin flip.
+# When B owns it, the historically-flaky interleave arises: B's payload apply
+# writes the insert (nickname:null — the V2 payload passes through a V1 pod's
+# decode), a stale/racing base-revision stamp triggers B's pull-side consult
+# repair, the V1 composer (no nickname in its ReadColumns) advances the doc
+# watermark to the row's CURRENT revision, and the rev-2 update event then
+# arrives at the EQUAL revision carrying the only copy of the value. This phase
+# forces that exact order deterministically:
+#   relay PAUSED → V2 writes commit (events staged in the outbox/WAL) → stamp
+#   planted → every V2 pod leaves the sync group → relay RESUMED → the V1 pod
+#   is the SOLE consumer of both events.
+# The value must survive (equal revision ⇒ same committed state ⇒ the payload
+# re-assert is authoritative). Asserted on the Mongo document — the V1 pod's
+# HTTP surface does not know the column, and the check must be binary-agnostic.
+# TWO grains ride the same frozen window: the users ROOT SCALAR (nickname) and
+# the Employee's OWN-CHILD column (jobHistories[].notes — carried only by the
+# rev-2 event's surgical per-element child ops, the guard family the scalar fix
+# does not touch).
+title "freeze the relay, write via V2 (POD A), plant the stale base stamp"
+# C must be READY before it can be SIGTERM-ed (a pod mid-rebuild defers the
+# signal, which would leave its SyncEngine alive in the group).
+wait_ready "$C_BASE" "$REBUILD_TIMEOUT" || { FAIL=$((FAIL+1)); echo "  ✘ POD C never ready before the mixed-binary window"; }
+if pause_relay; then
+  PASS=$((PASS+1)); echo "  ✔ relay paused ($(relay_container))"
+else
+  FAIL=$((FAIL+1)); echo "  ✘ could not pause the relay ($(relay_container))"
+fi
+MIX_DOC="rsmix${BACKEND}"
+uid_mx=$(curl -sS -X POST "$A_BASE/users" -H 'Content-Type: application/json' \
+  --data "{\"name\":\"mix\",\"email\":\"${MIX_DOC}@t.co\",\"document\":\"${MIX_DOC}\",\"userName\":\"${MIX_DOC}\",\"addresses\":[]}" \
+  | jq -r '.data.id // empty')
+assert_true "POST /users (relay frozen) minted the mixed-window row" "$([ -n "$uid_mx" ] && echo true)"
+assert_eq "PATCH /users/:id set nickname → 200 (relay frozen)" "200" \
+  "$(curl -sS -X PATCH "$A_BASE/users/$uid_mx" -H 'Content-Type: application/json' --data '{"nickname":"rs-mixed-value"}' -o /dev/null -w '%{http_code}')"
+# The OWN-CHILD grain of the same window: an Employee born with one JobHistory
+# (notes null), then a PUT replacing the collection with notes SET — the rev-2
+# event's surgical child ops (delete old element + insert the new one carrying
+# the value) are the only carrier of the child column.
+EMPX_DOC="rsmxe${BACKEND}"
+emp_mx=$(curl -sS -X POST "$A_BASE/employees" -H 'Content-Type: application/json' \
+  --data "{\"name\":\"mixemp\",\"email\":\"${EMPX_DOC}@t.co\",\"document\":\"${EMPX_DOC}\",\"employeeNumber\":\"EMPX-${BACKEND}\",\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}]}" \
+  | jq -r '.data.id // empty')
+assert_true "POST /employees (relay frozen) minted the own-child row" "$([ -n "$emp_mx" ] && echo true)"
+# PUT is the ONLY child-carrying employee write (PATCH has no children) and it
+# is STRICT (pipeline.FullBody): every declared key must be present — nulls for
+# the absent pointers, [] for the collections the employee does not use. The
+# body rides a lane-scoped temp FILE (--data @) — no shell-escape ambiguity —
+# and a non-200 echoes the response envelope for diagnosis.
+EMPPUT_BODY="/tmp/qa-rs-empput-${BACKEND}.json"
+cat > "$EMPPUT_BODY" <<EOF
+{"name":"mixemp","email":"${EMPX_DOC}@t.co","phone":null,"employeeNumber":"EMPX-${BACKEND}","bank":null,"branch":null,"account":null,"pix":null,"addresses":[],"dependents":[],"jobHistories":[{"jobTitle":"Engineer","department":"Platform","hiredAt":"2022-01-10T00:00:00Z","terminatedAt":null,"notes":"rs-child-value"}]}
+EOF
+empput_resp="/tmp/qa-rs-empput-resp-${BACKEND}.json"
+empput_code=$(curl -sS -X PUT "$A_BASE/employees/$emp_mx" -H 'Content-Type: application/json' \
+  --data @"$EMPPUT_BODY" -o "$empput_resp" -w '%{http_code}')
+[ "$empput_code" = "200" ] || { echo "  ⓘ PUT response body: $(cat "$empput_resp" 2>/dev/null | head -c 400)"; }
+assert_eq "PUT /employees/:id set jobHistories[].notes → 200 (relay frozen)" "200" "$empput_code"
+# The stamp a prior-run leak or a REAL concurrent shared-base write leaves:
+# stamped > the insert's base_revision → the consumer's pull-side repair fires
+# (planted for BOTH identities — the user and the employee).
+mq "db.getCollection('omnicore_projection_state').updateOne({_id:'base:persons:$uid_mx'},{\$set:{base_revision:NumberLong(999999)}},{upsert:true})" >/dev/null
+mq "db.getCollection('omnicore_projection_state').updateOne({_id:'base:persons:$emp_mx'},{\$set:{base_revision:NumberLong(999999)}},{upsert:true})" >/dev/null
+
+title "every V2 pod leaves the sync group — POD B (V1) becomes the sole consumer"
+kill "$A_PID" 2>/dev/null; wait "$A_PID" 2>/dev/null
+kill "$C_PID" 2>/dev/null; wait "$C_PID" 2>/dev/null
+resume_relay
+echo "  relay resumed — insert rev1 + update rev2 now flow to POD B only"
+
+title "the equal-revision value must survive the V1 consult interleave"
+d=$(( $(date +%s)+SMOKE_CDC_TIMEOUT )); mx_rev=""; mx_nick=""
+while [ "$(date +%s)" -lt "$d" ]; do
+  mx_nick=$(mq "const d=db.getCollection('users__1').findOne({_id:'$uid_mx'}); print(d && d.nickname ? d.nickname : '')" | tr -d '[:space:]')
+  [ "$mx_nick" = "rs-mixed-value" ] && break; sleep 1
+done
+mx_rev=$(mq "const d=db.getCollection('users__1').findOne({_id:'$uid_mx'}); print(d ? ''+d._revision : '')" | tr -d '[:space:]')
+assert_eq "mixed-window doc reached _revision 2 (V1 pod consumed both events + ran the consult repair)" "2" "$mx_rev"
+assert_eq "equal-revision payload re-assert: the nickname VALUE survives on the V1-consumed path" "rs-mixed-value" "$mx_nick"
+
+title "the OWN-CHILD column value must survive the same window (surgical child op at the equal revision)"
+# The employees view alternates slots from wherever FreshInit left it (unlike
+# users, which Phase 0 anchors on users__0 via the DriftMongoWiped rebuild), so
+# read the flipped slot from the registry instead of hardcoding it.
+EMP_SLOT=$(qa_db_query "SELECT COALESCE(active_collection,'') FROM omnicore_mongo_views WHERE view_name='employees'" | tr -d '[:space:]')
+# NOTE the document segment key: child segments are derived from the Go TYPE
+# name (PluralizeWord("JobHistory") → "JobHistories"), NOT the wire's camel
+# "jobHistories"; the element's inner keys are the physical columns ("notes").
+d=$(( $(date +%s)+SMOKE_CDC_TIMEOUT )); emp_notes=""
+while [ "$(date +%s)" -lt "$d" ]; do
+  emp_notes=$(mq "const d=db.getCollection('$EMP_SLOT').findOne({_id:'$emp_mx'}); const el=(d && d.JobHistories || []).find(h=>h.notes); print(el ? el.notes : '')" | tr -d '[:space:]')
+  [ "$emp_notes" = "rs-child-value" ] && break; sleep 1
+done
+emp_rev=$(mq "const d=db.getCollection('$EMP_SLOT').findOne({_id:'$emp_mx'}); print(d ? ''+d._revision : '')" | tr -d '[:space:]')
+assert_eq "employee mixed-window doc reached _revision 2 on the flipped slot ($EMP_SLOT)" "2" "$emp_rev"
+assert_eq "equal-revision child re-assert: jobHistories[].notes VALUE survives on the V1-consumed path" "rs-child-value" "$emp_notes"
+# Un-plant the stamps so the rest of the run (and the next suite) is unaffected.
+mq "db.getCollection('omnicore_projection_state').deleteOne({_id:'base:persons:$uid_mx'})" >/dev/null
+mq "db.getCollection('omnicore_projection_state').deleteOne({_id:'base:persons:$emp_mx'})" >/dev/null
+
+title "restore the V2 pods (A, C) for the remainder of Phase 3"
+pid=$(start_pod "$BIN_V2" "$A_HTTP" "$A_GRPC" /tmp/omnicore-rs-A2.log); A_PID=$pid
+pid=$(start_pod "$BIN_V2" "$C_HTTP" "$C_GRPC" /tmp/omnicore-rs-C2.log); C_PID=$pid
+wait_ready "$A_BASE" "$REBUILD_TIMEOUT" || { FAIL=$((FAIL+1)); echo "  ✘ POD A never ready after the mixed-binary window"; }
 
 title "drop POD B (service 1, V1) now that POD A is ready — then boot POD D (service 4, V2, fresh)"
 kill "$B_PID" 2>/dev/null; wait "$B_PID" 2>/dev/null

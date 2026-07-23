@@ -20,6 +20,7 @@ import (
 func UserSchema() *core.TableSchema {
 	return core.NewTableSchema[*appdomain.User]("users").
 		PK("id").
+		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("UserName", "user_name").
 		SoftDelete("deleted_at").
