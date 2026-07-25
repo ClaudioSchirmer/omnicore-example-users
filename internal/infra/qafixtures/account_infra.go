@@ -13,14 +13,14 @@ import (
 	qadomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/qafixtures"
 )
 
-// accountBase is the schema-only shared IDENTITY (core.NewSharedBase) the
+// accountBase is the schema-only shared IDENTITY (core.NewSharedBaseSchema) the
 // AccountHolder role specializes — the qa analog of personBase(). id is
 // UUIDv5(account_ref); the base owns no children (the persons fixture covers
 // base-children), keeping this fixture focused on the ONE thing it adds: the
 // external embeds on a shared-base view. featured_item_id is the nullable 1:1
 // embed FK. OrphanPolicy hard-deletes the identity when its last role goes.
 func accountBase() *fwdb.TableSchema {
-	return fwdb.NewSharedBase("qa_accounts").
+	return fwdb.NewSharedBaseSchema("qa_accounts").
 		PK("id").
 		Revision("revision").
 		Field("AccountRef", "account_ref").
@@ -66,7 +66,8 @@ func AccountView() *query.ViewDefinition {
 		As("FeaturedItem")
 	items := query.FromSchema(UpstreamItemSchema().FK("account_id")).
 		As("Items")
-	return query.SharedBaseView(accountBase(), "qa_accounts_view").
+	return query.SharedBaseView("qa_accounts_view").
+		Schema(accountBase()).
 		Role(AccountHolderSchema()).
 		Embed("featuredItem", featured).
 		EmbedMany("items", items).

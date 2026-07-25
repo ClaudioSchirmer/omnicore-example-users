@@ -27,7 +27,6 @@ import (
 func EmployeeView() *query.ViewDefinition {
 	return query.View("employees").
 		Version(1).
-		Root("employees").
 		Schema(schemas.EmployeeSchema()).
 		Indexes(
 			query.Index("document"),

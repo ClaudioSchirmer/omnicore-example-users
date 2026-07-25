@@ -46,7 +46,6 @@ func CatalogView() *query.ViewDefinition {
 		As("Items")
 	return query.View("qa_catalog_view").
 		Version(1).
-		Root("qa_catalogs").
 		Schema(CatalogSchema()).
 		Embed("featuredItem", featured).
 		EmbedMany("items", items).
