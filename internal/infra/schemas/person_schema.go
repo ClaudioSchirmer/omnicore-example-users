@@ -56,7 +56,7 @@ import (
 // persons.updated_at tells the truth even when the change came in through a
 // role endpoint.
 func PersonBase() *core.TableSchema {
-	return core.NewSharedBase("persons").
+	return core.NewSharedBaseSchema("persons").
 		PK("id").
 		Revision("revision").
 		Field("Document", "document").

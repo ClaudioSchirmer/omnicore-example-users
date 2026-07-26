@@ -38,7 +38,6 @@ func GadgetNoteSchema() *fwdb.TableSchema {
 func GadgetNotesView() *query.ViewDefinition {
 	return query.View("gadget_notes").
 		Version(1).
-		Root("gadget_notes").
 		Schema(GadgetNoteSchema()).
 		Indexes(
 			query.Index("gadget_id"),

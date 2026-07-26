@@ -10,7 +10,7 @@ import "github.com/ClaudioSchirmer/omnicore/domain"
 // EXTERNAL embeds (Embed AND EmbedMany), not only roles.
 //
 // The shared identity is the `qa_accounts` base (schema-only, declared via
-// core.NewSharedBase in infra); this struct is its single role, carrying the
+// core.NewSharedBaseSchema in infra); this struct is its single role, carrying the
 // base's own fields (AccountRef the natural key, DisplayName, FeaturedItemID)
 // flat alongside the role-private HolderName — exactly as Employee carries the
 // Person fields (Name/Email/Document) flat next to EmployeeNumber. The base id

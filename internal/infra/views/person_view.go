@@ -26,7 +26,8 @@ import (
 //
 // Called exactly once per process via bootstrap.NewPersonsFeature.
 func PersonView() *query.ViewDefinition {
-	return query.SharedBaseView(schemas.PersonBase(), "persons").
+	return query.SharedBaseView("persons").
+		Schema(schemas.PersonBase()).
 		Role(schemas.UserSchema()).
 		Role(schemas.EmployeeSchema()).
 		Version(1).

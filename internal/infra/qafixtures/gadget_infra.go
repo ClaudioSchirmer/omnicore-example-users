@@ -48,7 +48,6 @@ func GadgetSchema() *fwdb.TableSchema {
 func GadgetView() *query.ViewDefinition {
 	return query.View("gadgets").
 		Version(1).
-		Root("gadgets").
 		Schema(GadgetSchema()).
 		Indexes(
 			query.Index("code"),
@@ -67,7 +66,6 @@ func GadgetView() *query.ViewDefinition {
 func GadgetHotView() *query.ViewDefinition {
 	return query.View("gadgets_hot").
 		Version(1).
-		Root("gadgets").
 		Schema(GadgetSchema()).
 		DeleteOnArchive().
 		Indexes(
@@ -84,7 +82,6 @@ func GadgetHotView() *query.ViewDefinition {
 func GadgetCappedView() *query.ViewDefinition {
 	return query.View("gadgets_capped").
 		Version(1).
-		Root("gadgets").
 		Schema(GadgetSchema()).
 		MaxLimit(5).
 		Indexes(
@@ -144,7 +141,6 @@ func GadgetEmbeddedView() *query.ViewDefinition {
 		As("UpstreamMirror")
 	return query.View("gadgets_embedded").
 		Version(1).
-		Root("gadgets").
 		Schema(GadgetSchema()).
 		Embed("upstreamMirror", mirror).
 		Indexes(

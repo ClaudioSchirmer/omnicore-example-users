@@ -42,7 +42,6 @@ import (
 func UserView() *query.ViewDefinition {
 	return query.View("users").
 		Version(1).
-		Root("users").
 		Schema(schemas.UserSchema()).
 		Indexes(
 			query.Index("document"),
