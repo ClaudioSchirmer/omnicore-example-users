@@ -65,14 +65,9 @@ func GadgetNotesView() *query.ViewDefinition {
 func GadgetFullView() *query.ComposedViewDefinition {
 	return query.ComposedView("gadgets_full").
 		Primary(GadgetView()).
-		Link("upstreamMirror", query.JoinUpstream(GadgetUpstreamMirrorSchema()).
-			FK("id").
-			As("UpstreamMirror")).
-		LinkMany("notes", query.JoinView(GadgetNotesView()).
-			FK("gadget_id").
-			As("Notes").
-			OrderBy("text").
-			MaxLinkManyLimit(3))
+		Link(query.JoinUpstream(GadgetUpstreamMirrorSchema(), "UpstreamMirror", "upstreamMirror")).On("id").
+		LinkMany(query.JoinView(GadgetNotesView(), "Notes", "notes")).
+		OrderBy("text").MaxLinkManyLimit(3).On("gadget_id")
 }
 
 // GadgetNoteRepository is the flat aggregate-aware repository for GadgetNote,

@@ -41,8 +41,8 @@ func TestGadgetEmbeddedView_ShapeAndEmbed(t *testing.T) {
 		t.Errorf("embed collection = %q, want %q", src.Collection(), "upstream_gadgets")
 	}
 	// One-to-one joins on the parent-side .On column (gadget.id → mirror _id).
-	if src.JoinKey() != "id" {
-		t.Errorf("embed join key (.On) = %q, want %q", src.JoinKey(), "id")
+	if e.JoinColumn() != "id" {
+		t.Errorf("embed join key (.On) = %q, want %q", e.JoinColumn(), "id")
 	}
 }
 
