@@ -53,6 +53,20 @@ func CatalogLineSchema() *fwdb.TableSchema {
 // It embeds the exact same `upstream_items` projection the shared-base
 // AccountView does, but joins the 1:N side on catalog_id — so one collection
 // feeds both view kinds and an item belongs to at most one parent.
+// CatalogFullView is the READ-TIME twin of CatalogView's EmbedInChild: a
+// ComposedView over the SAME qa_catalog_view primary that adds a LinkInChild,
+// enriching each CatalogLine element with its upstream item at READ time (never
+// materialized), keyed by the line's own item_id → upstream_items._id — the
+// direct-query counterpart of the materialized "item" embed, landing beside it
+// under "liveItem". Proves LinkInChild on a ComposedView whose primary carries a
+// native child.
+func CatalogFullView() *query.ComposedViewDefinition {
+	return query.ComposedView("qa_catalog_full").
+		Primary(CatalogView()).
+		LinkInChild(CatalogLineSchema(),
+			query.JoinUpstream(UpstreamItemSchema(), "LiveItem", "liveItem")).On("item_id")
+}
+
 func CatalogView() *query.ViewDefinition {
 	featured := query.JoinUpstream(UpstreamItemSchema(), "FeaturedItem", "featuredItem")
 	items := query.JoinUpstream(UpstreamItemSchema(), "Items", "items")
