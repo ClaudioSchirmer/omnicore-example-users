@@ -48,7 +48,9 @@ drop_collections() {
 reset_domain() {
   qa_db_exec "DELETE FROM qa_items;" 2>/dev/null || true
   qa_db_exec "DELETE FROM qa_account_holders;" 2>/dev/null || true
+  qa_db_exec "DELETE FROM qa_account_lines;" 2>/dev/null || true
   qa_db_exec "DELETE FROM qa_accounts;" 2>/dev/null || true
+  qa_db_exec "DELETE FROM qa_catalog_lines;" 2>/dev/null || true
   qa_db_exec "DELETE FROM qa_catalogs;" 2>/dev/null || true
   drop_collections
 }
@@ -87,6 +89,30 @@ try: d = json.load(open(sys.argv[1]))
 except Exception: print(""); sys.exit()
 arr = (d.get("data") or {}).get(sys.argv[2]) or []
 print(",".join(sorted(x.get("label","") for x in arr if isinstance(x, dict))))' "$GET_TMP" "$2"
+}
+# jchild URL CHILD_SEG ENRICH -> sorted labels of data.<child>[].<enrich>.label
+# (the EmbedInChild view: each child element carries an enriched 1:1 sub-doc; a
+# line whose FK is null/unresolved contributes the empty label "").
+jchild() {
+  curl -sS -o "$GET_TMP" "$1"
+  python3 -c '
+import sys, json
+try: d = json.load(open(sys.argv[1]))
+except Exception: print(""); sys.exit()
+arr = (d.get("data") or {}).get(sys.argv[2]) or []
+out=[]
+for x in arr:
+    seg = x.get(sys.argv[3]) if isinstance(x, dict) else None
+    out.append(seg.get("label","") if isinstance(seg, dict) else "")
+print(",".join(sorted(out)))' "$GET_TMP" "$2" "$3"
+}
+# wait_child URL CHILD_SEG ENRICH EXPECTED_CSV — poll until the enriched labels match
+wait_child() {
+  local deadline=$(( $(date +%s) + QA_CDC_DEADLINE )) got=""
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    got=$(jchild "$1" "$2" "$3"); [ "$got" = "$4" ] && return 0; sleep 1
+  done
+  echo "    (last seen: '$got', wanted: '$4')" >&2; return 1
 }
 # ── paged-list helpers (GET envelope: data:[...] + pagination.total) ─────────
 # lget URL [k=v ...] — GET the list with url-encoded query args into GET_TMP
@@ -155,15 +181,28 @@ ok "clean baseline"
 ##############################################################################
 sec "1. Create the embed sources (items) + both parents"
 ##############################################################################
-title "1.1 Two featured items (no FK — referenced 1:1 only)"
+title "1.1 Two featured items (no FK — referenced 1:1 only) + two line items (EmbedInChild sources)"
 FA_ID=$(new_item '{"label":"FA-featured"}')
 FC_ID=$(new_item '{"label":"FC-featured"}')
-{ [ -n "$FA_ID" ] && [ -n "$FC_ID" ]; } && ok "featured items created (account=$FA_ID catalog=$FC_ID)" || { bad "featured item create failed"; }
+# L1/L2 are DEDICATED items referenced only by catalog LINES via EmbedInChild —
+# kept apart from the FA/FC/A*/C* items the other sections mutate, so the
+# EmbedInChild assertions below stay stable until this section deliberately
+# renames/deletes them.
+L1_ID=$(new_item '{"label":"L1-line"}')
+L2_ID=$(new_item '{"label":"L2-line"}')
+# M1/M2 are the account base-child line sources (EmbedInChild on the SharedBaseView).
+M1_ID=$(new_item '{"label":"M1-line"}')
+M2_ID=$(new_item '{"label":"M2-line"}')
+{ [ -n "$FA_ID" ] && [ -n "$FC_ID" ] && [ -n "$L1_ID" ] && [ -n "$L2_ID" ] && [ -n "$M1_ID" ] && [ -n "$M2_ID" ]; } && ok "featured + line items created (account=$FA_ID catalog=$FC_ID cat-lines=$L1_ID,$L2_ID acc-lines=$M1_ID,$M2_ID)" || { bad "featured/line item create failed"; }
 
 title "1.2 Shared-base account (featuredItemId=FA) + a second account (move target) + normal catalog (featuredItemId=FC)"
-ACC_ID=$(post_json "$BASE/qa/accounts" "{\"accountRef\":\"acct-001\",\"displayName\":\"Primary Account\",\"holderName\":\"Ada Lovelace\",\"featuredItemId\":\"$FA_ID\"}" | jid)
+# acct-001 is created WITH base-child lines: two enriched (M1, M2) + one null-FK.
+ACC_ID=$(post_json "$BASE/qa/accounts" "{\"accountRef\":\"acct-001\",\"displayName\":\"Primary Account\",\"holderName\":\"Ada Lovelace\",\"featuredItemId\":\"$FA_ID\",\"lines\":[{\"itemId\":\"$M1_ID\",\"note\":\"m-1\"},{\"itemId\":\"$M2_ID\",\"note\":\"m-2\"},{\"note\":\"m-null\"}]}" | jid)
 ACC2_ID=$(post_json "$BASE/qa/accounts" '{"accountRef":"acct-002","displayName":"Second Account","holderName":"Grace Hopper"}' | jid)
-CAT_ID=$(post_json "$BASE/qa/catalogs" "{\"name\":\"Summer Collection\",\"featuredItemId\":\"$FC_ID\"}" | jid)
+# The catalog is created WITH native child lines: two reference items (L1, L2)
+# enriched via EmbedInChild, plus one line with NO itemId (proves a null FK
+# yields a null enrichment, never a leak).
+CAT_ID=$(post_json "$BASE/qa/catalogs" "{\"name\":\"Summer Collection\",\"featuredItemId\":\"$FC_ID\",\"lines\":[{\"itemId\":\"$L1_ID\",\"note\":\"line-1\"},{\"itemId\":\"$L2_ID\",\"note\":\"line-2\"},{\"note\":\"line-null\"}]}" | jid)
 { [ -n "$ACC_ID" ] && [ -n "$ACC2_ID" ] && [ -n "$CAT_ID" ]; } && ok "parents created (acc=$ACC_ID acc2=$ACC2_ID cat=$CAT_ID)" || { bad "parent create failed"; }
 
 title "1.3 List items — two for the account (account_id), two for the catalog (catalog_id)"
@@ -459,6 +498,67 @@ curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$K3_ID" -H "Content-Type: applica
 curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$K4_ID" -H "Content-Type: application/json" --data "{\"accountId\":\"$ACC_ID\"}"
 wait_items "$ACC2_URL" "items" "A1-renamed,B3,K1,K3-r,K5,K6" && ok "acct-002 settled exactly (delete+rename+move interleaved on 3 workers)" || bad "acct-002 items wrong under workers-3 interleave"
 wait_items "$ACC_URL" "items" "B1,B4,K4,W1,W2,W3,W4,W5" && ok "acct-001 gained exactly the moved K4" || bad "acct-001 items wrong after cross-worker move"
+
+##############################################################################
+sec "14. EmbedInChild — 1:1 enrichment of a native child array (qa_catalog_view)"
+##############################################################################
+# The catalog was seeded in §1 with THREE native child lines: two referencing
+# dedicated items (L1, L2) enriched via EmbedInChild, and one with NO itemId. It
+# has since survived TWO rebuilds (§8 full blue-green, §11 online) — so a correct
+# compose here ALSO proves the EmbedInChild enrichment survives the rebuild path
+# (batched ComposeBatch + applyChildEmbeds). L1/L2 were untouched by §5-§13.
+
+title "14.1 Compose — each line's item resolves; the null-FK line stays null (no leak)"
+wait_child "$CAT_URL" "catalogLines" "item" ",L1-line,L2-line" \
+  && ok "catalogLines[].item = [L1-line, L2-line, (null)] — enriched, null-FK line null, survived 2 rebuilds" \
+  || bad "catalogLines enrichment wrong"
+
+title "14.2 Read — 2-level nested filter into the enriched child (catalogLines.item.label)"
+lget "$CATLIST" "catalogLines.item.label=L1-line"; [ "$(lcount)" = "1" ] && ok "?catalogLines.item.label=L1-line → 1 row (nested enriched-field filter)" || bad "nested enriched filter wrong (count=$(lcount))"
+lget "$CATLIST" "catalogLines.item.label=nope";    [ "$(lcount)" = "0" ] && ok "?catalogLines.item.label=nope → 0 rows (no false positive)" || bad "nested enriched filter false positive"
+
+title "14.3 Read — ?fields= keeps/drops the enriched child segment"
+lget "$CATLIST" "name=Summer Collection" "fields=name"; { [ "$(lhaskey 0 name)" = y ] && [ "$(lhaskey 0 catalogLines)" = n ]; } && ok "?fields=name drops catalogLines" || bad "sparse projection did not drop catalogLines"
+lget "$CATLIST" "name=Summer Collection" "fields=name,catalogLines.item.label"; [ "$(lhaskey 0 catalogLines)" = y ] && ok "?fields=name,catalogLines.item.label keeps the enriched child" || bad "sparse projection dropped the requested enriched child"
+
+title "14.4 Export — CSV walks the enriched child branch"
+curl -sS -o "$GET_TMP" "$CATLIST.csv"; grep -q "L1-line" "$GET_TMP" && ok "catalogs.csv carries an enriched child item label" || bad "catalogs CSV missing the enriched child data"
+
+title "14.5 Ripple — rename an enriched item → the child line's item ripples (no write to the catalog)"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$L1_ID" -H "Content-Type: application/json" --data '{"label":"L1-renamed"}'
+wait_child "$CAT_URL" "catalogLines" "item" ",L1-renamed,L2-line" && ok "catalogLines[].item rippled to L1-renamed (consult-guarded recompose)" || bad "EmbedInChild rename ripple failed"
+
+title "14.6 Ripple — delete an enriched item → that line's enrichment clears to null"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/items/$L2_ID"
+wait_child "$CAT_URL" "catalogLines" "item" ",,L1-renamed" && ok "deleted item cleared its line's enrichment to null (cascade + recompose)" || bad "EmbedInChild delete ripple failed"
+
+##############################################################################
+sec "15. EmbedInChild on a SharedBaseView — enriched BASE child (qa_accounts_view)"
+##############################################################################
+# acct-001 was seeded in §1 with three base-child lines (M1, M2 enriched + a
+# null-FK line) and survived the §8/§11 rebuilds. Same facets as §14, on a
+# SharedBaseView: the base child materializes at the ROOT of the person doc
+# (accountLines[]), each element enriched 1:1 via EmbedInChild.
+
+title "15.1 Compose — base-child lines enriched at the person-document root; null-FK stays null"
+wait_child "$ACC_URL" "accountLines" "item" ",M1-line,M2-line" \
+  && ok "accountLines[].item = [M1-line, M2-line, (null)] on the shared-base view (survived rebuilds)" \
+  || bad "accountLines enrichment wrong"
+
+title "15.2 Read — nested filter into the enriched base child (accountLines.item.label)"
+lget "$ACCLIST" "accountLines.item.label=M1-line"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "?accountLines.item.label=M1-line → acct-001 (nested enriched filter, shared-base)" || bad "shared-base nested enriched filter wrong"
+
+title "15.3 Read — ?fields= keeps/drops the enriched base-child segment"
+lget "$ACCLIST" "accountRef=acct-001" "fields=displayName"; [ "$(lhaskey 0 accountLines)" = n ] && ok "?fields=displayName drops accountLines" || bad "sparse projection did not drop accountLines"
+lget "$ACCLIST" "accountRef=acct-001" "fields=displayName,accountLines.item.label"; [ "$(lhaskey 0 accountLines)" = y ] && ok "?fields=…,accountLines.item.label keeps the enriched base child" || bad "sparse projection dropped the requested enriched base child"
+
+title "15.4 Ripple — rename an enriched item → the base-child line ripples"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/items/$M1_ID" -H "Content-Type: application/json" --data '{"label":"M1-renamed"}'
+wait_child "$ACC_URL" "accountLines" "item" ",M1-renamed,M2-line" && ok "accountLines[].item rippled to M1-renamed (shared-base recompose)" || bad "shared-base EmbedInChild rename ripple failed"
+
+title "15.5 Ripple — delete an enriched item → that base-child line's enrichment clears to null"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/items/$M2_ID"
+wait_child "$ACC_URL" "accountLines" "item" ",,M1-renamed" && ok "deleted item cleared its base-child line's enrichment to null" || bad "shared-base EmbedInChild delete ripple failed"
 
 ##############################################################################
 sec "Cleanup + Summary"

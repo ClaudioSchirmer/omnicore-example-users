@@ -35,3 +35,45 @@ func (c *Catalog) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 		}
 	})
 }
+
+// CatalogLine is a NATIVE aggregate child of Catalog (qa_catalog_lines) — the
+// proof target for EmbedInChild: each line carries ItemID (a FK into the
+// upstream_items projection) plus its own field Note; the qa_catalog_view
+// enriches each line with the item (name/label) via EmbedInChild, keeping the
+// write model normalized (the line stores only the FK). Value type so the
+// framework's aggregate primitives compare by field equality.
+type CatalogLine struct {
+	ID     domain.ID
+	ItemID *string // FK → upstream_items._id; the EmbedInChild join key (nullable)
+	Note   string
+}
+
+func (l CatalogLine) GetID() domain.ID { return l.ID }
+
+func (l CatalogLine) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
+	r.IfInsertOrUpdate(func() {
+		if l.Note == "" {
+			r.AddNotification("Note", domain.RequiredFieldNotification{})
+		}
+	})
+}
+
+// ─── domain.AggregateRootProvider (Catalog owns CatalogLine children) ─────────
+
+func (c *Catalog) GetAggregateRoot() *domain.AggregateRoot { return &c.AggregateRoot }
+
+func (c *Catalog) AggregateChildren() []domain.AggregateValueObject {
+	return []domain.AggregateValueObject{CatalogLine{}}
+}
+
+// AddLine attaches a CatalogLine to the aggregate (INSERT on commit).
+func (c *Catalog) AddLine(l CatalogLine) {
+	domain.EnsureInitialized(c)
+	domain.AddAggregateChild(c, l)
+}
+
+// ReplaceLines clears and re-adds the whole line collection (PUT full-replace).
+func (c *Catalog) ReplaceLines(lines []CatalogLine) {
+	domain.EnsureInitialized(c)
+	domain.ReplaceAggregateChildrenOf(c, lines)
+}

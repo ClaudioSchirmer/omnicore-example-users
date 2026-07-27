@@ -24,6 +24,14 @@ type InsertAccountHolderCommand struct {
 	DisplayName    string
 	FeaturedItemID *string
 	HolderName     string
+	Lines          []AccountLineInput
+}
+
+// AccountLineInput is the application-layer shape of one base-child line: ItemID
+// is the FK the view enriches via EmbedInChild; Note is the line's own field.
+type AccountLineInput struct {
+	ItemID *string
+	Note   string
 }
 
 func (c *InsertAccountHolderCommand) ApplyTo(_ *configuration.AppContext, a *qadomain.AccountHolder) error {
@@ -31,6 +39,11 @@ func (c *InsertAccountHolderCommand) ApplyTo(_ *configuration.AppContext, a *qad
 	a.DisplayName = c.DisplayName
 	a.FeaturedItemID = c.FeaturedItemID
 	a.HolderName = c.HolderName
+	lines := make([]qadomain.AccountLine, 0, len(c.Lines))
+	for _, l := range c.Lines {
+		lines = append(lines, qadomain.AccountLine{ItemID: l.ItemID, Note: l.Note})
+	}
+	a.ReplaceLines(lines)
 	return nil
 }
 

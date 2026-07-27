@@ -108,12 +108,25 @@ func MountCatalogs(
 
 // InsertCatalogRequest is the JSON body of POST /qa/catalogs.
 type InsertCatalogRequest struct {
-	Name           string  `json:"name"                     example:"Summer Collection"`
-	FeaturedItemID *string `json:"featuredItemId,omitempty" example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name           string               `json:"name"                     example:"Summer Collection"`
+	FeaturedItemID *string              `json:"featuredItemId,omitempty" example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Lines          []CatalogLineRequest `json:"lines,omitempty"`
+}
+
+// CatalogLineRequest is one native child line in the POST body. `itemId` is the
+// FK the qa_catalog_view enriches via EmbedInChild (an existing upstream item);
+// `note` is the line's own field.
+type CatalogLineRequest struct {
+	ItemID *string `json:"itemId,omitempty"`
+	Note   string  `json:"note"`
 }
 
 func (r InsertCatalogRequest) ToCommand() *appqa.InsertCatalogCommand {
-	return &appqa.InsertCatalogCommand{Name: r.Name, FeaturedItemID: r.FeaturedItemID}
+	lines := make([]appqa.CatalogLineInput, 0, len(r.Lines))
+	for _, l := range r.Lines {
+		lines = append(lines, appqa.CatalogLineInput{ItemID: l.ItemID, Note: l.Note})
+	}
+	return &appqa.InsertCatalogCommand{Name: r.Name, FeaturedItemID: r.FeaturedItemID, Lines: lines}
 }
 
 // InsertCatalogResponse is the wire shape of a successful catalog insert.
@@ -151,6 +164,29 @@ type FindCatalogByIDResponse struct {
 	FeaturedItemID *string             `json:"featuredItemId,omitempty"`
 	FeaturedItem   *ItemSegmentOutput  `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput `json:"items,omitempty"`
+	// CatalogLines is the native child array; each line carries its own fields
+	// plus `item` — the EmbedInChild enrichment (the upstream item the line's
+	// item_id points at). The Go field name MUST be CatalogLines (the derived
+	// child doc segment) so AutoFromDoc maps it.
+	CatalogLines []CatalogLineOutput `json:"catalogLines,omitempty"`
+}
+
+// CatalogLineOutput is one enriched native child line. `Item` (Go segment
+// "Item", doc field "item") is the EmbedInChild sub-document. Pointers for
+// `?fields=` pruning.
+type CatalogLineOutput struct {
+	ItemID *string            `json:"itemId,omitempty"`
+	Note   *string            `json:"note,omitempty"`
+	Item   *ItemSegmentOutput `json:"item,omitempty"`
+}
+
+// CatalogLineFilter is the nested filter group for the native child line: its
+// own `note`, plus — one level deeper — the EmbedInChild enrichment via
+// `catalogLines.item.label` (the walker builds the Go path CatalogLines.Item.Label,
+// which the view node resolves to CatalogLines.item.label).
+type CatalogLineFilter struct {
+	Note *string           `query:"note" filter:"eq,icontains"`
+	Item ItemSegmentFilter `query:"item"`
 }
 
 // ─── List DTOs (normal view — filter/sort/fields/pagination into embeds) ─────
@@ -162,6 +198,9 @@ type FindCatalogsRequest struct {
 
 	FeaturedItem ItemSegmentFilter `query:"featuredItem"`
 	Items        ItemSegmentFilter `query:"items"`
+	// CatalogLines filters ROWS by a field of a native child line — including,
+	// nested one level deeper, the EmbedInChild enrichment (catalogLines.item.label).
+	CatalogLines CatalogLineFilter `query:"catalogLines"`
 
 	Limit           *int64  `query:"limit"`
 	After           *string `query:"after"`
@@ -184,4 +223,5 @@ type FindCatalogsListResponse struct {
 	FeaturedItemID *string             `json:"featuredItemId,omitempty"`
 	FeaturedItem   *ItemSegmentOutput  `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput `json:"items,omitempty"`
+	CatalogLines   []CatalogLineOutput `json:"catalogLines,omitempty"`
 }

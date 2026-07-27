@@ -122,18 +122,31 @@ func MountAccounts(
 
 // InsertAccountRequest is the JSON body of POST /qa/accounts.
 type InsertAccountRequest struct {
-	AccountRef     string  `json:"accountRef"                example:"acct-001"`
-	DisplayName    string  `json:"displayName"               example:"Primary Account"`
-	FeaturedItemID *string `json:"featuredItemId,omitempty"  example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	HolderName     string  `json:"holderName"                example:"Ada Lovelace"`
+	AccountRef     string               `json:"accountRef"                example:"acct-001"`
+	DisplayName    string               `json:"displayName"               example:"Primary Account"`
+	FeaturedItemID *string              `json:"featuredItemId,omitempty"  example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	HolderName     string               `json:"holderName"                example:"Ada Lovelace"`
+	Lines          []AccountLineRequest `json:"lines,omitempty"`
+}
+
+// AccountLineRequest is one base-child line in the POST body. `itemId` is the FK
+// the qa_accounts_view enriches via EmbedInChild; `note` is the line's own field.
+type AccountLineRequest struct {
+	ItemID *string `json:"itemId,omitempty"`
+	Note   string  `json:"note"`
 }
 
 func (r InsertAccountRequest) ToCommand() *appqa.InsertAccountHolderCommand {
+	lines := make([]appqa.AccountLineInput, 0, len(r.Lines))
+	for _, l := range r.Lines {
+		lines = append(lines, appqa.AccountLineInput{ItemID: l.ItemID, Note: l.Note})
+	}
 	return &appqa.InsertAccountHolderCommand{
 		AccountRef:     r.AccountRef,
 		DisplayName:    r.DisplayName,
 		FeaturedItemID: r.FeaturedItemID,
 		HolderName:     r.HolderName,
+		Lines:          lines,
 	}
 }
 
@@ -200,12 +213,24 @@ type FindAccountByIDResponse struct {
 	AccountHolder  *AccountHolderOutput `json:"accountHolder,omitempty"`
 	FeaturedItem   *ItemSegmentOutput   `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput  `json:"items,omitempty"`
+	// AccountLines is the BASE's native child array (materialized at the root of
+	// the person document); each line carries `item` — the EmbedInChild
+	// enrichment. Go field name MUST be AccountLines (the derived child segment).
+	AccountLines []AccountLineOutput `json:"accountLines,omitempty"`
 }
 
 // AccountHolderOutput is the role sub-document (role-private fields only; the
 // base fields live flat at the root). Pointer field so `?fields=` prunes it.
 type AccountHolderOutput struct {
 	HolderName *string `json:"holderName,omitempty"`
+}
+
+// AccountLineOutput is one enriched base-child line. `Item` (Go segment "Item",
+// doc field "item") is the EmbedInChild sub-document. Pointers for `?fields=`.
+type AccountLineOutput struct {
+	ItemID *string            `json:"itemId,omitempty"`
+	Note   *string            `json:"note,omitempty"`
+	Item   *ItemSegmentOutput `json:"item,omitempty"`
 }
 
 // ItemSegmentOutput is one embedded upstream_items document, shared by the 1:1
@@ -237,6 +262,15 @@ type AccountHolderFilter struct {
 	HolderName *string `query:"holderName" filter:"eq,icontains"`
 }
 
+// AccountLineFilter is the nested filter group for the base-child line: its own
+// `note`, plus — one level deeper — the EmbedInChild enrichment via
+// `accountLines.item.label` (Go path AccountLines.Item.Label → doc
+// AccountLines.item.label).
+type AccountLineFilter struct {
+	Note *string           `query:"note" filter:"eq,icontains"`
+	Item ItemSegmentFilter `query:"item"`
+}
+
 // FindAccountsRequest is the wire allowlist of GET /qa/accounts (+ .csv/.xlsx).
 type FindAccountsRequest struct {
 	AccountRef  *string `query:"accountRef"  filter:"eq,startswith"`
@@ -245,6 +279,7 @@ type FindAccountsRequest struct {
 	AccountHolder AccountHolderFilter `query:"accountHolder"`
 	FeaturedItem  ItemSegmentFilter   `query:"featuredItem"`
 	Items         ItemSegmentFilter   `query:"items"`
+	AccountLines  AccountLineFilter   `query:"accountLines"`
 
 	Limit           *int64  `query:"limit"`
 	After           *string `query:"after"`
@@ -270,4 +305,5 @@ type FindAccountsListResponse struct {
 	AccountHolder  *AccountHolderOutput `json:"accountHolder,omitempty"`
 	FeaturedItem   *ItemSegmentOutput   `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput  `json:"items,omitempty"`
+	AccountLines   []AccountLineOutput  `json:"accountLines,omitempty"`
 }

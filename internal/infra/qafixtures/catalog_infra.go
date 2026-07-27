@@ -24,6 +24,21 @@ func CatalogSchema() *fwdb.TableSchema {
 		Field("FeaturedItemID", "featured_item_id").
 		SoftDelete("deleted_at").
 		CreatedAt("created_at").
+		UpdatedAt("updated_at").
+		Child(CatalogLineSchema())
+}
+
+// CatalogLineSchema is the native aggregate child of Catalog (qa_catalog_lines):
+// value-typed AVO, FK catalog_id back to the root, item_id the FK the
+// qa_catalog_view enriches via EmbedInChild (→ upstream_items._id).
+func CatalogLineSchema() *fwdb.TableSchema {
+	return fwdb.NewTableSchema[qadomain.CatalogLine]("qa_catalog_lines").
+		PK("id").
+		FK("catalog_id").
+		Field("ItemID", "item_id").
+		Field("Note", "note").
+		SoftDelete("deleted_at").
+		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }
 
@@ -44,15 +59,24 @@ func CatalogView() *query.ViewDefinition {
 		As("FeaturedItem")
 	items := query.FromSchema(UpstreamItemSchema().FK("catalog_id")).
 		As("Items")
+	// EmbedInChild: enrich each native CatalogLine element with its upstream item
+	// (1:1, keyed by the line's own item_id → upstream_items._id).
+	lineItem := query.FromSchema(UpstreamItemSchema()).
+		FK("item_id").
+		As("Item")
 	return query.View("qa_catalog_view").
 		Version(1).
 		Schema(CatalogSchema()).
 		Embed("featuredItem", featured).
 		EmbedMany("items", items).
+		EmbedInChild(CatalogLineSchema(), "item", lineItem).
 		Indexes(
-			// §8.1 covering index on the 1:1 Embed's parent FK column only; the
-			// 1:N EmbedMany resolves by the child's catalog_id → catalog _id.
+			// §8.1 covering index on the 1:1 Embed's parent FK column; the 1:N
+			// EmbedMany resolves by the child's catalog_id → catalog _id.
 			query.Index("featured_item_id"),
+			// Covering multikey index for the EmbedInChild ripple's reverse scan
+			// ("<childSegment>.<fk>" = CatalogLines.item_id) — mandatory at boot.
+			query.Index("CatalogLines.item_id"),
 		)
 }
 
@@ -102,5 +126,32 @@ func ProvisionCatalogTable(ctx context.Context, eng fwdb.RelationalEngine) error
 			PRIMARY KEY (id)
 		)`
 	}
-	return qaExecDDL(ctx, eng, catalogs)
+	if err := qaExecDDL(ctx, eng, catalogs); err != nil {
+		return err
+	}
+
+	var lines string
+	if postgres {
+		lines = `CREATE TABLE IF NOT EXISTS qa_catalog_lines (
+			id          UUID         PRIMARY KEY,
+			catalog_id  UUID         NOT NULL REFERENCES qa_catalogs(id) ON DELETE CASCADE,
+			item_id     VARCHAR(36),
+			note        VARCHAR(255) NOT NULL,
+			deleted_at  TIMESTAMP,
+			created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMP    NOT NULL DEFAULT NOW()
+		)`
+	} else {
+		lines = `CREATE TABLE IF NOT EXISTS qa_catalog_lines (
+			id          BINARY(16)   NOT NULL,
+			catalog_id  BINARY(16)   NOT NULL,
+			item_id     VARCHAR(36)  NULL,
+			note        VARCHAR(255) NOT NULL,
+			deleted_at  DATETIME     NULL,
+			created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id)
+		)`
+	}
+	return qaExecDDL(ctx, eng, lines)
 }
