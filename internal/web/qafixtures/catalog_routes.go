@@ -172,12 +172,15 @@ type FindCatalogByIDResponse struct {
 }
 
 // CatalogLineOutput is one enriched native child line. `Item` (Go segment
-// "Item", doc field "item") is the EmbedInChild sub-document. Pointers for
-// `?fields=` pruning.
+// "Item", doc field "item") is the materialized EmbedInChild sub-document.
+// `LiveItem` (Go segment "LiveItem") is present ONLY on the qa_catalog_full
+// ComposedView read — the read-time LinkInChild twin of `Item`, computed per
+// request, never stored. Pointers for `?fields=` pruning.
 type CatalogLineOutput struct {
-	ItemID *string            `json:"itemId,omitempty"`
-	Note   *string            `json:"note,omitempty"`
-	Item   *ItemSegmentOutput `json:"item,omitempty"`
+	ItemID   *string            `json:"itemId,omitempty"`
+	Note     *string            `json:"note,omitempty"`
+	Item     *ItemSegmentOutput `json:"item,omitempty"`
+	LiveItem *ItemSegmentOutput `json:"liveItem,omitempty"`
 }
 
 // CatalogLineFilter is the nested filter group for the native child line: its
@@ -185,8 +188,9 @@ type CatalogLineOutput struct {
 // `catalogLines.item.label` (the walker builds the Go path CatalogLines.Item.Label,
 // which the view node resolves to CatalogLines.item.label).
 type CatalogLineFilter struct {
-	Note *string           `query:"note" filter:"eq,icontains"`
-	Item ItemSegmentFilter `query:"item"`
+	Note     *string           `query:"note" filter:"eq,icontains"`
+	Item     ItemSegmentFilter `query:"item"`
+	LiveItem ItemSegmentFilter `query:"liveItem"` // qa_catalog_full only: filter the read-time LinkInChild segment
 }
 
 // ─── List DTOs (normal view — filter/sort/fields/pagination into embeds) ─────
@@ -224,4 +228,49 @@ type FindCatalogsListResponse struct {
 	FeaturedItem   *ItemSegmentOutput  `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput `json:"items,omitempty"`
 	CatalogLines   []CatalogLineOutput `json:"catalogLines,omitempty"`
+}
+
+// MountCatalogsFull registers /qa/catalogs-full — the READ-TIME LinkInChild
+// showcase. The qa_catalog_full ComposedView reads the qa_catalog_view primary
+// and adds a per-request "liveItem" sub-document INSIDE each CatalogLine
+// (LinkInChild), the read-time twin of the materialized "item" embed. Read-only:
+// the composition is never materialized; creates go through /qa/catalogs.
+func MountCatalogsFull(app *fiber.App, composed *query.ComposedViewDefinition, d bootstrap.Deps) {
+	if composed == nil {
+		return
+	}
+	g := app.Group("/qa/catalogs-full")
+	viewName := composed.Name()
+
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
+		FindCatalogByIDRequest{},
+		fwresponses.AutoFromDoc[FindCatalogByIDResponse],
+		&handlers.FindByIDQueryHandler[*appqa.FindCatalogByIDQuery]{Reader: d.ViewReader, View: viewName})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id", byIDH, byIDSpec,
+		fwopenapi.Doc{
+			Summary:     "Get a catalog by id (read-time LinkInChild)",
+			Description: "Reads the `qa_catalog_full` ComposedView: the `qa_catalog_view` primary drives the document; each CatalogLine additionally gains `liveItem` — the upstream item its item_id points at, joined at READ time (LinkInChild), never materialized. It sits beside the materialized `item` embed, proving read-time equivalence.",
+			Tags:        []string{"QA Catalogs (read-time LinkInChild)"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
+		FindCatalogsRequest{},
+		fwresponses.AutoFromDoc[FindCatalogsListResponse],
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/", listH, listSpec,
+		fwopenapi.Doc{
+			Summary:     "List catalogs (read-time LinkInChild; filter/fields into liveItem)",
+			Description: "Paged read of `qa_catalog_full`. Root/segment filters and `?fields=` apply; `catalogLines.liveItem.label` filters the read-time enrichment per line; `?sort=` into a segment is 400 (order is the primary's).",
+			Tags:        []string{"QA Catalogs (read-time LinkInChild)"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
+	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
+		FindCatalogsRequest{}, composed, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName},
+		export.WithDelimiter(','))
+	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/catalogs-full.csv", csvH, csvSpec,
+		fwopenapi.Doc{Summary: "Export qa_catalog_full as CSV (incl. liveItem branch)", Tags: []string{"QA Catalogs (read-time LinkInChild)"}},
+		fwopenapi.RequirePermission("gadgets:read"))
 }

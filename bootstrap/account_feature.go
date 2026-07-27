@@ -35,8 +35,9 @@ type AccountFeature struct {
 	accountRepo *infraqa.AccountHolderRepository
 	catalogRepo *infraqa.CatalogRepository
 	itemRepo    *infraqa.ItemRepository
-	accountView *query.ViewDefinition
-	catalogView *query.ViewDefinition
+	accountView     *query.ViewDefinition
+	catalogView     *query.ViewDefinition
+	catalogFullView *query.ComposedViewDefinition
 }
 
 // NewAccountFeature provisions the QA tables in the constructor (before the
@@ -60,8 +61,19 @@ func NewAccountFeature(d bootstrap.Deps) *AccountFeature {
 	if declaresUpstreamCollection(d, "upstream_items") {
 		f.accountView = infraqa.AccountView()
 		f.catalogView = infraqa.CatalogView()
+		f.catalogFullView = infraqa.CatalogFullView()
 	}
 	return f
+}
+
+// ComposedViews satisfies bootstrap.ComposingFeature: the read-time qa_catalog_full
+// composition (LinkInChild over the qa_catalog_view primary). Nil under configs
+// without the upstream_items subscription.
+func (f *AccountFeature) ComposedViews() []*query.ComposedViewDefinition {
+	if f.catalogFullView == nil {
+		return nil
+	}
+	return []*query.ComposedViewDefinition{f.catalogFullView}
 }
 
 // Views satisfies bootstrap.ReadableFeature: both embed views are materialized
@@ -83,4 +95,5 @@ func (f *AccountFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	webqa.MountItems(app, f.itemRepo, d)
 	webqa.MountAccounts(app, f.accountRepo, f.accountView, d)
 	webqa.MountCatalogs(app, f.catalogRepo, f.catalogView, d)
+	webqa.MountCatalogsFull(app, f.catalogFullView, d)
 }
