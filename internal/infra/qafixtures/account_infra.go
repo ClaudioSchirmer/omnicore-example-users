@@ -69,29 +69,24 @@ func AccountHolderSchema() *fwdb.TableSchema {
 //   - EmbedMany "items" (1:N): the leg holds the FK (upstream_items.account_id →
 //     the account base _id). An array, empty when none.
 //
-// Both are declared with a FRESH UpstreamItemSchema() instance (the EmbedMany
-// copy additionally carries .FK("account_id"), the 1:N child join column). The
+// Both are declared with a FRESH UpstreamItemSchema() leg; the EmbedMany names
+// its 1:N child join column via .On("account_id") on the verb. The
 // composer's applyEmbeds runs identically on a base-rooted row and a regular
 // view row, and buildViewIndex registers these embeds for recompose-ripple, so
 // an upstream_items change recomposes this shared-base document — proving the
 // end-to-end path the docs claim for SharedBaseView + Embed/EmbedMany.
 func AccountView() *query.ViewDefinition {
-	featured := query.FromSchema(UpstreamItemSchema()).
-		FK("featured_item_id").
-		As("FeaturedItem")
-	items := query.FromSchema(UpstreamItemSchema().FK("account_id")).
-		As("Items")
+	featured := query.JoinUpstream(UpstreamItemSchema(), "FeaturedItem", "featuredItem")
+	items := query.JoinUpstream(UpstreamItemSchema(), "Items", "items")
 	// EmbedInChild: enrich each native base-child line (AccountLines) with its
 	// upstream item (1:1, keyed by the line's own item_id → upstream_items._id).
-	lineItem := query.FromSchema(UpstreamItemSchema()).
-		FK("item_id").
-		As("Item")
+	lineItem := query.JoinUpstream(UpstreamItemSchema(), "Item", "item")
 	return query.SharedBaseView("qa_accounts_view").
 		Schema(accountBase()).
 		Role(AccountHolderSchema()).
-		Embed("featuredItem", featured).
-		EmbedMany("items", items).
-		EmbedInChild(AccountLineSchema(), "item", lineItem).
+		Embed(featured).On("featured_item_id").
+		EmbedMany(items).On("account_id").
+		EmbedInChild(AccountLineSchema(), lineItem).On("item_id").
 		Version(1).
 		Indexes(
 			query.Index("account_ref"),

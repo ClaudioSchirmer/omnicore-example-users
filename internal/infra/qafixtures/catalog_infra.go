@@ -54,22 +54,17 @@ func CatalogLineSchema() *fwdb.TableSchema {
 // AccountView does, but joins the 1:N side on catalog_id — so one collection
 // feeds both view kinds and an item belongs to at most one parent.
 func CatalogView() *query.ViewDefinition {
-	featured := query.FromSchema(UpstreamItemSchema()).
-		FK("featured_item_id").
-		As("FeaturedItem")
-	items := query.FromSchema(UpstreamItemSchema().FK("catalog_id")).
-		As("Items")
+	featured := query.JoinUpstream(UpstreamItemSchema(), "FeaturedItem", "featuredItem")
+	items := query.JoinUpstream(UpstreamItemSchema(), "Items", "items")
 	// EmbedInChild: enrich each native CatalogLine element with its upstream item
 	// (1:1, keyed by the line's own item_id → upstream_items._id).
-	lineItem := query.FromSchema(UpstreamItemSchema()).
-		FK("item_id").
-		As("Item")
+	lineItem := query.JoinUpstream(UpstreamItemSchema(), "Item", "item")
 	return query.View("qa_catalog_view").
 		Version(1).
 		Schema(CatalogSchema()).
-		Embed("featuredItem", featured).
-		EmbedMany("items", items).
-		EmbedInChild(CatalogLineSchema(), "item", lineItem).
+		Embed(featured).On("featured_item_id").
+		EmbedMany(items).On("catalog_id").
+		EmbedInChild(CatalogLineSchema(), lineItem).On("item_id").
 		Indexes(
 			// §8.1 covering index on the 1:1 Embed's parent FK column; the 1:N
 			// EmbedMany resolves by the child's catalog_id → catalog _id.

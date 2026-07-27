@@ -46,13 +46,11 @@ func GadgetKitLineSchema() *fwdb.TableSchema {
 // gadgets_embedded view uses — proving EmbedInChild rides the cross-service
 // upstream/ripple path end to end, without touching GadgetSchema.
 func GadgetKitView() *query.ViewDefinition {
-	lineGadget := query.FromSchema(GadgetUpstreamMirrorSchema()).
-		FK("gadget_id").
-		As("Gadget")
+	lineGadget := query.JoinUpstream(GadgetUpstreamMirrorSchema(), "Gadget", "gadget")
 	return query.View("qa_gadget_kits_view").
 		Version(1).
 		Schema(GadgetKitSchema()).
-		EmbedInChild(GadgetKitLineSchema(), "gadget", lineGadget).
+		EmbedInChild(GadgetKitLineSchema(), lineGadget).On("gadget_id").
 		Indexes(
 			// Covering multikey index for the EmbedInChild ripple's reverse scan
 			// ("<childSegment>.<fk>" = GadgetKitLines.gadget_id) — mandatory at boot.
