@@ -73,11 +73,58 @@ title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
 ok()    { printf '\033[1;32mPASS\033[0m %s\n' "$1"; PASS=$((PASS+1)); }
 bad()   { printf '\033[1;31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL+1)); }
 kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [ -n "$p" ] && { kill -9 $p 2>/dev/null || true; sleep 1; }; }
-cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded upstream_gadgets upstream_gadgets_anon upstream_gadgets_keep; }
+cleanup() { if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi; kill_port "${HTTP_PORT:-8080}"; qa_db_exec "DELETE FROM qa_gadget_kit_lines;" 2>/dev/null || true; qa_db_exec "DELETE FROM qa_gadget_kits;" 2>/dev/null || true; qa_view_drop gadgets gadget_notes gadgets_hot gadgets_capped gadgets_embedded qa_gadget_kits_view upstream_gadgets upstream_gadgets_anon upstream_gadgets_keep; rm -f /tmp/qa-kit.json.${BACKEND:-default}; }
 trap cleanup EXIT INT TERM
 
 mongo_up() {  # eval a mongosh expression against the upstream collection
   docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "$1" 2>/dev/null | tail -1 | tr -d ' '
+}
+
+# kit_names KIT_ID -> sorted, comma-joined gadget.name of each gadgetKitLines[]
+# element (the EmbedInChild enrichment; "" for a null-FK / unresolved line).
+kit_names() {
+  curl -sS -o /tmp/qa-kit.json.${BACKEND:-default} "$BASE/qa/gadget-kits/$1"
+  python3 -c '
+import sys, json
+try: d = json.load(open(sys.argv[1]))
+except Exception: print(""); sys.exit()
+arr = (d.get("data") or {}).get("gadgetKitLines") or []
+out = []
+for x in arr:
+    g = x.get("gadget") if isinstance(x, dict) else None
+    out.append(g.get("name","") if isinstance(g, dict) else "")
+print(",".join(sorted(out)))' /tmp/qa-kit.json.${BACKEND:-default}
+}
+# wait_kit KIT_ID EXPECTED_CSV — poll until the enriched names match
+wait_kit() {
+  local deadline=$(( $(date +%s) + QA_CDC_DEADLINE )) got=""
+  while [ "$(date +%s)" -lt "$deadline" ]; do got=$(kit_names "$1"); [ "$got" = "$2" ] && return 0; sleep 1; done
+  echo "    (last seen: '$got', wanted: '$2')" >&2; return 1
+}
+# kit_line_del GADGET_ID -> 'set'|'clear'|'nogadget'|'nodoc' — the deleted_at
+# state of the enriched gadget on the kit line referencing GADGET_ID (read
+# straight from the materialized view doc via mongosh, DTO-independent).
+kit_line_del() {
+  # Search every qa_gadget_kits_view* collection — after a blue-green rebuild the
+  # active data lives in a __0/__1 SLOT, not the base name.
+  docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "
+    var names=db.getCollectionNames().filter(function(n){return n.indexOf('qa_gadget_kits_view')===0});
+    for(var i=0;i<names.length;i++){
+      var d=db[names[i]].findOne({'GadgetKitLines.gadget_id':'$1'});
+      if(d){var ln=d.GadgetKitLines.find(function(x){return x.gadget_id==='$1'});
+        if(ln&&ln.gadget){print(ln.gadget.deleted_at ? 'set':'clear');quit()}}
+    }
+    print('nodoc');" 2>/dev/null | tail -1 | tr -d ' '
+}
+wait_kit_del() {  # GADGET_ID EXPECTED(set|clear)
+  local deadline=$(( $(date +%s) + QA_CDC_DEADLINE )) got=""
+  while [ "$(date +%s)" -lt "$deadline" ]; do got=$(kit_line_del "$1"); [ "$got" = "$2" ] && return 0; sleep 1; done
+  echo "    (last seen: '$got', wanted: '$2')" >&2; return 1
+}
+new_gadget() {  # $1 code, $2 name -> id (creates + returns the gadget id)
+  curl -sS -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" \
+    --data "{\"code\":\"$1\",\"name\":\"$2\",\"category\":\"kit\",\"status\":\"active\"}" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null
 }
 
 ##############################################################################
@@ -334,11 +381,85 @@ echo "response: $(cat /tmp/qa-up-retry.json.${BACKEND:-default} 2>/dev/null)"
 rm -f /tmp/qa-up-retry.json.${BACKEND:-default}
 
 ##############################################################################
+sec "7. EmbedInChild — native child lines enriched from upstream_gadgets (qa_gadget_kits_view)"
+##############################################################################
+# A DEDICATED aggregate (qa_gadget_kits, not touching GadgetSchema) whose native
+# child lines each reference a gadget id, enriched 1:1 with the SAME
+# upstream_gadgets projection via EmbedInChild. Proves the EmbedInChild materialize
+# + rebuild + ripple path over the cross-service upstream channel end to end.
+title "7.0 Reboot on the standard policy yaml (clean upstream_gadgets, no deleteOnArchive)"
+if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+kill_port "${HTTP_PORT:-8080}"
+qa_db_exec "DELETE FROM qa_gadget_kit_lines;" 2>/dev/null || true
+qa_db_exec "DELETE FROM qa_gadget_kits;" 2>/dev/null || true
+qa_view_drop qa_gadget_kits_view || true
+: > "$SERVER_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
+SERVER_PID=$!
+deadline=$(( $(date +%s) + 90 )); rok=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz")" = 200 ] && { rok=ok; break; }; sleep 1; done
+[ "$rok" = ok ] && ok "server ready on the standard policy yaml" || { bad "server never ready for the kit section"; tail -n 25 "$SERVER_LOG"; }
+
+title "7.1 Two dedicated gadgets materialize in upstream_gadgets"
+KGA_ID=$(new_gadget "KIT-GA" "Kit Gadget A")
+KGB_ID=$(new_gadget "KIT-GB" "Kit Gadget B")
+{ [ -n "$KGA_ID" ] && [ -n "$KGB_ID" ]; } && ok "kit gadgets created ($KGA_ID, $KGB_ID)" || bad "kit gadget create failed"
+deadline=$(( $(date +%s) + QA_CDC_DEADLINE )); up2=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  a=$(mongo_up "db.$UP_COLL.countDocuments({code:'KIT-GA'})"); b=$(mongo_up "db.$UP_COLL.countDocuments({code:'KIT-GB'})")
+  [ "${a:-0}" = "1" ] && [ "${b:-0}" = "1" ] && { up2=ok; break; }; sleep 1
+done
+[ "$up2" = ok ] && ok "both kit gadgets present in upstream_gadgets" || bad "kit gadgets never materialized upstream"
+
+title "7.2 Create a kit with 3 native lines (2 referencing gadgets + 1 null-FK) → compose enriches"
+KIT_ID=$(curl -sS -X POST "$BASE/qa/gadget-kits" -H "Content-Type: application/json" \
+  --data "{\"name\":\"Starter Kit\",\"lines\":[{\"gadgetId\":\"$KGA_ID\",\"note\":\"k-1\"},{\"gadgetId\":\"$KGB_ID\",\"note\":\"k-2\"},{\"note\":\"k-null\"}]}" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null)
+[ -n "$KIT_ID" ] && ok "kit created ($KIT_ID)" || bad "kit create failed"
+wait_kit "$KIT_ID" ",Kit Gadget A,Kit Gadget B" && ok "kit lines enriched = [Kit Gadget A, Kit Gadget B, (null)] (EmbedInChild compose over upstream_gadgets)" || bad "kit enrichment wrong"
+
+title "7.3 REBUILD — wipe qa_gadget_kits_view + reboot → boot rebuild backfills the enrichment (ComposeBatch + applyChildEmbeds)"
+if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+kill_port "${HTTP_PORT:-8080}"
+qa_view_drop qa_gadget_kits_view
+: > "$SERVER_LOG"
+( cd "$REPO_ROOT" && APP_PROFILE=dev OMNICORE_CONFIG_PATH="$QA_YAML" exec "$SERVER_BIN" >>"$SERVER_LOG" 2>&1 ) &
+SERVER_PID=$!
+deadline=$(( $(date +%s) + 120 )); rok=fail
+while [ "$(date +%s)" -lt "$deadline" ]; do [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/readyz")" = 200 ] && { rok=ok; break; }; sleep 1; done
+[ "$rok" = ok ] && ok "server ready (boot rebuild finished)" || { bad "server never ready after kit rebuild"; tail -n 25 "$SERVER_LOG"; }
+grep -q 'view.rebuild.end' "$SERVER_LOG" && ok "a blue-green rebuild ran (view.rebuild.end in the log)" || bad "no view.rebuild — the batched EmbedInChild path was not exercised"
+wait_kit "$KIT_ID" ",Kit Gadget A,Kit Gadget B" && ok "the enrichment SURVIVED the rebuild (batch ComposeBatch + applyChildEmbeds reproduced it)" || bad "kit enrichment diverged after the rebuild"
+
+# Gadget has no field-update route (POST/GET/DELETE/archive/unarchive only), so
+# the in-place-recompose is exercised via ARCHIVE (an UPDATE-shaped mirror change
+# — deleteOnArchive is false here, so the mirror survives with deleted_at set)
+# and the removal-recompose via hard DELETE. The rename-in-place recompose is
+# covered exhaustively in external_embed (catalog/account line rename).
+title "7.4 RECOMPOSE (in place) — archive gadget KIT-GA → the kit line's enriched gadget gains deleted_at; unarchive clears it"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$KGA_ID/archive"
+wait_kit_del "$KGA_ID" set && ok "archived gadget rippled deleted_at into the kit line's enrichment (surgical in-place update)" || bad "EmbedInChild archive recompose failed"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/gadgets/$KGA_ID/unarchive"
+wait_kit_del "$KGA_ID" clear && ok "unarchive rippled deleted_at back to null on the kit line's enrichment" || bad "EmbedInChild unarchive recompose failed"
+
+title "7.5 RECOMPOSE (removal) — hard-delete gadget KIT-GB → that kit line's enrichment clears to null (cascade + ripple)"
+curl -sS -o /dev/null -X DELETE "$BASE/qa/gadgets/$KGB_ID"
+wait_kit "$KIT_ID" ",,Kit Gadget A" && ok "deleted gadget cleared its kit line's enrichment to null" || bad "EmbedInChild delete ripple failed"
+
+title "7.6 Read — nested filter into the enriched child (gadgetKitLines.gadget.name)"
+curl -sS -G -o /tmp/qa-kit.json.${BACKEND:-default} "$BASE/qa/gadget-kits" --data-urlencode "gadgetKitLines.gadget.name=Kit Gadget A"
+KN=$(python3 -c 'import sys,json;d=json.load(open(sys.argv[1])).get("data") or [];print(len(d))' /tmp/qa-kit.json.${BACKEND:-default} 2>/dev/null)
+[ "${KN:-0}" = "1" ] && ok "?gadgetKitLines.gadget.name=Kit Gadget A → 1 row (2-level nested enriched filter)" || bad "nested enriched filter wrong (count=$KN)"
+rm -f /tmp/qa-kit.json.${BACKEND:-default}
+
+##############################################################################
 sec "Cleanup + Summary"
 ##############################################################################
+qa_db_exec "DELETE FROM qa_gadget_kit_lines;" 2>/dev/null || true
+qa_db_exec "DELETE FROM qa_gadget_kits;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 # DROP the qa collections so the canonical (non-qa) binary's boot registry
 # guard does not later abort on foreign collections it cannot map to a view.
-qa_view_drop gadgets gadget_notes gadgets_embedded "$UP_COLL" upstream_gadgets_anon upstream_gadgets_keep || true
+qa_view_drop gadgets gadget_notes gadgets_embedded qa_gadget_kits_view "$UP_COLL" upstream_gadgets_anon upstream_gadgets_keep || true
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 if [ "$FAIL" -gt 0 ]; then exit 1; fi

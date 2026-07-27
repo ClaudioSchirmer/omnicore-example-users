@@ -54,3 +54,42 @@ func (a *AccountHolder) BuildRules(_ string, _ domain.Service, r *domain.Rules) 
 		}
 	})
 }
+
+// AccountLine is a native child of the qa_accounts BASE (qa_account_lines) —
+// the SharedBaseView proof target for EmbedInChild: it hangs off the shared
+// identity (like Address hangs off the Person base), is written through the
+// AccountHolder role, and each line's ItemID is enriched with the upstream item
+// by qa_accounts_view. Value type for the aggregate primitives.
+type AccountLine struct {
+	ID     domain.ID
+	ItemID *string // FK → upstream_items._id; the EmbedInChild join key (nullable)
+	Note   string
+}
+
+func (l AccountLine) GetID() domain.ID { return l.ID }
+
+func (l AccountLine) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
+	r.IfInsertOrUpdate(func() {
+		if l.Note == "" {
+			r.AddNotification("Note", domain.RequiredFieldNotification{})
+		}
+	})
+}
+
+// ─── domain.AggregateRootProvider (AccountHolder owns the BASE's AccountLine) ──
+// AccountLine is declared on the qa_accounts BASE (accountBase().Child(...)), so
+// it is a base-child written through this role — exactly as Address (a Person
+// base-child) is written through the User/Employee roles.
+
+func (a *AccountHolder) GetAggregateRoot() *domain.AggregateRoot { return &a.AggregateRoot }
+
+func (a *AccountHolder) AggregateChildren() []domain.AggregateValueObject {
+	return []domain.AggregateValueObject{AccountLine{}}
+}
+
+// ReplaceLines clears and re-adds the base child lines (the shared-base upsert
+// re-applies the full set on every POST).
+func (a *AccountHolder) ReplaceLines(lines []AccountLine) {
+	domain.EnsureInitialized(a)
+	domain.ReplaceAggregateChildrenOf(a, lines)
+}

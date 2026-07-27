@@ -28,7 +28,22 @@ func accountBase() *fwdb.TableSchema {
 		Field("FeaturedItemID", "featured_item_id").
 		NaturalKey("account_ref").
 		SoftDelete("deleted_at").
-		OrphanPolicy(fwdb.DeleteWhenUnreferenced)
+		OrphanPolicy(fwdb.DeleteWhenUnreferenced).
+		Child(AccountLineSchema())
+}
+
+// AccountLineSchema is the native child of the qa_accounts BASE (qa_account_lines):
+// it hangs off the shared identity (FK account_id → the base id), and item_id is
+// the FK qa_accounts_view enriches via EmbedInChild (→ upstream_items._id).
+func AccountLineSchema() *fwdb.TableSchema {
+	return fwdb.NewTableSchema[qadomain.AccountLine]("qa_account_lines").
+		PK("id").
+		FK("account_id").
+		Field("ItemID", "item_id").
+		Field("Note", "note").
+		SoftDelete("deleted_at").
+		CreatedAt("created_at").
+		UpdatedAt("updated_at")
 }
 
 // AccountHolderSchema is the type-anchored ROLE schema linking back to the base
@@ -66,11 +81,17 @@ func AccountView() *query.ViewDefinition {
 		As("FeaturedItem")
 	items := query.FromSchema(UpstreamItemSchema().FK("account_id")).
 		As("Items")
+	// EmbedInChild: enrich each native base-child line (AccountLines) with its
+	// upstream item (1:1, keyed by the line's own item_id → upstream_items._id).
+	lineItem := query.FromSchema(UpstreamItemSchema()).
+		FK("item_id").
+		As("Item")
 	return query.SharedBaseView("qa_accounts_view").
 		Schema(accountBase()).
 		Role(AccountHolderSchema()).
 		Embed("featuredItem", featured).
 		EmbedMany("items", items).
+		EmbedInChild(AccountLineSchema(), "item", lineItem).
 		Version(1).
 		Indexes(
 			query.Index("account_ref"),
@@ -80,6 +101,9 @@ func AccountView() *query.ViewDefinition {
 			// ripple resolves the parent by the child's FK value → the parent _id
 			// (always indexed), never a reverse scan of this view.
 			query.Index("featured_item_id"),
+			// Covering multikey index for the EmbedInChild ripple's reverse scan
+			// ("<childSegment>.<fk>" = AccountLines.item_id) — mandatory at boot.
+			query.Index("AccountLines.item_id"),
 		)
 }
 
@@ -155,5 +179,30 @@ func ProvisionAccountTables(ctx context.Context, eng fwdb.RelationalEngine) erro
 		)`
 	}
 
-	return qaExecDDL(ctx, eng, base, role)
+	var lines string
+	if postgres {
+		lines = `CREATE TABLE IF NOT EXISTS qa_account_lines (
+			id          UUID         PRIMARY KEY,
+			account_id  UUID         NOT NULL REFERENCES qa_accounts(id) ON DELETE CASCADE,
+			item_id     VARCHAR(36),
+			note        VARCHAR(255) NOT NULL,
+			deleted_at  TIMESTAMP,
+			created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMP    NOT NULL DEFAULT NOW()
+		)`
+	} else {
+		lines = `CREATE TABLE IF NOT EXISTS qa_account_lines (
+			id          BINARY(16)   NOT NULL,
+			account_id  BINARY(16)   NOT NULL,
+			item_id     VARCHAR(36)  NULL,
+			note        VARCHAR(255) NOT NULL,
+			deleted_at  DATETIME     NULL,
+			created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			CONSTRAINT fk_qa_account_lines_account FOREIGN KEY (account_id) REFERENCES qa_accounts (id) ON DELETE CASCADE
+		)`
+	}
+
+	return qaExecDDL(ctx, eng, base, role, lines)
 }

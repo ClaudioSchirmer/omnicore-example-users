@@ -43,7 +43,13 @@ type GadgetFeature struct {
 	// external leg must resolve to a locally materialized collection (R14), so
 	// contributing it under the prd configs would abort boot — the same gating
 	// embeddedView uses.
-	fullView  *query.ComposedViewDefinition
+	fullView *query.ComposedViewDefinition
+	// kitView is the EmbedInChild-over-upstream_gadgets showcase (qa_gadget_kits_view):
+	// a native child array whose lines are enriched 1:1 from the upstream_gadgets
+	// projection. Gated identically to embeddedView — its enrichment source is that
+	// same projection, so it needs the upstream_gadgets subscription to boot.
+	kitView   *query.ViewDefinition
+	kitRepo   *infraqa.GadgetKitRepository
 	journal   infraqa.GadgetJournalAdapter
 	publisher infraqa.GadgetEventPublisherAdapter
 	sink      *infraqa.GadgetEventSinkAdapter
@@ -64,6 +70,9 @@ func NewGadgetFeature(d bootstrap.Deps) *GadgetFeature {
 	if err := infraqa.ProvisionGadgetNoteTable(context.Background(), d.DB); err != nil {
 		panic("GadgetFeature: provisioning gadget_notes failed: " + err.Error())
 	}
+	if err := infraqa.ProvisionGadgetKitTables(context.Background(), d.DB); err != nil {
+		panic("GadgetFeature: provisioning gadget_kits failed: " + err.Error())
+	}
 	f := &GadgetFeature{
 		repo:       infraqa.NewGadgetRepository(d.DB),
 		view:       infraqa.GadgetView(),
@@ -83,6 +92,8 @@ func NewGadgetFeature(d bootstrap.Deps) *GadgetFeature {
 	if declaresUpstreamCollection(d, "upstream_gadgets") {
 		f.embeddedView = infraqa.GadgetEmbeddedView()
 		f.fullView = infraqa.GadgetFullView()
+		f.kitView = infraqa.GadgetKitView()
+		f.kitRepo = infraqa.NewGadgetKitRepository(d.DB)
 	}
 	return f
 }
@@ -115,6 +126,9 @@ func (f *GadgetFeature) Views() []*query.ViewDefinition {
 	if f.embeddedView != nil {
 		views = append(views, f.embeddedView)
 	}
+	if f.kitView != nil {
+		views = append(views, f.kitView)
+	}
 	return views
 }
 
@@ -143,6 +157,10 @@ func (f *GadgetFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	// embedded view exists (i.e. the upstream_gadgets subscription is declared).
 	if f.embeddedView != nil {
 		webqa.MountGadgetEmbedded(app, f.embeddedView.Name(), d)
+	}
+	// EmbedInChild showcase (/qa/gadget-kits/*) — gated with the kit view.
+	if f.kitView != nil {
+		webqa.MountGadgetKits(app, f.kitRepo, f.kitView.Name(), f.kitView, d)
 	}
 	// GadgetNote surface (create/archive + the leg view's own list) — always.
 	webqa.MountGadgetNotes(app, f.noteRepo, f.notesView.Name(), d)

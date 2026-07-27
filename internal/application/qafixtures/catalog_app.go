@@ -19,10 +19,23 @@ type InsertCatalogCommand struct {
 	pipeline.CommandWithBodyBase
 	Name           string
 	FeaturedItemID *string
+	Lines          []CatalogLineInput
+}
+
+// CatalogLineInput is the application-layer shape of one native child line:
+// ItemID is the FK the view enriches via EmbedInChild; Note is the line's own
+// field.
+type CatalogLineInput struct {
+	ItemID *string
+	Note   string
 }
 
 func (c *InsertCatalogCommand) ToEntity(_ *configuration.AppContext) (*qadomain.Catalog, error) {
-	return &qadomain.Catalog{Name: c.Name, FeaturedItemID: c.FeaturedItemID}, nil
+	cat := &qadomain.Catalog{Name: c.Name, FeaturedItemID: c.FeaturedItemID}
+	for _, l := range c.Lines {
+		cat.AddLine(qadomain.CatalogLine{ItemID: l.ItemID, Note: l.Note})
+	}
+	return cat, nil
 }
 
 func (c *InsertCatalogCommand) FromEntity(_ *configuration.AppContext, cat *qadomain.Catalog) (CatalogResult, error) {
