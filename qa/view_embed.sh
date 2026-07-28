@@ -455,7 +455,7 @@ title "9.1 archive the SOURCE — ONE archived rule, every segment"
 # the same contract a native child collection and a ComposedView leg follow. A
 # materialized segment is not an exception.
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-brands/$BRAND/archive"
-sleep 4
+for _ in $(seq 1 60); do [ -z "$(jpath "$P1_URL" "brand.name")" ] && break; sleep 0.5; done
 [ -z "$(jpath "$P1_URL" "brand.name")" ] && ok "archived 1:1 source hidden on a default read" || bad "archived source still visible: $(jpath "$P1_URL" "brand.name")"
 [ "$(jpath "$P1_URL?includeArchived=true" "brand.name")" = "Zeiss RENAMED" ] && ok "?includeArchived=true brings the segment back" || bad "includeArchived did not surface the archived segment"
 [ "$(jcount "$BASE/qa/lens-brands?name=Zeiss%20RENAMED")" = "0" ] && ok "…and its OWN view hides it too (same rule, same knob)" || bad "archived brand still listed on its own view"
@@ -473,7 +473,7 @@ title "9.1c a source WITHOUT a declared soft-delete is never filtered"
 
 title "9.2 unarchive converges"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-brands/$BRAND/unarchive"
-sleep 4
+for _ in $(seq 1 60); do [ "$(jcount "$BASE/qa/lens-brands?name=Zeiss%20RENAMED")" = "1" ] && break; sleep 0.5; done
 [ "$(jcount "$BASE/qa/lens-brands?name=Zeiss%20RENAMED")" = "1" ] && ok "unarchived brand returns to its own view" || bad "unarchive did not converge"
 
 title "9.2b archive an ELEMENT of a 1:N segment — it leaves the array"
@@ -494,11 +494,14 @@ for _ in $(seq 1 60); do [ "$(seq_of "$ORD_URL")" = "alpha,beta-and-a-half,gamma
 
 title "9.3 archive the EMBEDDING document — its own gate"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-parts/$P3/archive"
-sleep 3
+# Poll, never a fixed sleep: CDC latency is lane-dependent (the SQL Server lane
+# runs its capture noticeably slower than the others), and a bare sleep turns a
+# timing difference into a false RED. The assertion itself is unchanged.
+for _ in $(seq 1 60); do [ "$(jcount "$BASE/qa/lens-parts?label=spare")" = "0" ] && break; sleep 0.5; done
 [ "$(jcount "$BASE/qa/lens-parts?label=spare")" = "0" ] && ok "archived part hidden by default" || bad "archived part still listed"
 [ "$(jcount "$BASE/qa/lens-parts?label=spare&includeArchived=true")" = "1" ] && ok "?includeArchived surfaces it" || bad "includeArchived did not surface it"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-parts/$P3/unarchive"
-sleep 3
+for _ in $(seq 1 60); do [ "$(jcount "$BASE/qa/lens-parts?label=spare")" = "1" ] && break; sleep 0.5; done
 [ "$(jcount "$BASE/qa/lens-parts?label=spare")" = "1" ] && ok "unarchived part visible again" || bad "unarchive of the part failed"
 
 ##############################################################################
@@ -511,15 +514,19 @@ wait_elem "$KIT_URL" "left lens v2" "brand.name" "" && ok "hop 2 nulled (chained
 
 title "10.2 delete a PART ⇒ the element leaves the kit's array"
 curl -sS -o /dev/null -X DELETE "$BASE/qa/lens-parts/$P3"
-sleep 5
-LABELS=$(curl -sS "$KIT_URL" | python3 -c 'import sys,json
+# Poll the SAME expression the assertion reads — the whole label set, never one
+# position: the element to disappear is not necessarily the first, so polling an
+# index would exit immediately and assert against a not-yet-propagated array.
+kit_labels() { curl -sS "$KIT_URL" | python3 -c 'import sys,json
 d=json.load(sys.stdin).get("data") or {}
-print(",".join(sorted(str(p.get("label")) for p in (d.get("parts") or []))))')
+print(",".join(sorted(str(p.get("label")) for p in (d.get("parts") or []))))'; }
+for _ in $(seq 1 60); do case "$(kit_labels)" in *spare*) sleep 0.5;; *) break;; esac; done
+LABELS=$(kit_labels)
 case "$LABELS" in *spare*) bad "deleted part still in the kit's array";; *) ok "deleted part removed from the array";; esac
 
 title "10.3 delete the EMBEDDING kit"
 curl -sS -o /dev/null -X DELETE "$BASE/qa/lens-kits/$KIT2"
-sleep 3
+for _ in $(seq 1 60); do [ "$(code_of "$BASE/qa/lens-kits/$KIT2")" = "404" ] && break; sleep 0.5; done
 [ "$(code_of "$BASE/qa/lens-kits/$KIT2")" = "404" ] && ok "deleted kit 404s" || bad "deleted kit still readable"
 
 ##############################################################################
