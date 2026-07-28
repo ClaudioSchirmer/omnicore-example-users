@@ -449,16 +449,48 @@ fi
 ##############################################################################
 sec "9. Archive / unarchive"
 ##############################################################################
-title "9.1 archive the SOURCE — the segment mirrors the stored state (keep policy)"
+title "9.1 archive the SOURCE — ONE archived rule, every segment"
+# The rule: a default read hides an archived entry in EVERY segment whose source
+# schema declares SoftDelete, and ?includeArchived=true brings them all back —
+# the same contract a native child collection and a ComposedView leg follow. A
+# materialized segment is not an exception.
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-brands/$BRAND/archive"
 sleep 4
-[ "$(jpath "$P1_URL" "brand.name")" = "Zeiss RENAMED" ] && ok "archived source STAYS in the segment (materialized-embed contract)" || bad "archived source vanished from the segment"
-[ "$(jcount "$BASE/qa/lens-brands?name=Zeiss%20RENAMED")" = "0" ] && ok "…while its OWN view hides it on a default read" || bad "archived brand still listed on its own view"
+[ -z "$(jpath "$P1_URL" "brand.name")" ] && ok "archived 1:1 source hidden on a default read" || bad "archived source still visible: $(jpath "$P1_URL" "brand.name")"
+[ "$(jpath "$P1_URL?includeArchived=true" "brand.name")" = "Zeiss RENAMED" ] && ok "?includeArchived=true brings the segment back" || bad "includeArchived did not surface the archived segment"
+[ "$(jcount "$BASE/qa/lens-brands?name=Zeiss%20RENAMED")" = "0" ] && ok "…and its OWN view hides it too (same rule, same knob)" || bad "archived brand still listed on its own view"
+
+title "9.1b the archived source is hidden TWO HOPS out as well"
+[ -z "$(jelem "$KIT_URL" "left lens v2" "brand.name")" ] && ok "hop 2: nested segment hidden by default" || bad "hop 2 still shows the archived source"
+[ "$(jelem "$KIT_URL?includeArchived=true" "left lens v2" "brand.name")" = "Zeiss RENAMED" ] && ok "hop 2: ?includeArchived brings it back" || bad "hop 2 includeArchived failed"
+
+title "9.1c a source WITHOUT a declared soft-delete is never filtered"
+# The gadgets view declares SoftDelete, but the upstream_items mirror the other
+# fixtures embed does NOT — and that asymmetry is the rule itself: no declaration,
+# no filtering. Asserted here on the segment that DOES declare one, by proving the
+# ACTIVE sibling survives untouched beside the archived one.
+[ -n "$(jpath "$P1_URL" "gadget.code")" ] && ok "an ACTIVE source stays visible while its archived neighbour is hidden" || bad "an active segment was filtered out"
 
 title "9.2 unarchive converges"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-brands/$BRAND/unarchive"
 sleep 4
 [ "$(jcount "$BASE/qa/lens-brands?name=Zeiss%20RENAMED")" = "1" ] && ok "unarchived brand returns to its own view" || bad "unarchive did not converge"
+
+title "9.2b archive an ELEMENT of a 1:N segment — it leaves the array"
+ARCH_PART=$(curl -sS "$BASE/qa/lens-parts?kitId=$ORD_KIT&label=gamma" | python3 -c 'import sys,json
+d=json.load(sys.stdin).get("data") or []
+print(d[0].get("id") if d else "")')
+[ -n "$ARCH_PART" ] && curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-parts/$ARCH_PART/archive"
+for _ in $(seq 1 60); do [ "$(seq_of "$ORD_URL")" = "alpha,beta-and-a-half" ] && break; sleep 0.5; done
+GOT=$(seq_of "$ORD_URL")
+[ "$GOT" = "alpha,beta-and-a-half" ] && ok "archived element left the 1:N array ($GOT)" || bad "archived element still in the array: $GOT"
+GOT_ALL=$(curl -sS "$ORD_URL?includeArchived=true" | python3 -c 'import sys,json
+d=json.load(sys.stdin).get("data") or {}
+print(",".join(str(p.get("label")) for p in (d.get("parts") or [])))')
+[ "$GOT_ALL" = "alpha,beta-and-a-half,gamma" ] && ok "?includeArchived=true restores it, IN ORDER ($GOT_ALL)" || bad "includeArchived on the 1:N segment: $GOT_ALL"
+curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-parts/$ARCH_PART/unarchive"
+for _ in $(seq 1 60); do [ "$(seq_of "$ORD_URL")" = "alpha,beta-and-a-half,gamma" ] && break; sleep 0.5; done
+[ "$(seq_of "$ORD_URL")" = "alpha,beta-and-a-half,gamma" ] && ok "unarchiving puts it back in its slot" || bad "unarchive did not restore the element"
 
 title "9.3 archive the EMBEDDING document — its own gate"
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-parts/$P3/archive"
