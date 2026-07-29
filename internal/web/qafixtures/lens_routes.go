@@ -121,7 +121,7 @@ func MountLensParts(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPost, "/",
 		insertH, insertSpec,
 		fwopenapi.Doc{
-			Summary:     "Create a lens part (FK to a gadget, FK to a kit)",
+			Summary:     "Create a lens part (ParentID to a gadget, ParentID to a kit)",
 			Description: "Both foreign keys are plain columns — the write side declares no containment. `gadgetId` is the join the part's own view embeds 1:1 from the LOCAL `gadgets` view; `kitId` is the join the kits view embeds 1:N on.",
 			Tags:        tags,
 		},
@@ -237,7 +237,7 @@ func MountLensKits(
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Create a lens kit",
-			Description: "The kit owns nothing on the write side; its parts reference it by a plain FK, and the read model materializes them as a 1:N segment.",
+			Description: "The kit owns nothing on the write side; its parts reference it by a plain ParentID, and the read model materializes them as a 1:N segment.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
@@ -324,7 +324,7 @@ func MountLensKits(
 		deleteH, deleteSpec,
 		fwopenapi.Doc{
 			Summary:     "Hard-delete a lens kit",
-			Description: "Removes the kit document; the parts survive as their own aggregates (no write-side containment), orphaned by FK.",
+			Description: "Removes the kit document; the parts survive as their own aggregates (no write-side containment), orphaned by ParentID.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("gadgets:write"))

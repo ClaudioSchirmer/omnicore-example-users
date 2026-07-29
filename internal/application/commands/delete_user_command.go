@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// DeleteUserCommand triggers a hard delete (cascade addresses via FK
+// DeleteUserCommand triggers a hard delete (cascade addresses via ParentID
 // ON DELETE CASCADE). ID comes from the URL path.
 type DeleteUserCommand struct{ pipeline.CommandByIDBase }
 

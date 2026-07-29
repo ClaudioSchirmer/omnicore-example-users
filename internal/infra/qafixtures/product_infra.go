@@ -12,13 +12,13 @@ import (
 	qadomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/qafixtures"
 )
 
-// ProductSchema is the FLAT Go↔column map for the qa_products table: PK + four
+// ProductSchema is the FLAT Go↔column map for the qa_products table: ID + four
 // business columns + the managed columns. price_cents is BIGINT (the money
 // shape — exact int64 minor units), weight is a fractional column for the
 // float64 specs.
 func ProductSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Product]("qa_products").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Code", "code").
 		Field("Category", "category").

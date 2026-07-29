@@ -7,10 +7,10 @@ import (
 )
 
 // Dependent is a role-owned AggregateValueObject of Employee (table
-// employee_dependents, FK employee_id — declared in infra/schema.go).
+// employee_dependents, ParentID employee_id — declared in infra/schema.go).
 // It is the child that carries a SIBLING (the A2b path): the health-plan
 // fields below live in the dependent_health_plans table, 1:1 on the child's
-// own PK, materialized only when at least one of them is non-nil.
+// own ID, materialized only when at least one of them is non-nil.
 //
 // Value type (not pointer) so reflect.DeepEqual inside the framework's typed
 // primitives compares by field equality — same convention as Address.

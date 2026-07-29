@@ -14,7 +14,7 @@ import (
 
 // Commands + queries for the materialized view-on-view family. The full write
 // vocabulary is here on BOTH roots because the suite drives each verb against
-// each hop of the chain: insert, update (including the FK moves — repointing a
+// each hop of the chain: insert, update (including the ParentID moves — repointing a
 // part at another gadget, or moving it to another kit), archive, unarchive and
 // hard delete.
 
@@ -119,7 +119,9 @@ func (c *UpdateLensKitCommand) FromEntity(_ *configuration.AppContext, k *qadoma
 
 type ArchiveLensKitCommand struct{ pipeline.CommandByIDBase }
 
-func (*ArchiveLensKitCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.LensKit) error { return nil }
+func (*ArchiveLensKitCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.LensKit) error {
+	return nil
+}
 func (*ArchiveLensKitCommand) FromEntity(_ *configuration.AppContext, _ *qadomain.LensKit) (fwresults.None, error) {
 	return fwresults.None{}, nil
 }
@@ -135,7 +137,9 @@ func (*UnarchiveLensKitCommand) FromEntity(_ *configuration.AppContext, _ *qadom
 
 type DeleteLensKitCommand struct{ pipeline.CommandByIDBase }
 
-func (*DeleteLensKitCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.LensKit) error { return nil }
+func (*DeleteLensKitCommand) ApplyTo(_ *configuration.AppContext, _ *qadomain.LensKit) error {
+	return nil
+}
 func (*DeleteLensKitCommand) FromEntity(_ *configuration.AppContext, _ *qadomain.LensKit) (fwresults.None, error) {
 	return fwresults.None{}, nil
 }

@@ -23,7 +23,7 @@ type InsertCatalogCommand struct {
 }
 
 // CatalogLineInput is the application-layer shape of one native child line:
-// ItemID is the FK the view enriches via EmbedInChild; Note is the line's own
+// ItemID is the ParentID the view enriches via EmbedInChild; Note is the line's own
 // field.
 type CatalogLineInput struct {
 	ItemID *string

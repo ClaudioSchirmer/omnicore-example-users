@@ -9,7 +9,7 @@ import (
 // EmployeeSchema is the SECOND role over the SAME Person base — the
 // layer-6 exercise: it reuses PersonBase() as-is, so a User and a Employee
 // created with the same document resolve to ONE persons row (refcount 2), and
-// hard-deleting one role keeps the base alive for the other. Also the shared-PK
+// hard-deleting one role keeps the base alive for the other. Also the shared-ID
 // model (employees.id == persons.id).
 //
 // Unlike UserSchema it declares role-owned CHILDREN of its own —
@@ -18,7 +18,7 @@ import (
 // Addresses keep coming from the base's Child(AddressSchema()).
 func EmployeeSchema() *core.TableSchema {
 	return core.NewTableSchema[*appdomain.Employee]("employees").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("EmployeeNumber", "employee_number").

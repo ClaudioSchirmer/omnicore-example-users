@@ -16,7 +16,7 @@ import (
 // InsertAccountHolderCommand creates the shared-identity + its holder role. It
 // is the SharedBase upsert contract (ApplyTo, not ToEntity): the framework
 // loads the existing identity by natural key (AccountRef) first, then applies
-// this on top. FeaturedItemID is the 1:1 embed FK — set it to an existing
+// this on top. FeaturedItemID is the 1:1 embed ParentID — set it to an existing
 // upstream_items _id to wire the "featuredItem" segment at insert time.
 type InsertAccountHolderCommand struct {
 	pipeline.CommandWithBodyBase
@@ -28,7 +28,7 @@ type InsertAccountHolderCommand struct {
 }
 
 // AccountLineInput is the application-layer shape of one base-child line: ItemID
-// is the FK the view enriches via EmbedInChild; Note is the line's own field.
+// is the ParentID the view enriches via EmbedInChild; Note is the line's own field.
 type AccountLineInput struct {
 	ItemID *string
 	Note   string

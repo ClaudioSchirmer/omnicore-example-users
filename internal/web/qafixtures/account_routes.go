@@ -129,7 +129,7 @@ type InsertAccountRequest struct {
 	Lines          []AccountLineRequest `json:"lines,omitempty"`
 }
 
-// AccountLineRequest is one base-child line in the POST body. `itemId` is the FK
+// AccountLineRequest is one base-child line in the POST body. `itemId` is the ParentID
 // the qa_accounts_view enriches via EmbedInChild; `note` is the line's own field.
 type AccountLineRequest struct {
 	ItemID *string `json:"itemId,omitempty"`
@@ -254,6 +254,9 @@ type ItemSegmentOutput struct {
 // mechanism a role-segment filter uses. On a materialized view this selects
 // ROWS (docs whose nested segment matches), not shapes the segment.
 type ItemSegmentFilter struct {
+	// ID is allowlisted so a mirror-embed segment can be row-selected by the item's
+	// own id — the external-mirror identity the read side promotes from `_id`.
+	ID    *string `query:"id" filter:"eq"`
 	Label *string `query:"label" filter:"eq,contains"`
 }
 

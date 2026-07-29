@@ -16,7 +16,7 @@ import (
 // mounts the /employees/* routes — the second role over the shared Person
 // identity, structurally identical to UsersFeature. Like User, Employee
 // needs no domain service (identity uniqueness comes from the SharedBase
-// deterministic id + the role's shared PK), so the handlers receive nil.
+// deterministic id + the role's shared ID), so the handlers receive nil.
 type EmployeesFeature struct {
 	repo *appinfra.EmployeeRepository
 	view *query.ViewDefinition

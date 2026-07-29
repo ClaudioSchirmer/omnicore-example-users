@@ -53,7 +53,7 @@ func MountPersons(
 		byIDH, byIDSpec,
 		fwopenapi.Doc{
 			Summary:     "Get a person by id (all-in-one identity)",
-			Description: "Fetches the composed person document by the shared identity's deterministic id (`UUIDv5(document)`) — the same id the shared-PK roles carry, so a user id resolves its person directly. Returns the root identity + addresses[] + each role sub-object present for that person. Only `?includeArchived=true` is recognized. 404 when the identity is absent or every role is archived and `includeArchived` was not requested.",
+			Description: "Fetches the composed person document by the shared identity's deterministic id (`UUIDv5(document)`) — the same id the shared-ID roles carry, so a user id resolves its person directly. Returns the root identity + addresses[] + each role sub-object present for that person. Only `?includeArchived=true` is recognized. 404 when the identity is absent or every role is archived and `includeArchived` was not requested.",
 			Tags:        []string{"Persons"},
 		},
 		fwopenapi.RequirePermission("persons:read"))

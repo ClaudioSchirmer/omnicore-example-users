@@ -45,7 +45,7 @@ func TestInsertUserCommand_FromEntity_NilPhone(t *testing.T) {
 
 // The insert Result is the FULL aggregate mirror: every current address rides
 // along, id included. AssignAggregateItemID stands in for the persister's
-// write-back (post-write, the minted child PK is stamped back into the
+// write-back (post-write, the minted child ID is stamped back into the
 // aggregate map — that is what FromEntity reads).
 func TestInsertUserCommand_FromEntity_MirrorsAddressesWithIDs(t *testing.T) {
 	addr := appdomain.Address{

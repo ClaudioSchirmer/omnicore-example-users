@@ -13,12 +13,12 @@ import (
 )
 
 // ItemSchema is the FLAT Go↔column map for the qa_items table. account_id is a
-// nullable plain FK to the account base id; there is no aggregate child, no
+// nullable plain ParentID to the account base id; there is no aggregate child, no
 // shared base — the Item is a write-side stranger whose ONLY read-side presence
 // is the `upstream_items` projection the shared-base view embeds.
 func ItemSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Item]("qa_items").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("AccountID", "account_id").
 		Field("CatalogID", "catalog_id").
@@ -31,16 +31,16 @@ func ItemSchema() *fwdb.TableSchema {
 // UpstreamItemSchema is the type-less EXTERNAL schema describing the
 // `upstream_items` Mongo collection — the local projection the service
 // materializes from its OWN qa_items CDC topic (upstreamSubscriptions in
-// microservice.qa.yaml, filter [id, account_id, label]). PK("id") is the
+// microservice.qa.yaml, filter [id, account_id, label]). ID("id") is the
 // document key (the UpstreamSubscriber upserts each doc under _id = the item's
 // aggregate id). It is the embed source of BOTH the 1:1 Embed ("featuredItem",
 // joined on the account's featured_item_id → this _id) and the 1:N EmbedMany
 // ("items", joined on this account_id → the account _id) declared on
 // AccountView — so a fresh instance is handed to each embed (the EmbedMany
-// variant additionally declares .FK("account_id") on its own copy).
+// variant additionally declares .ParentID("account_id") on its own copy).
 func UpstreamItemSchema() *fwdb.TableSchema {
 	return fwdb.NewExternalSchema("upstream_items").
-		PK("id").
+		ID("id").
 		Field("Label", "label").
 		Field("AccountID", "account_id").
 		Field("CatalogID", "catalog_id")

@@ -100,7 +100,7 @@ func toAddressResult(a appdomain.Address) AddressResult {
 }
 
 // currentAddressResults projects the aggregate's current (non-removed)
-// addresses — ids included: the persister writes each minted child PK back
+// addresses — ids included: the persister writes each minted child ID back
 // into the aggregate map, so a post-write projection carries them populated.
 // Used by the insert/update FromEntity mirrors (the entity has the final
 // word: the response reflects the post-write aggregate, never the input).

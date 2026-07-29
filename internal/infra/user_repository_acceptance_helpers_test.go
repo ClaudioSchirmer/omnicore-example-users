@@ -104,7 +104,7 @@ func moduleRoot(t *testing.T) string {
 // resetState empties the domain tables via neutral SQL so each test starts from
 // a known-empty state. It clears the WHOLE person identity graph — every role
 // (users, employees) and their children/siblings, the shared base (persons) and
-// its base-child (addresses) — in FK-child-before-parent order. The shared base
+// its base-child (addresses) — in ParentID-child-before-parent order. The shared base
 // (persons) MUST be cleared too: a role write goes through LoadForSharedBaseInsert,
 // so a leftover person from a prior run (this suite's own inserts, or another
 // suite sharing the DB) makes the very first insert see a stale identity. The
@@ -115,7 +115,7 @@ func resetState(t *testing.T, eng core.RelationalEngine) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	q := eng.Querier()
-	// FK order: children/siblings → roles → base → outbox.
+	// ParentID order: children/siblings → roles → base → outbox.
 	for _, table := range []string{
 		"dependent_health_plans",
 		"employee_dependents",

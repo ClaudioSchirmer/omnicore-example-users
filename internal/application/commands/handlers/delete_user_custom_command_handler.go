@@ -16,7 +16,7 @@ import (
 // for ctx → authz translation the framework's DeleteCommandHandler exposes
 // on the canonical surface.
 //
-// FK ON DELETE CASCADE on addresses handles the child rows; the framework's
+// ParentID ON DELETE CASCADE on addresses handles the child rows; the framework's
 // relational engine Delete runs the DELETE + outbox INSERT in the same TX.
 type DeleteUserCustomCommandHandler struct {
 	Repo    ScopedUserRepository

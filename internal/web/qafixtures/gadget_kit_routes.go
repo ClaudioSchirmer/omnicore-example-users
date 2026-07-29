@@ -90,7 +90,7 @@ type InsertGadgetKitRequest struct {
 	Lines []GadgetKitLineRequest `json:"lines,omitempty"`
 }
 
-// GadgetKitLineRequest is one native child line: `gadgetId` (the enriched FK) + `note`.
+// GadgetKitLineRequest is one native child line: `gadgetId` (the enriched ParentID) + `note`.
 type GadgetKitLineRequest struct {
 	GadgetID *string `json:"gadgetId,omitempty"`
 	Note     string  `json:"note"`

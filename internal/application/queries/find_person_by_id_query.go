@@ -7,7 +7,7 @@ import (
 
 // FindPersonByIDQuery is the application-side transport for a by-id read of
 // the all-in-one person view. The id is the shared identity's deterministic
-// key (UUIDv5(document)) — the same value the shared-PK roles carry as their
+// key (UUIDv5(document)) — the same value the shared-ID roles carry as their
 // own id, so a user id or a same-person employee id both resolve the person
 // document. ContextName returns "Person" so the 404 NotificationContext names
 // the identity, not the collection.

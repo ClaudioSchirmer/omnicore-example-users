@@ -7,7 +7,7 @@ import (
 )
 
 // JobHistory is the SECOND role-owned AggregateValueObject of Employee
-// (table employee_job_histories, FK employee_id) — it exists so the
+// (table employee_job_histories, ParentID employee_id) — it exists so the
 // role carries MORE THAN ONE child collection of its own, exercising the
 // multi-child dispatch. Plain child, no sibling.
 //

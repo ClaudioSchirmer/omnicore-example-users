@@ -61,7 +61,7 @@ func TestGadgetEmbeddedView_CoversJoinFieldIndex(t *testing.T) {
 }
 
 // TestGadgetEmbeddedView_SchemasValidate runs the same completeness check the
-// framework runs at boot: root schema + every embed declares a TableSchema, PK,
+// framework runs at boot: root schema + every embed declares a TableSchema, ID,
 // join key, and (for external embeds) a Go segment via .As.
 func TestGadgetEmbeddedView_SchemasValidate(t *testing.T) {
 	if err := query.ValidateViewSchemas([]*query.ViewDefinition{GadgetEmbeddedView()}); err != nil {
@@ -78,6 +78,6 @@ func TestGadgetUpstreamMirrorSchema_External(t *testing.T) {
 		t.Errorf("Table = %q, want %q", s.Table(), "upstream_gadgets")
 	}
 	if !s.HasPKDeclared() {
-		t.Error("HasPKDeclared = false, want true (PK(\"id\"))")
+		t.Error("HasPKDeclared = false, want true (ID(\"id\"))")
 	}
 }

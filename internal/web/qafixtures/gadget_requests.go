@@ -169,7 +169,7 @@ type FindGadgetEmbeddedByIDResponse struct {
 // mirror. Only [id, code, name] survive the subscription filter — category and
 // status are intentionally absent, which is the visible proof that the upstream
 // projection is filtered. Field names match the external schema's Go names (ID
-// from PK, Code/Name from the declared fields).
+// from ID, Code/Name from the declared fields).
 type GadgetUpstreamMirrorOutput struct {
 	ID   string `json:"id"   example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Code string `json:"code" example:"WIDGET-001"`

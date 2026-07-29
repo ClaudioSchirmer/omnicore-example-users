@@ -11,7 +11,7 @@ import (
 	qadomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/qafixtures"
 )
 
-// GadgetKitLineInput is one native child line: GadgetID is the FK the view
+// GadgetKitLineInput is one native child line: GadgetID is the ParentID the view
 // enriches via EmbedInChild (→ upstream_gadgets._id); Note is the line's own.
 type GadgetKitLineInput struct {
 	GadgetID *string

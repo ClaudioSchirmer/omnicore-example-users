@@ -162,8 +162,8 @@ func MountUsersCustom(
 							"has an ACTIVE user. The SharedBase write path detects the existing role " +
 							"and raises `EntityAlreadyAddedNotification` (semantic `Conflict`), mapping " +
 							"to HTTP 409. (A concurrency race that slips past the probe loses on " +
-							"the PRIMARY KEY (shared-PK) and surfaces the identical envelope.) If the existing " +
-							"user is archived, the remnant vetoes the insert on the shared PK — " +
+							"the PRIMARY KEY (shared-ID) and surfaces the identical envelope.) If the existing " +
+							"user is archived, the remnant vetoes the insert on the shared ID — " +
 							"409; /unarchive is the explicit way back.",
 						Value: map[string]any{
 							"success":     false,
@@ -243,7 +243,7 @@ func MountUsersCustom(
 		fwopenapi.RouteSpecOf[requests.UserCustomKeyRequest, fwresponses.None](fiber.StatusNoContent),
 		fwopenapi.Doc{
 			Summary:     "Hard-delete a user by document (manual showcase)",
-			Description: "Manual variant of DELETE /users/:id keyed by document. Hard delete — irreversible; reference-counts the shared Person and, when no user remains, hard-deletes the person and its addresses (explicitly in Go; the FK `ON DELETE CASCADE` is only a safety net). Use `/archive` for reversible removal.",
+			Description: "Manual variant of DELETE /users/:id keyed by document. Hard delete — irreversible; reference-counts the shared Person and, when no user remains, hard-deletes the person and its addresses (explicitly in Go; the ParentID `ON DELETE CASCADE` is only a safety net). Use `/archive` for reversible removal.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("users:delete"))

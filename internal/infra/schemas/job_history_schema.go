@@ -10,8 +10,8 @@ import (
 // present so the role dispatches more than one child collection of its own.
 func JobHistorySchema() *core.TableSchema {
 	return core.NewTableSchema[appdomain.JobHistory]("employee_job_histories").
-		PK("id").
-		FK("employee_id").
+		ID("id").
+		ParentID("employee_id").
 		Field("JobTitle", "job_title").
 		Field("Department", "department").
 		Field("HiredAt", "hired_at").

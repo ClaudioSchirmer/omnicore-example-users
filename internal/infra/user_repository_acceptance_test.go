@@ -182,7 +182,7 @@ func TestUserRepository_ArchiveAndUnarchiveCascade(t *testing.T) {
 
 // Re-POSTing an ARCHIVED user's document does NOT revive it: the SharedBase
 // insert probe is active-only, so the archived role is invisible and the
-// shared-PK constraint arbitrates the remnant → a 409 typed conflict. Revival is
+// shared-ID constraint arbitrates the remnant → a 409 typed conflict. Revival is
 // EXCLUSIVELY via /unarchive (framework 775a3c6). After the unarchive the user is
 // active again carrying its ORIGINAL fields — the rejected re-POST never applied.
 func TestUserRepository_RePostArchivedDocumentConflictsUnarchiveRevives(t *testing.T) {

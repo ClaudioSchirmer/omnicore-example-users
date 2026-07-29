@@ -15,10 +15,10 @@ import (
 
 // CatalogSchema is the FLAT Go↔column map for the qa_catalogs table (a normal
 // aggregate root — no shared base). featured_item_id is the nullable 1:1 embed
-// FK into upstream_items.
+// ParentID into upstream_items.
 func CatalogSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Catalog]("qa_catalogs").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Name", "name").
 		Field("FeaturedItemID", "featured_item_id").
@@ -29,12 +29,12 @@ func CatalogSchema() *fwdb.TableSchema {
 }
 
 // CatalogLineSchema is the native aggregate child of Catalog (qa_catalog_lines):
-// value-typed AVO, FK catalog_id back to the root, item_id the FK the
+// value-typed AVO, ParentID catalog_id back to the root, item_id the ParentID the
 // qa_catalog_view enriches via EmbedInChild (→ upstream_items._id).
 func CatalogLineSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[qadomain.CatalogLine]("qa_catalog_lines").
-		PK("id").
-		FK("catalog_id").
+		ID("id").
+		ParentID("catalog_id").
 		Field("ItemID", "item_id").
 		Field("Note", "note").
 		SoftDelete("deleted_at").
@@ -45,9 +45,9 @@ func CatalogLineSchema() *fwdb.TableSchema {
 // CatalogView is the NORMAL-view proof (query.View, not SharedBaseView) that the
 // SAME external Embed + EmbedMany compose on a regular aggregate root:
 //
-//   - Embed "featuredItem" (1:1): the catalog holds the FK (featured_item_id →
+//   - Embed "featuredItem" (1:1): the catalog holds the ParentID (featured_item_id →
 //     upstream_items._id).
-//   - EmbedMany "items" (1:N): the leg holds the FK (upstream_items.catalog_id →
+//   - EmbedMany "items" (1:N): the leg holds the ParentID (upstream_items.catalog_id →
 //     the catalog _id).
 //
 // It embeds the exact same `upstream_items` projection the shared-base
@@ -80,7 +80,7 @@ func CatalogView() *query.ViewDefinition {
 		EmbedMany(items).On("catalog_id").
 		EmbedInChild(CatalogLineSchema(), lineItem).On("item_id").
 		Indexes(
-			// §8.1 covering index on the 1:1 Embed's parent FK column; the 1:N
+			// §8.1 covering index on the 1:1 Embed's parent ParentID column; the 1:N
 			// EmbedMany resolves by the child's catalog_id → catalog _id.
 			query.Index("featured_item_id"),
 			// Covering multikey index for the EmbedInChild ripple's reverse scan

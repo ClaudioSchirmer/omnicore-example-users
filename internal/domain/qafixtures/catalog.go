@@ -12,7 +12,7 @@ import "github.com/ClaudioSchirmer/omnicore/domain"
 // AccountHolder shared-base view, this covers the full matrix: {normal,
 // shared-base} × {Embed 1:1, EmbedMany 1:N}.
 //
-// FeaturedItemID is the nullable 1:1 embed FK (→ an upstream_items _id). The 1:N
+// FeaturedItemID is the nullable 1:1 embed ParentID (→ an upstream_items _id). The 1:N
 // side needs no column here — items point back via their own catalog_id.
 type Catalog struct {
 	domain.AggregateRoot
@@ -37,14 +37,14 @@ func (c *Catalog) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 }
 
 // CatalogLine is a NATIVE aggregate child of Catalog (qa_catalog_lines) — the
-// proof target for EmbedInChild: each line carries ItemID (a FK into the
+// proof target for EmbedInChild: each line carries ItemID (a ParentID into the
 // upstream_items projection) plus its own field Note; the qa_catalog_view
 // enriches each line with the item (name/label) via EmbedInChild, keeping the
-// write model normalized (the line stores only the FK). Value type so the
+// write model normalized (the line stores only the ParentID). Value type so the
 // framework's aggregate primitives compare by field equality.
 type CatalogLine struct {
 	ID     domain.ID
-	ItemID *string // FK → upstream_items._id; the EmbedInChild join key (nullable)
+	ItemID *string // ParentID → upstream_items._id; the EmbedInChild join key (nullable)
 	Note   string
 }
 

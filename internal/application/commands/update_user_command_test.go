@@ -25,7 +25,7 @@ func TestUpdateUserCommand_FromEntity(t *testing.T) {
 
 // The PUT replaces the whole address collection — its Result mirrors the
 // post-write set, ids included (AssignAggregateItemID stands in for the
-// persister's write-back of the minted child PK).
+// persister's write-back of the minted child ID).
 func TestUpdateUserCommand_FromEntity_MirrorsAddressesWithIDs(t *testing.T) {
 	addr := appdomain.Address{
 		Street: "Elm", Number: "9", Neighborhood: "Center",
