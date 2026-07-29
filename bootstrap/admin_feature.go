@@ -41,41 +41,42 @@ type retryResponse struct {
 	Retried int `json:"retried"`
 }
 
+// sweepResponse acknowledges a forced ledger sweep. The sweep reports per-row
+// outcomes through the structured log and the ledger's own resolved_at — a
+// count here would double-book what the table already records.
+type sweepResponse struct {
+	Swept bool `json:"swept"`
+}
+
 // Mount registers the two admin retry routes. RequirePermission gates
 // each one independently; both share the same "admin:retry" string so
 // the operator manages a single claim across both surfaces.
 func (f *AdminFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	admin := app.Group("/admin/retries")
 
-	upstreamSpec := fwopenapi.RawSpec{
-		Summary:     "Retry pending upstream failures",
-		Description: "Walks every UpstreamSubscriber and re-runs the recompose ripple for each pending failure row in omnicore_upstream_failures. Successful re-ripples mark the rows resolved; persistent failures keep accumulating attempt counts.",
+	projectionSpec := fwopenapi.RawSpec{
+		Summary:     "Sweep the unified projection failure ledger now",
+		Description: "Forces one immediate pass of the parked-retry sweep over omnicore_projection_failures — BOTH kinds: parked events replay from their stored payload, failed embed-segment ripples recompose from current state. The same sweep runs automatically on the mongo.parkedRetry cadence; this route exists for an operator who does not want to wait for the next tick.",
 		Tags:        []string{"Admin"},
 		Responses: map[int]fwopenapi.ResponseSpec{
 			200: {
-				Description: "Retry attempted; `retried` is the total upstream_ids across every subscriber that the framework re-dispatched.",
-				Type:        reflect.TypeOf(retryResponse{}),
+				Description: "Sweep completed; `swept` confirms the pass ran (per-row outcomes are in the structured log / the ledger's resolved_at).",
+				Type:        reflect.TypeOf(sweepResponse{}),
 			},
 		},
 	}
-	fwopenapi.MountRaw(d.OpenAPIRegistry, admin, fiber.MethodPost, "/upstream",
+	fwopenapi.MountRaw(d.OpenAPIRegistry, admin, fiber.MethodPost, "/projection",
 		func(c fiber.Ctx) error {
 			ctx := c.RequestCtx()
-			total := 0
-			for _, sub := range d.UpstreamSubscribers {
-				if sub == nil {
-					continue
+			if d.SyncEngine != nil {
+				if err := d.SyncEngine.RetryPendingProjectionFailures(ctx); err != nil {
+					d.Logger.Warn("admin projection-ledger sweep failed", "err", err)
+					return c.Status(fiber.StatusInternalServerError).JSON(sweepResponse{Swept: false})
 				}
-				n, err := sub.RetryPendingFailures(ctx)
-				if err != nil {
-					d.Logger.Warn("admin retry upstream failed",
-						"err", err)
-				}
-				total += n
 			}
-			return c.Status(fiber.StatusOK).JSON(retryResponse{Retried: total})
+			return c.Status(fiber.StatusOK).JSON(sweepResponse{Swept: true})
 		},
-		upstreamSpec,
+		projectionSpec,
 		fwopenapi.RequirePermission("admin:retry"))
 
 	integrationSpec := fwopenapi.RawSpec{

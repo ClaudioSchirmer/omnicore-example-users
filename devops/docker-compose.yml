@@ -264,13 +264,94 @@ services:
       retries: 15
 
   # ── Shared read side — one Mongo, one DB per lane (users_views / _mysql) ────
+  # A THREE-NODE REPLICA SET, not a standalone. The framework requires MAJORITY
+  # acknowledgment on every read-side write, and on a standalone node majority
+  # silently degrades to the primary ack — so a standalone bench could neither
+  # exercise the write concern nor exhibit the failure it exists to prevent
+  # (a write acknowledged by the primary alone, then rolled back by a failover).
+  #
+  # Addressing: members advertise their DOCKER DNS names, so inter-member
+  # replication resolves inside the compose network. Host clients therefore
+  # cannot follow topology discovery — those names do not resolve on the host —
+  # and connect with `?directConnection=true` instead (see qa/_backend.sh). That
+  # is sufficient for everything the bench needs: the SERVER enforces the majority
+  # write concern across all three members regardless of how the client connected.
+  # `mongo` carries a high priority so it is deterministically the primary, which
+  # is what keeps the direct connection pointed at a writable node.
+  #
+  # The container_name stays `omnicore-qa-mongo`: the QA suites reach the primary
+  # through `docker exec omnicore-qa-mongo mongosh`, and inside the network
+  # mongosh resolves the member names normally.
   mongo:
     image: mongo:7
     container_name: omnicore-qa-mongo
+    # The WiredTiger cache is PINNED, and that is not tuning — it is what keeps
+    # the replica set from evicting the rest of the bench. Left alone, WiredTiger
+    # sizes its cache at ~50% of (VM RAM - 1GB) and it does so PER NODE, each one
+    # believing it owns the machine: three nodes on a 7.7GB VM reserve ~10GB
+    # between them, alongside postgres, mysql, kafka, nats, connect, keycloak and
+    # jaeger. The primary was OOM-killed (exit 137) mid-rebuild_scale before this
+    # pin existed. mem_limit then makes any breach deterministic (this container
+    # dies, not a random neighbour) — the same rationale the kafka, connect,
+    # keycloak and sqlserver services carry.
+    #
+    # Sized for the FOUR-lane run (QA_MAX_PARALLEL_LANES=4): Mongo is the only
+    # store every lane hits at once, so it is the one service the extra
+    # parallelism genuinely pressures. The other services keep the limits tuned
+    # for them, each with its own recorded reason.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    mem_limit: 1536m
     ports:
       - "27028:27017"
     volumes:
       - mongo_data:/data/db
+    # The healthcheck doubles as the one-shot replica-set initiator: it is
+    # idempotent (rs.status() succeeds once initiated) and retried, which absorbs
+    # the race where mongo2/mongo3 are not yet accepting connections. It reports
+    # healthy only when this node is a WRITABLE PRIMARY, so nothing starts against
+    # a set that has not elected yet.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --eval '
+          try { rs.status() } catch (e) {
+          rs.initiate({_id: "rs0", members: [
+          {_id: 0, host: "mongo:27017", priority: 10},
+          {_id: 1, host: "mongo2:27017"},
+          {_id: 2, host: "mongo3:27017"}]}) }
+          if (!db.hello().isWritablePrimary) { quit(1) }'
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+  mongo2:
+    image: mongo:7
+    container_name: omnicore-qa-mongo2
+    # Cache pinned + memory bounded for the reason spelled out on `mongo`.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    mem_limit: 1536m
+    ports:
+      - "27029:27017"
+    volumes:
+      - mongo2_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mongo3:
+    image: mongo:7
+    container_name: omnicore-qa-mongo3
+    # Cache pinned + memory bounded for the reason spelled out on `mongo`.
+    command: ["--replSet", "rs0", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.5"]
+    mem_limit: 1536m
+    ports:
+      - "27030:27017"
+    volumes:
+      - mongo3_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 5s
@@ -500,6 +581,8 @@ volumes:
   debezium_oracle_data:
   mysql_data:
   mongo_data:
+  mongo2_data:
+  mongo3_data:
   kafka_data:
   nats_data:
   debezium_data:

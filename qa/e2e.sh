@@ -719,13 +719,22 @@ qa_db_query "SELECT COUNT(*) AS leftover_addresses FROM addresses a JOIN persons
 sec "9. Read side (Mongo) — re-check view after PATCH/Archive/Unarchive"
 ####################################
 
-title "9.0 Polling Mongo via GET /users/$USER_C2 until 404 (CDC consolidating all UPDATEs/ARCHIVE/UNARCHIVE + the 8.1 delete)"
-# Gate on the newest event, not the oldest: USER_A has answered 200 since
-# section 4, so waiting on it gates nothing. USER_C2 was hard-deleted in 8.1 —
-# its doc flipping 200→404 proves the delete materialized, and (ordered,
-# single-partition stream) every update/archive/unarchive before it as well.
+title "9.0 Polling Mongo via GET /users/$USER_C2 until 404 (the 8.1 delete materialized)"
+# Projection order is guaranteed PER ENTITY, not across entities: the engine's
+# workers apply different aggregates' events independently, so USER_C2's delete
+# materializing says nothing about USER_A's archive/unarchive pair. Gate each
+# entity on its own doc: C2 flipping 200→404 proves the delete (for the 9.2
+# listing), and USER_A answering 200 proves its unarchive+PATCHes converged
+# (its transient state while archived is 404, waited out here — seen live on
+# the oracle lane, 2026-07-28).
 if wait_for_view "$USER_C2" "404" 30; then
   echo "view ready (delete materialized)"
+else
+  echo "TIMEOUT waiting for view (30s)"
+fi
+title "9.0b Polling Mongo via GET /users/$USER_A until 200 (its own archive→unarchive pair consolidated)"
+if wait_for_view "$USER_A" "200" 30; then
+  echo "view ready (USER_A active again)"
 else
   echo "TIMEOUT waiting for view (30s)"
 fi

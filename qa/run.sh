@@ -94,7 +94,7 @@ RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution rebuild_scale config_validation migrations tracing status_mapping probes http_hardening view_options projection_convergence httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed link_in_child view_embed integration_events transport auth grpc grpcclient grpc_security"
+SELF_SUITES="audit cache authz schema_evolution rebuild_scale projection_resilience projection_ripple config_validation migrations tracing status_mapping probes http_hardening view_options projection_convergence httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed link_in_child view_embed integration_events transport auth grpc grpcclient grpc_security"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -104,13 +104,26 @@ SUITES="${SUITES:-$ALL_SUITES}"
 # the patched source). They run SERIALLY after the parallel matrix, one lane at a
 # time. rebuild_scale is also heavy (a full-aggregate bulk seed + multi-pod
 # blue-green rebuild), so run.sh drives it at a bounded SEED_COUNT (see below).
-SERIAL_SUITES="schema_evolution rebuild_scale"
+# projection_resilience degrades the SHARED Mongo replica set (primary step-down,
+# quorum loss) for bounded windows — running it beside a parallel wave would fail
+# every sibling lane's projections, so it is serial for a different reason.
+SERIAL_SUITES="schema_evolution rebuild_scale projection_resilience"
 
 # rebuild_scale's per-lane seed under run.sh (its standalone default is 1,000,000
 # — far too heavy for the matrix). The SAME seed on every lane, on purpose: the
 # suite doubles as a cross-engine performance yardstick (the backfill throughput
 # is directly comparable only at equal N). Override: REBUILD_SCALE_SEED=30000 ./qa/run.sh
-REBUILD_SCALE_SEED="${REBUILD_SCALE_SEED:-100000}"
+#
+# PINNED ABOVE rebuild_scale's WINDOW_MIN (250000), and that is a correctness
+# choice, not a sizing one. Below WINDOW_MIN the suite cannot reliably observe the
+# live writes landing on the OLD slot during the dual-apply window — the backfill
+# flips before they arrive — so it reports that check INFORMATIONALLY instead of
+# asserting it. The suite then goes green without ever having exercised the flip
+# window, which is exactly how the blue-green loss bug stayed hidden: the green run
+# was the absence of the window, not the absence of the bug. At/above WINDOW_MIN the
+# check becomes a HARD assertion (`peak > seed`), so the regression it guards is
+# actually proven on every matrix run.
+REBUILD_SCALE_SEED="${REBUILD_SCALE_SEED:-250001}"
 
 if [ -n "${QA_RUN_LOG_DIR:-}" ]; then
   LOG_DIR="$QA_RUN_LOG_DIR"; LOG_DIR_EPHEMERAL=0
