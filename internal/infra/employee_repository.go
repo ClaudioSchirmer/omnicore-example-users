@@ -31,8 +31,8 @@ func NewEmployeeRepository(eng core.RelationalEngine) *EmployeeRepository {
 	}
 	// Concurrency safety net, mirroring UserRepository: two simultaneous POSTs
 	// for the same new document race past the existence probe and one loses on
-	// the PRIMARY KEY (shared-PK: employees.id == persons.id) — map that to
-	// the same 409 the happy-path conflict emits. Postgres names the PK
+	// the PRIMARY KEY (shared-ID: employees.id == persons.id) — map that to
+	// the same 409 the happy-path conflict emits. Postgres names the ID
 	// `employees_pkey`; MySQL reports the colliding key as `PRIMARY`.
 	r.Constraints = map[string]write.ConstraintBinding{
 		"employees_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},

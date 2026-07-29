@@ -19,7 +19,7 @@ import (
 // is exactly what makes them the composed-read showcase pair.
 func GadgetNoteSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.GadgetNote]("gadget_notes").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("GadgetID", "gadget_id").
 		Field("Text", "text").
@@ -34,7 +34,7 @@ func GadgetNoteSchema() *fwdb.TableSchema {
 // it as a leg, but nothing about it is composed-specific: it is filterable,
 // sortable and pageable directly (GET /qa/gadget-notes), which is also how a
 // consumer reaches the full set when a composed segment truncates.
-// query.Index("gadget_id") covers the LinkMany leg fetches (leg FK equality).
+// query.Index("gadget_id") covers the LinkMany leg fetches (leg ParentID equality).
 func GadgetNotesView() *query.ViewDefinition {
 	return query.View("gadget_notes").
 		Version(1).
@@ -56,9 +56,9 @@ func GadgetNotesView() *query.ViewDefinition {
 //     each item in batch from views that already exist.
 //
 // Legs:
-//   - 1:1 external — the primary holds the FK ("id" = the gadget's PK →
+//   - 1:1 external — the primary holds the ParentID ("id" = the gadget's ID →
 //     upstream doc _id), same join the Embed declares, resolved at read time.
-//   - 1:N internal — the leg holds the FK (gadget_notes.gadget_id →
+//   - 1:N internal — the leg holds the ParentID (gadget_notes.gadget_id →
 //     gadget _id). OrderBy("text") keeps the QA assertions deterministic
 //     regardless of insert timing; MaxLinkManyLimit(3) makes the per-parent
 //     truncation observable ("the first 3 in the declared order").

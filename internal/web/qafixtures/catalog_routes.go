@@ -114,7 +114,7 @@ type InsertCatalogRequest struct {
 }
 
 // CatalogLineRequest is one native child line in the POST body. `itemId` is the
-// FK the qa_catalog_view enriches via EmbedInChild (an existing upstream item);
+// ParentID the qa_catalog_view enriches via EmbedInChild (an existing upstream item);
 // `note` is the line's own field.
 type CatalogLineRequest struct {
 	ItemID *string `json:"itemId,omitempty"`
@@ -177,6 +177,11 @@ type FindCatalogByIDResponse struct {
 // ComposedView read — the read-time LinkInChild twin of `Item`, computed per
 // request, never stored. Pointers for `?fields=` pruning.
 type CatalogLineOutput struct {
+	// ID (the child's own PK) and ParentID (the catalog_id link to the root) prove
+	// the read-side projects identity at EVERY document level: ID from the child's
+	// physical PK column, ParentID as the read-only projection of the aggregate FK.
+	ID       *string            `json:"id,omitempty"`
+	ParentID *string            `json:"parentId,omitempty"`
 	ItemID   *string            `json:"itemId,omitempty"`
 	Note     *string            `json:"note,omitempty"`
 	Item     *ItemSegmentOutput `json:"item,omitempty"`
@@ -188,6 +193,10 @@ type CatalogLineOutput struct {
 // `catalogLines.item.label` (the walker builds the Go path CatalogLines.Item.Label,
 // which the view node resolves to CatalogLines.item.label).
 type CatalogLineFilter struct {
+	// ID (own PK) and ParentID (the catalog_id link) are allowlisted for filtering
+	// to prove the projected identity is QUERYABLE at the child level, not decorative.
+	ID       *string           `query:"id" filter:"eq"`
+	ParentID *string           `query:"parentId" filter:"eq"`
 	Note     *string           `query:"note" filter:"eq,icontains"`
 	Item     ItemSegmentFilter `query:"item"`
 	LiveItem ItemSegmentFilter `query:"liveItem"` // qa_catalog_full only: filter the read-time LinkInChild segment
@@ -198,6 +207,9 @@ type CatalogLineFilter struct {
 // FindCatalogsRequest is the wire allowlist of GET /qa/catalogs (+ .csv/.xlsx).
 // It reuses the shared ItemSegmentFilter group (declared in account_routes.go).
 type FindCatalogsRequest struct {
+	// ID (the root PK) is allowlisted for filtering to prove the projected root
+	// identity is QUERYABLE, not a read-only decoration.
+	ID   *string `query:"id" filter:"eq"`
 	Name *string `query:"name" filter:"eq,icontains"`
 
 	FeaturedItem ItemSegmentFilter `query:"featuredItem"`

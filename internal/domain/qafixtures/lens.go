@@ -12,7 +12,7 @@ import "github.com/ClaudioSchirmer/omnicore/domain"
 //	                     ├─1:1 embed→  qa_lens_parts_view  ←1:N embed─  qa_lens_kits_view
 //	gadgets (existing) ──┘
 //
-// A LensPart references a gadget by plain FK (write-side strangers, like
+// A LensPart references a gadget by plain ParentID (write-side strangers, like
 // GadgetNote) and its view embeds the LOCAL `gadgets` view. A LensKit references
 // nothing; its view embeds the parts view 1:N. So one gadget write ripples two
 // hops — the embed-of-embed proof — and each hop is a first-class read surface
@@ -63,8 +63,8 @@ func (k *LensKit) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 	})
 }
 
-// LensPart is the middle aggregate root (qa_lens_parts): it carries the FK to
-// its kit (the 1:N join the kits view embeds on) and the FK to a gadget (the 1:1
+// LensPart is the middle aggregate root (qa_lens_parts): it carries the ParentID to
+// its kit (the 1:N join the kits view embeds on) and the ParentID to a gadget (the 1:1
 // join its own view embeds on). Both are plain columns — no aggregate child, no
 // shared base — so every relationship in this family is a materialized JOIN, not
 // a write-side containment.

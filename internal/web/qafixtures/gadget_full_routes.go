@@ -42,7 +42,7 @@ func MountGadgetNotes(
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Attach a note to a gadget",
-			Description: "Creates a gadget note (plain FK to gadgets.id — the two aggregates share no write-side declaration). `kind` is `public` or `internal`.",
+			Description: "Creates a gadget note (plain ParentID to gadgets.id — the two aggregates share no write-side declaration). `kind` is `public` or `internal`.",
 			Tags:        []string{"QA Gadget Notes"},
 		},
 		fwopenapi.RequirePermission("gadgets:write"))

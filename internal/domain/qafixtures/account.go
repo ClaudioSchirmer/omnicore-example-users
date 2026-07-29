@@ -25,7 +25,7 @@ type AccountHolder struct {
 	domain.AggregateRoot
 	AccountRef     string  // base natural key → qa_accounts.account_ref
 	DisplayName    string  // base field   → qa_accounts.display_name
-	FeaturedItemID *string // base field   → qa_accounts.featured_item_id (1:1 embed FK)
+	FeaturedItemID *string // base field   → qa_accounts.featured_item_id (1:1 embed ParentID)
 	HolderName     string  // role-private → qa_account_holders.holder_name
 }
 
@@ -62,7 +62,7 @@ func (a *AccountHolder) BuildRules(_ string, _ domain.Service, r *domain.Rules) 
 // by qa_accounts_view. Value type for the aggregate primitives.
 type AccountLine struct {
 	ID     domain.ID
-	ItemID *string // FK → upstream_items._id; the EmbedInChild join key (nullable)
+	ItemID *string // ParentID → upstream_items._id; the EmbedInChild join key (nullable)
 	Note   string
 }
 

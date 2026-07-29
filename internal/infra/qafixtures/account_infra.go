@@ -18,27 +18,27 @@ import (
 // UUIDv5(account_ref); the base owns no children (the persons fixture covers
 // base-children), keeping this fixture focused on the ONE thing it adds: the
 // external embeds on a shared-base view. featured_item_id is the nullable 1:1
-// embed FK. OrphanPolicy hard-deletes the identity when its last role goes.
+// embed ParentID. OrphanPolicy hard-deletes the identity when its last role goes.
 func accountBase() *fwdb.TableSchema {
 	return fwdb.NewSharedBaseSchema("qa_accounts").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("AccountRef", "account_ref").
 		Field("DisplayName", "display_name").
 		Field("FeaturedItemID", "featured_item_id").
-		NaturalKey("account_ref").
+		NaturalID("account_ref").
 		SoftDelete("deleted_at").
 		OrphanPolicy(fwdb.DeleteWhenUnreferenced).
 		Child(AccountLineSchema())
 }
 
 // AccountLineSchema is the native child of the qa_accounts BASE (qa_account_lines):
-// it hangs off the shared identity (FK account_id → the base id), and item_id is
-// the FK qa_accounts_view enriches via EmbedInChild (→ upstream_items._id).
+// it hangs off the shared identity (ParentID account_id → the base id), and item_id is
+// the ParentID qa_accounts_view enriches via EmbedInChild (→ upstream_items._id).
 func AccountLineSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[qadomain.AccountLine]("qa_account_lines").
-		PK("id").
-		FK("account_id").
+		ID("id").
+		ParentID("account_id").
 		Field("ItemID", "item_id").
 		Field("Note", "note").
 		SoftDelete("deleted_at").
@@ -47,11 +47,11 @@ func AccountLineSchema() *fwdb.TableSchema {
 }
 
 // AccountHolderSchema is the type-anchored ROLE schema linking back to the base
-// (shared-PK model: qa_account_holders.id == qa_accounts.id). It declares only
+// (shared-ID model: qa_account_holders.id == qa_accounts.id). It declares only
 // the role-private HolderName; the base fields come from accountBase().
 func AccountHolderSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.AccountHolder]("qa_account_holders").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		SharedBase(accountBase(), "id").
 		Field("HolderName", "holder_name").
@@ -64,9 +64,9 @@ func AccountHolderSchema() *fwdb.TableSchema {
 // + the AccountHolder role sub-document) that ALSO composes two EXTERNAL embeds
 // over the SAME `upstream_items` projection —
 //
-//   - Embed "featuredItem" (1:1): the base holds the FK (featured_item_id →
+//   - Embed "featuredItem" (1:1): the base holds the ParentID (featured_item_id →
 //     upstream_items._id). A single sub-document, null when unset/unresolved.
-//   - EmbedMany "items" (1:N): the leg holds the FK (upstream_items.account_id →
+//   - EmbedMany "items" (1:N): the leg holds the ParentID (upstream_items.account_id →
 //     the account base _id). An array, empty when none.
 //
 // Both are declared with a FRESH UpstreamItemSchema() leg; the EmbedMany names
@@ -90,10 +90,10 @@ func AccountView() *query.ViewDefinition {
 		Version(1).
 		Indexes(
 			query.Index("account_ref"),
-			// §8.1 covering index on the 1:1 Embed's parent FK column — the
+			// §8.1 covering index on the 1:1 Embed's parent ParentID column — the
 			// ripple's reverse scan (FindIDsByField) consults it on every
 			// upstream_items event. The 1:N EmbedMany needs NO index here: its
-			// ripple resolves the parent by the child's FK value → the parent _id
+			// ripple resolves the parent by the child's ParentID value → the parent _id
 			// (always indexed), never a reverse scan of this view.
 			query.Index("featured_item_id"),
 			// Covering multikey index for the EmbedInChild ripple's reverse scan

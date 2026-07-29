@@ -26,12 +26,12 @@ import (
 	qadomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/qafixtures"
 )
 
-// GadgetSchema is the FLAT Go↔column map for the gadgets table: PK + four
+// GadgetSchema is the FLAT Go↔column map for the gadgets table: ID + four
 // business columns + the managed columns (soft-delete, created/updated). No
 // SharedBase, no children — the single-table write path.
 func GadgetSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Gadget]("gadgets").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Code", "code").
 		Field("Name", "name").
@@ -96,7 +96,7 @@ func GadgetCappedView() *query.ViewDefinition {
 // (declared under upstreamSubscriptions in microservice.qa.yaml, filter
 // [id, code, name, deleted_at]). It carries only the allow-listed columns; there
 // is no Go struct to anchor it (the columns belong to the upstream event), so the
-// leaf names are declared inline. PK("id") is the collection's document key — the
+// leaf names are declared inline. ID("id") is the collection's document key — the
 // UpstreamSubscriber upserts each doc under _id = the gadget's aggregate id, so
 // the composer's one-to-one join (parent gadget.id → source _id) resolves the
 // mirror.
@@ -108,7 +108,7 @@ func GadgetCappedView() *query.ViewDefinition {
 // it (or boot aborts), which is why the yaml filter lists deleted_at.
 func GadgetUpstreamMirrorSchema() *fwdb.TableSchema {
 	return fwdb.NewExternalSchema("upstream_gadgets").
-		PK("id").
+		ID("id").
 		Field("Code", "code").
 		Field("Name", "name").
 		SoftDelete("deleted_at")

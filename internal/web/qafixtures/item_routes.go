@@ -39,7 +39,7 @@ func MountItems(
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Create an item (external embed source)",
-			Description: "Creates a qa_items row. `accountId` is a nullable FK to an account base id: pass it for a 1:N list member (EmbedMany), omit it for the single 1:1 featured item. The write materializes an `upstream_items` projection doc the shared-base view embeds.",
+			Description: "Creates a qa_items row. `accountId` is a nullable ParentID to an account base id: pass it for a 1:N list member (EmbedMany), omit it for the single 1:1 featured item. The write materializes an `upstream_items` projection doc the shared-base view embeds.",
 			Tags:        []string{"QA Accounts (shared-base embed)"},
 		},
 		fwopenapi.RequirePermission("gadgets:write"))
@@ -53,8 +53,8 @@ func MountItems(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id",
 		patchH, patchSpec,
 		fwopenapi.Doc{
-			Summary:     "Patch an item (label and/or parent FK)",
-			Description: "Updates `label` and/or reassigns `accountId`/`catalogId`. A label change ripples the new label into every embedding parent's segments; reassigning the FK MOVES the item — the ripple recomposes both the old and new parent (drop here, appear there) from one event.",
+			Summary:     "Patch an item (label and/or parent ParentID)",
+			Description: "Updates `label` and/or reassigns `accountId`/`catalogId`. A label change ripples the new label into every embedding parent's segments; reassigning the ParentID MOVES the item — the ripple recomposes both the old and new parent (drop here, appear there) from one event.",
 			Tags:        []string{"QA Accounts (shared-base embed)"},
 		},
 		fwopenapi.RequirePermission("gadgets:write"))

@@ -11,7 +11,7 @@ import (
 // notification sibling. It does NOT declare .Child(AddressSchema()) — the
 // addresses belong to the BASE, and the framework unions the base's children
 // into the role's effective aggregate (EffectiveChildNames), so the flat
-// User.Addresses collection is materialized against persons (FK person_id).
+// User.Addresses collection is materialized against persons (ParentID person_id).
 //
 // Each call builds a fresh, self-contained schema graph (role + its own Person
 // base instance + addresses). There is exactly one role, so no second role has
@@ -19,7 +19,7 @@ import (
 // "one base instance per identity" invariant on its own.
 func UserSchema() *core.TableSchema {
 	return core.NewTableSchema[*appdomain.User]("users").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("UserName", "user_name").

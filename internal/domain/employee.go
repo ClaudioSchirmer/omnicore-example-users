@@ -46,7 +46,7 @@ type Employee struct {
 // Employee needs no domain.Service for the same reason User doesn't:
 // identity uniqueness comes from the SharedBase deterministic id, and a second
 // active employee for the same person collides on the role PRIMARY KEY
-// (shared-PK: employees.id == persons.id).
+// (shared-ID: employees.id == persons.id).
 
 // ─── domain.Entity ───────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ func (f *Employee) GetAggregateRoot() *domain.AggregateRoot {
 }
 
 // AggregateChildren declares the FULL aggregate boundary — the base-owned
-// Address plus the two role-owned types. Which table/FK each maps to (and
+// Address plus the two role-owned types. Which table/ParentID each maps to (and
 // which of them belong to the base vs the role) is infra's concern, declared
 // in EmployeeSchema()/personBase().
 func (f *Employee) AggregateChildren() []domain.AggregateValueObject {

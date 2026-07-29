@@ -37,9 +37,9 @@ func NewUserRepository(eng core.RelationalEngine) *UserRepository {
 	// comes from the framework's SharedBase write matrix directly
 	// (EntityAlreadyAddedNotification). This constraint binding is the
 	// concurrency safety net: two simultaneous POSTs for the same new document
-	// race past the existence probe and one loses on the PRIMARY KEY (shared-PK:
+	// race past the existence probe and one loses on the PRIMARY KEY (shared-ID:
 	// users.id == persons.id) — map that violation to the SAME 409 notification for
-	// a consistent envelope. Postgres names the PK `users_pkey`; MySQL reports the
+	// a consistent envelope. Postgres names the ID `users_pkey`; MySQL reports the
 	// colliding key as `PRIMARY`.
 	r.Constraints = map[string]write.ConstraintBinding{
 		"users_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},

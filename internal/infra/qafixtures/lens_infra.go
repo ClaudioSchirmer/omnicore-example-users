@@ -27,7 +27,7 @@ import (
 // the chain.
 func LensBrandSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.LensBrand]("qa_lens_brands").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Name", "name").
 		SoftDelete("deleted_at").
@@ -47,7 +47,7 @@ func LensBrandsView() *query.ViewDefinition {
 // LensKitSchema is the flat root map for qa_lens_kits.
 func LensKitSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.LensKit]("qa_lens_kits").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Name", "name").
 		SoftDelete("deleted_at").
@@ -60,7 +60,7 @@ func LensKitSchema() *fwdb.TableSchema {
 // aggregate containment.
 func LensPartSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.LensPart]("qa_lens_parts").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("KitID", "kit_id").
 		Field("GadgetID", "gadget_id").

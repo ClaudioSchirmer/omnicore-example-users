@@ -13,7 +13,7 @@ import (
 // "Employee" with its bank sibling flat + dependents/jobHistories nested).
 //
 //   - _id = the person's deterministic id (UUIDv5(document)) — the same id the
-//     shared-PK roles carry;
+//     shared-ID roles carry;
 //   - an absent role is an explicit null segment; an archived role stores its
 //     deleted_at and is hidden on default reads (?includeArchived surfaces it);
 //   - the document itself is gated by the base's deleted_at — the person hides

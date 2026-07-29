@@ -225,6 +225,24 @@ wait_val "$ACC_URL" "featuredItem.label" "FA-featured" && ok "account featuredIt
 title "2.2 The 1:N EmbedMany (items) carries exactly the account's items"
 wait_items "$ACC_URL" "items" "A1,A2" && ok "account items = [A1,A2] (EmbedMany 1:N on a shared-base root); null-FK + catalog items excluded" || bad "account items wrong"
 
+title "2.2b Embed-segment ID visible — the external mirror embed carries its source's id"
+# The original topic: an embedded segment's identity. The upstream_items mirror
+# projects id (filter allowlists it), so ItemSegmentOutput.ID binds on both the 1:1
+# (featuredItem) and every 1:N (items) element. Guaranteed resolved by 2.1/2.2 above.
+curl -sS -o "$GET_TMP" "$ACC_URL"
+CHK=$(python3 -c '
+import sys, json
+acc = json.load(open(sys.argv[1])).get("data", {})
+feat = acc.get("featuredItem") or {}
+items = acc.get("items") or []
+feat_id = bool(feat.get("id"))
+items_id = bool(items) and all(bool(it.get("id")) for it in items)
+print("OK" if (feat_id and items_id) else "BAD feat_id=%s items=%d items_id=%s" % (feat_id, len(items), items_id))
+' "$GET_TMP")
+[ "$CHK" = "OK" ] \
+  && ok "featuredItem.id AND items[].id present — the external mirror embed exposes its source id" \
+  || bad "embed-segment id not visible in DTO: $CHK"
+
 title "2.3 The base fields + role sub-document compose alongside the embeds"
 { [ "$(jval "$ACC_URL" displayName)" = "Primary Account" ] && [ "$(jval "$ACC_URL" accountHolder.holderName)" = "Ada Lovelace" ]; } \
   && ok "base displayName + AccountHolder role segment present next to the embeds" || bad "base/role fields missing"
@@ -261,6 +279,31 @@ lget "$ACCLIST" "accountHolder.holderName=Ada Lovelace"; { [ "$(lcount)" = "1" ]
 title "4.4 Embed 1:1 segment filter (featuredItem.label) — both view kinds"
 lget "$ACCLIST" "featuredItem.label=FA-featured"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "account ?featuredItem.label= selects the account featuring it (1:1 embed, shared-base)" || bad "1:1 segment filter (account) wrong"
 lget "$CATLIST" "featuredItem.label=FC-featured"; [ "$(lcount)" = "1" ] && ok "catalog ?featuredItem.label= selects the catalog featuring it (1:1 embed, normal view)" || bad "1:1 segment filter (catalog) wrong"
+
+title "4.4b Embed 1:1 segment IDENTITY (id) — queryable + strippable like any field (external id promoted from _id)"
+# The mirror-embed segment's id is the external source identity the read side
+# promotes from `_id`. It must behave like any field: row-select via filter AND
+# obey ?fields=. (Exercised here, before §10.2 deletes FC and nulls the segment.)
+# Shared-base view (account) counterpart — the SAME mirror-segment id path:
+lget "$ACCLIST" "featuredItem.id=$FA_ID"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "account ?featuredItem.id=<itemId> → selects the account (mirror-segment id queryable, shared-base view)" || bad "mirror-segment id not queryable on shared-base (count=$(lcount))"
+# Normal view (catalog):
+lget "$CATLIST" "featuredItem.id=$FC_ID";       [ "$(lcount)" = "1" ] && ok "catalog ?featuredItem.id=<itemId> → selects the catalog (mirror-segment id is queryable)" || bad "mirror-segment id not queryable (count=$(lcount))"
+lget "$CATLIST" "featuredItem.id=no-such-item"; [ "$(lcount)" = "0" ] && ok "?featuredItem.id=bogus → 0 rows (no false positive)" || bad "mirror-segment id filter false positive (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "fields=name,featuredItem.label"
+CHK=$(python3 -c '
+import sys, json
+d = json.load(open(sys.argv[1])).get("data") or []
+feat = (d[0] if d else {}).get("featuredItem") or {}
+# the mirror segment carries label but NOT id when id was not requested
+print("OK" if ("label" in feat and "id" not in feat) else "BAD %s" % feat)' "$GET_TMP")
+[ "$CHK" = "OK" ] && ok "?fields=…featuredItem.label DROPS the mirror-segment id (stripped like any field)" || bad "mirror-segment id leaked past ?fields=: $CHK"
+lget "$CATLIST" "name=Summer Collection" "fields=name,featuredItem.id"
+CHK=$(python3 -c '
+import sys, json
+d = json.load(open(sys.argv[1])).get("data") or []
+feat = (d[0] if d else {}).get("featuredItem") or {}
+print("OK" if feat.get("id") == sys.argv[2] else "BAD %s" % feat)' "$GET_TMP" "$FC_ID")
+[ "$CHK" = "OK" ] && ok "?fields=…featuredItem.id KEEPS the mirror-segment id (==$FC_ID)" || bad "mirror-segment id dropped when requested: $CHK"
 
 title "4.5 Embed 1:N segment filter (items.label) — array-element match selects the row"
 lget "$ACCLIST" "items.label=A1"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "account ?items.label=A1 → the account owning it (1:N embed)" || bad "1:N segment filter (account) wrong"
@@ -513,6 +556,33 @@ wait_child "$CAT_URL" "catalogLines" "item" ",L1-line,L2-line" \
   && ok "catalogLines[].item = [L1-line, L2-line, (null)] — enriched, null-FK line null, survived 2 rebuilds" \
   || bad "catalogLines enrichment wrong"
 
+title "14.1b Identity at EVERY level — child ID + ParentID + embed-segment ID (new-field visibility)"
+# The read side projects identity at EVERY document level, and the DTO declares it:
+#   - each native child element carries its own ID (child's physical PK column) AND
+#     ParentID (the aggregate FK column catalog_id, exposed read-only);
+#   - each embed segment (featuredItem 1:1, items[] 1:N — the upstream_items mirror)
+#     carries its own ID (the segment source's PK). This is the original topic: a
+#     mirror embed's id, now visible.
+curl -sS -o "$GET_TMP" "$CAT_URL"
+CHK=$(python3 -c '
+import sys, json
+cat = json.load(open(sys.argv[1])).get("data", {})
+pid = sys.argv[2]
+lines = cat.get("catalogLines") or []
+line_parent = all(l.get("parentId") == pid for l in lines)
+line_id = all(bool(l.get("id")) for l in lines)
+feat = cat.get("featuredItem")
+items = cat.get("items") or []
+feat_ok = (feat is None) or bool(feat.get("id"))          # 1:1 embed id, when resolved
+items_ok = all(bool(it.get("id")) for it in items)        # every 1:N embed element id
+ok_all = bool(lines) and line_parent and line_id and feat_ok and items_ok
+print("OK" if ok_all else "BAD lines=%d lp=%s li=%s feat=%s items=%s(%d)" % (
+    len(lines), line_parent, line_id, feat_ok, items_ok, len(items)))
+' "$GET_TMP" "$CAT_ID")
+[ "$CHK" = "OK" ] \
+  && ok "identity visible at every level — child .id + .parentId (==$CAT_ID) AND embed-segment .id (featuredItem/items)" \
+  || bad "new identity fields not fully visible in DTO: $CHK"
+
 title "14.2 Read — 2-level nested filter into the enriched child (catalogLines.item.label)"
 lget "$CATLIST" "catalogLines.item.label=L1-line"; [ "$(lcount)" = "1" ] && ok "?catalogLines.item.label=L1-line → 1 row (nested enriched-field filter)" || bad "nested enriched filter wrong (count=$(lcount))"
 lget "$CATLIST" "catalogLines.item.label=nope";    [ "$(lcount)" = "0" ] && ok "?catalogLines.item.label=nope → 0 rows (no false positive)" || bad "nested enriched filter false positive"
@@ -520,6 +590,44 @@ lget "$CATLIST" "catalogLines.item.label=nope";    [ "$(lcount)" = "0" ] && ok "
 title "14.3 Read — ?fields= keeps/drops the enriched child segment"
 lget "$CATLIST" "name=Summer Collection" "fields=name"; { [ "$(lhaskey 0 name)" = y ] && [ "$(lhaskey 0 catalogLines)" = n ]; } && ok "?fields=name drops catalogLines" || bad "sparse projection did not drop catalogLines"
 lget "$CATLIST" "name=Summer Collection" "fields=name,catalogLines.item.label"; [ "$(lhaskey 0 catalogLines)" = y ] && ok "?fields=name,catalogLines.item.label keeps the enriched child" || bad "sparse projection dropped the requested enriched child"
+
+title "14.3b Identity (id/parentId) obeys the SAME rules as any field — FILTER, SORT and ?fields="
+# The projected identity is a real, queryable, strippable field at every level —
+# not a read-only decoration. Root id + child id/parentId are stored physical
+# columns; the mirror-embed segment id is the external identity promoted from _id.
+# --- root id: physical column → queryable AND strippable ---
+lget "$CATLIST" "id=$CAT_ID";          { [ "$(lcount)" -ge 1 ] && [ "$(lfield 0 id)" = "$CAT_ID" ]; } && ok "?id=<catId> → matches (root id is queryable)" || bad "root id not queryable (count=$(lcount))"
+lget "$CATLIST" "id=no-such-catalog";  [ "$(lcount)" = "0" ] && ok "?id=bogus → 0 rows (no false positive)" || bad "root id filter false positive (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "sort=id";  [ "$(lcount)" -ge 1 ] && ok "?sort=id accepted (root id is sortable)" || bad "?sort=id rejected/empty (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "sort=-id"; [ "$(lcount)" -ge 1 ] && ok "?sort=-id accepted (root id is sortable desc)" || bad "?sort=-id rejected/empty (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "fields=name";    [ "$(lhaskey 0 id)" = n ] && ok "?fields=name DROPS root id (stripped like any field)" || bad "root id leaked past ?fields=name"
+lget "$CATLIST" "name=Summer Collection" "fields=id,name"; { [ "$(lhaskey 0 id)" = y ] && [ "$(lfield 0 id)" = "$CAT_ID" ]; } && ok "?fields=id,name KEEPS root id" || bad "root id dropped when explicitly requested"
+# --- child catalogLines: id + parentId are stored physical columns ---
+lget "$CATLIST" "catalogLines.parentId=$CAT_ID"; [ "$(lcount)" -ge 1 ] && ok "?catalogLines.parentId=<catId> → matches (child parentId is queryable)" || bad "child parentId not queryable (count=$(lcount))"
+lget "$CATLIST" "catalogLines.parentId=no-such-parent"; [ "$(lcount)" = "0" ] && ok "?catalogLines.parentId=bogus → 0 rows (no false positive)" || bad "child parentId filter false positive (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "fields=name,catalogLines.note"
+CHK=$(python3 -c '
+import sys, json
+d = json.load(open(sys.argv[1])).get("data") or []
+row = d[0] if d else {}
+lines = row.get("catalogLines") or []
+# every line carries note but NEITHER id NOR parentId when they were not requested
+ok = bool(lines) and all(("note" in l) and ("id" not in l) and ("parentId" not in l) for l in lines)
+print("OK" if ok else "BAD lines=%d sample=%s" % (len(lines), lines[0] if lines else None))' "$GET_TMP")
+[ "$CHK" = "OK" ] && ok "?fields=…catalogLines.note DROPS child id + parentId (stripped like any field)" || bad "child id/parentId leaked past ?fields=: $CHK"
+lget "$CATLIST" "name=Summer Collection" "fields=name,catalogLines.id,catalogLines.parentId"
+CHK=$(python3 -c '
+import sys, json
+d = json.load(open(sys.argv[1])).get("data") or []
+row = d[0] if d else {}
+cid = sys.argv[2]
+lines = row.get("catalogLines") or []
+# every line carries its own id AND parentId (== the catalog id) when requested
+ok = bool(lines) and all(bool(l.get("id")) and l.get("parentId") == cid for l in lines)
+print("OK" if ok else "BAD lines=%d sample=%s" % (len(lines), lines[0] if lines else None))' "$GET_TMP" "$CAT_ID")
+[ "$CHK" = "OK" ] && ok "?fields=…catalogLines.id,parentId KEEPS them (parentId==$CAT_ID)" || bad "child id/parentId dropped when requested: $CHK"
+# NOTE: the mirror-embed segment id (featuredItem) is exercised in §4.4b, while
+# the featured item is still attached — §10.2 deletes it, nulling the segment.
 
 title "14.4 Export — CSV walks the enriched child branch"
 curl -sS -o "$GET_TMP" "$CATLIST.csv"; grep -q "L1-line" "$GET_TMP" && ok "catalogs.csv carries an enriched child item label" || bad "catalogs CSV missing the enriched child data"

@@ -31,7 +31,7 @@ type User struct {
 	// to the persons.document column — see infra/schema.go). It deduplicates
 	// the identity and derives its deterministic id, so it is IMMUTABLE once
 	// set: enforced below in IfUpdate and, atomically, by the framework's
-	// SharedBase write path (UUIDv5(document) = the person PK). It replaces
+	// SharedBase write path (UUIDv5(document) = the person ID). It replaces
 	// email as the way a user record is located on the manual showcase surface.
 	Document string `labelKey:"UserDocumentField"`
 
@@ -92,9 +92,9 @@ const nameMaxLength = 100
 // User needs no domain.Service: identity uniqueness is no longer a domain
 // concern. The shared Person identity is deduplicated by its natural key
 // (Document) through the framework's SharedBase write path — the deterministic
-// id UUIDv5(document) IS the person PK, so a second person with the same
+// id UUIDv5(document) IS the person ID, so a second person with the same
 // document collides on the primary key, and a second active role for an
-// existing person collides on the role's PRIMARY KEY (shared-PK: the role's id
+// existing person collides on the role's PRIMARY KEY (shared-ID: the role's id
 // IS the person id). Both surface as a
 // 409 from infra. RequiresService therefore stays at its promoted default
 // (false), and BuildRules ignores the (nil) service argument.
@@ -114,9 +114,9 @@ func (u *User) Modes() []domain.EntityMode {
 
 // ─── domain.AggregateRootProvider ────────────────────────────────────────────
 //
-// Opt-in for aggregate-aware persistence. The physical table/column/FK names
+// Opt-in for aggregate-aware persistence. The physical table/column/ParentID names
 // are NOT inferred — they are declared explicitly in infra/schema.go via
-// UserSchema()/AddressSchema() (table "users"/"addresses", child FK "user_id").
+// UserSchema()/AddressSchema() (table "users"/"addresses", child ParentID "user_id").
 // The domain stays DDD-pure: it never pronounces a table or column. Cascade
 // root↔children is symmetric and universal — no per-child flag.
 //
@@ -261,7 +261,7 @@ func (u *User) BuildRules(actionName string, service domain.Service, r *domain.R
 		// Document is the shared identity's natural key — required and
 		// format-checked, but NOT uniqueness-checked here: the framework's
 		// deterministic id (UUIDv5(document)) makes a duplicate document
-		// collide on the person PK, surfacing the 409 atomically. Email is a
+		// collide on the person ID, surfacing the 409 atomically. Email is a
 		// plain shared Person field now (mutable, last-write-wins across roles)
 		// — required + regex, but no longer unique and no longer immutable.
 		if u.Document == "" {

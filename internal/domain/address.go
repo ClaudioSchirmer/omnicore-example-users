@@ -45,8 +45,8 @@ func (a Address) sameBusinessIdentity(other Address) bool {
 }
 
 // The physical columns are declared explicitly in infra/schema.go via
-// AddressSchema() (Go field ↔ column, e.g. ZipCode ↔ zip_code); "ID" is the PK
-// and the FK "user_id" is injected by the persister (it does not belong to the
+// AddressSchema() (Go field ↔ column, e.g. ZipCode ↔ zip_code); "ID" is the ID
+// and the ParentID "user_id" is injected by the persister (it does not belong to the
 // struct). The domain never pronounces a column name.
 
 // BuildRules has the same shape as User.BuildRules so root and child read the

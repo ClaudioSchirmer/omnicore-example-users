@@ -27,7 +27,7 @@ func (k *GadgetKit) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 }
 
 // GadgetKitLine is a native child of GadgetKit (qa_gadget_kit_lines): GadgetID
-// is the FK the view enriches via EmbedInChild (→ upstream_gadgets._id); Note is
+// is the ParentID the view enriches via EmbedInChild (→ upstream_gadgets._id); Note is
 // the line's own field.
 type GadgetKitLine struct {
 	ID       domain.ID

@@ -17,7 +17,7 @@ import (
 // child qa_gadget_kit_lines.
 func GadgetKitSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.GadgetKit]("qa_gadget_kits").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Name", "name").
 		SoftDelete("deleted_at").
@@ -26,12 +26,12 @@ func GadgetKitSchema() *fwdb.TableSchema {
 		Child(GadgetKitLineSchema())
 }
 
-// GadgetKitLineSchema is the native child of GadgetKit: FK gadget_kit_id back to
-// the root, gadget_id the FK enriched via EmbedInChild (→ upstream_gadgets._id).
+// GadgetKitLineSchema is the native child of GadgetKit: ParentID gadget_kit_id back to
+// the root, gadget_id the ParentID enriched via EmbedInChild (→ upstream_gadgets._id).
 func GadgetKitLineSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[qadomain.GadgetKitLine]("qa_gadget_kit_lines").
-		PK("id").
-		FK("gadget_kit_id").
+		ID("id").
+		ParentID("gadget_kit_id").
 		Field("GadgetID", "gadget_id").
 		Field("Note", "note").
 		SoftDelete("deleted_at").

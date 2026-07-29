@@ -19,8 +19,8 @@ import "github.com/ClaudioSchirmer/omnicore/domain"
 // AccountID) and a NORMAL view (qa_catalogs, CatalogID). A list item carries its
 // owning parent's id (so the 1:N EmbedMany joins upstream_items.<fk> →
 // parent._id); the single "featured" item is created with BOTH nil (it is
-// referenced 1:1 by the parent's featured_item_id, not by a reverse FK) — which
-// also proves a null-FK item never leaks into any parent's Items array. One
+// referenced 1:1 by the parent's featured_item_id, not by a reverse ParentID) — which
+// also proves a null-ParentID item never leaks into any parent's Items array. One
 // upstream_items projection feeds both view kinds; an item belongs to at most
 // one parent.
 type Item struct {
@@ -31,7 +31,7 @@ type Item struct {
 }
 
 // Modes advertises the lifecycle verbs the suite drives: Insert to create the
-// embed sources, Update to mutate a Label / reassign the FK (move), Delete to
+// embed sources, Update to mutate a Label / reassign the ParentID (move), Delete to
 // exercise the delete ripple (the item drops from its parent's list).
 func (i *Item) Modes() []domain.EntityMode {
 	return []domain.EntityMode{
@@ -43,7 +43,7 @@ func (i *Item) Modes() []domain.EntityMode {
 }
 
 // BuildRules: Label is required. AccountID is intentionally unconstrained
-// (nullable FK — the featured item carries none).
+// (nullable ParentID — the featured item carries none).
 func (i *Item) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 	r.IfInsertOrUpdate(func() {
 		if i.Label == "" {

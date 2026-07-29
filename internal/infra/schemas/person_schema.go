@@ -13,21 +13,21 @@
 //	                      id = UUIDv5(document). Holds the shared Person fields
 //	                      (document/name/email/phone) and OWNS the addresses.
 //	                      Referenced by BOTH roles (users + employees).
-//	addresses           — base-child of persons (FK person_id, 1:N). The address
+//	addresses           — base-child of persons (ParentID person_id, 1:N). The address
 //	                      list is the person's, shared by every role of that person.
-//	users               — the User role root (shared PK: users.id == persons.id),
+//	users               — the User role root (shared ID: users.id == persons.id),
 //	                      carrying the one role-private field (user_name).
-//	user_configurations — Sibling of users (1:1, shares the user PK): the
+//	user_configurations — Sibling of users (1:1, shares the user ID): the
 //	                      notification preference flags.
-//	employees        — the Employee role root (shared PK too), carrying
+//	employees        — the Employee role root (shared ID too), carrying
 //	                      employee_number; owns the two role children below plus the
 //	                      bank-account sibling.
-//	employee_bank_accounts  — Sibling of employees (1:1, shared PK).
-//	employee_dependents      — role-owned child of employees (FK
+//	employee_bank_accounts  — Sibling of employees (1:1, shared ID).
+//	employee_dependents      — role-owned child of employees (ParentID
 //	                               employee_id, 1:N); carries its own sibling.
 //	dependent_health_plans       — Sibling of employee_dependents (1:1 on the
-//	                               child PK) — the child-level (A2b) sibling.
-//	employee_job_histories — second role-owned child (FK employee_id, 1:N).
+//	                               child ID) — the child-level (A2b) sibling.
+//	employee_job_histories — second role-owned child (ParentID employee_id, 1:N).
 //
 // domain/application/web never see any of this — they speak the flat entities.
 // The schema graph is what the write path, the criteria engine, the auto-scan
@@ -47,7 +47,7 @@ import (
 // like every other table). OrphanPolicy(DeleteWhenUnreferenced) hard-deletes
 // the person (and its addresses) once the last user row referencing it is gone.
 //
-// Addresses are declared HERE as the base's native children (FK person_id), not
+// Addresses are declared HERE as the base's native children (ParentID person_id), not
 // on the role — that is what makes the address list shared across every role of
 // the person rather than disjoint per role.
 // CreatedAt/UpdatedAt on the base are honored by the framework like on any
@@ -57,13 +57,13 @@ import (
 // role endpoint.
 func PersonBase() *core.TableSchema {
 	return core.NewSharedBaseSchema("persons").
-		PK("id").
+		ID("id").
 		Revision("revision").
 		Field("Document", "document").
 		Field("Name", "name").
 		Field("Email", "email").
 		Field("Phone", "phone").
-		NaturalKey("document").
+		NaturalID("document").
 		SoftDelete("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").

@@ -32,9 +32,9 @@ import (
 // upstreamSubscriptions block — would abort boot. Gated exactly like the Gadget
 // embeddedView.
 type AccountFeature struct {
-	accountRepo *infraqa.AccountHolderRepository
-	catalogRepo *infraqa.CatalogRepository
-	itemRepo    *infraqa.ItemRepository
+	accountRepo     *infraqa.AccountHolderRepository
+	catalogRepo     *infraqa.CatalogRepository
+	itemRepo        *infraqa.ItemRepository
 	accountView     *query.ViewDefinition
 	catalogView     *query.ViewDefinition
 	catalogFullView *query.ComposedViewDefinition

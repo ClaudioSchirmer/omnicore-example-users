@@ -35,7 +35,7 @@ func (c *InsertItemCommand) FromEntity(_ *configuration.AppContext, i *qadomain.
 //     recompose of every view embedding that collection, so the parent
 //     document's FeaturedItem/Items segments pick up the new label with no write
 //     against the parent itself.
-//   - AccountID / CatalogID: reassigning the 1:N FK MOVES the item between
+//   - AccountID / CatalogID: reassigning the 1:N ParentID MOVES the item between
 //     parents — the upstream ripple must recompose BOTH the old and the new
 //     parent (drop here, appear there) from a single event.
 //

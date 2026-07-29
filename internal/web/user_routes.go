@@ -70,7 +70,7 @@ func MountUsers(
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Create a user",
-			Description: "Creates a user backed by the shared Person identity (SharedBase). Because the person is deduplicated by `document` (the natural key), this POST is an UPSERT: the framework loads any existing person by document first, then the command applies the request on top — so a new person+user is created, or an existing person gains its user (its shared fields updated last-write-wins, its addresses deduped). Re-POSTing the same document for a person who already has an ACTIVE user returns 409 `EntityAlreadyAddedNotification`; an ARCHIVED user is invisible to the insert (soft-delete is delete) and the shared-PK remnant vetoes the write — the same 409, with `PATCH /users/:id/archive`'s inverse (`/unarchive`) as the explicit way back. The notification flags persist to the `user_configurations` sibling table. Emits the aggregate outbox row plus a person-base event the SyncEngine fans out; the Mongo document lands asynchronously (~100-300ms).",
+			Description: "Creates a user backed by the shared Person identity (SharedBase). Because the person is deduplicated by `document` (the natural key), this POST is an UPSERT: the framework loads any existing person by document first, then the command applies the request on top — so a new person+user is created, or an existing person gains its user (its shared fields updated last-write-wins, its addresses deduped). Re-POSTing the same document for a person who already has an ACTIVE user returns 409 `EntityAlreadyAddedNotification`; an ARCHIVED user is invisible to the insert (soft-delete is delete) and the shared-ID remnant vetoes the write — the same 409, with `PATCH /users/:id/archive`'s inverse (`/unarchive`) as the explicit way back. The notification flags persist to the `user_configurations` sibling table. Emits the aggregate outbox row plus a person-base event the SyncEngine fans out; the Mongo document lands asynchronously (~100-300ms).",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:write"))
@@ -312,7 +312,7 @@ func MountUsersGraphQL(
 	// the Request DTO; NonNull fields follow the strict/lenient rule). The User is
 	// SharedBase-backed, so the POST is an UPSERT — the same SharedBaseInsertCommandHandler
 	// the REST surface uses (a duplicate active user for a document is a 409; an
-	// archived one is invisible to the insert and its remnant vetoes on the PK — same 409).
+	// archived one is invisible to the insert and its remnant vetoes on the ID — same 409).
 	reg.Register(fwgraphql.MutationWithBody[requests.InsertUserRequest](
 		"createUser", requests.InsertUserResponse{}.FromResult,
 		&handlers.SharedBaseInsertCommandHandler[*appdomain.User, *commands.InsertUserCommand, commands.InsertUserResult]{

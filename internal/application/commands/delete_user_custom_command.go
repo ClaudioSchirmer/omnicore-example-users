@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// DeleteUserCustomCommand triggers a hard delete (FK ON DELETE CASCADE on
+// DeleteUserCustomCommand triggers a hard delete (ParentID ON DELETE CASCADE on
 // addresses) in the manual showcase chain. DocumentKey comes from the /:email
 // path segment.
 type DeleteUserCustomCommand struct {
