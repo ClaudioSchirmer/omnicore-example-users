@@ -33,6 +33,13 @@ relational:
 mongo:
   uri: "${MONGO_URI:mongodb://localhost:27018}"
   database: "${MONGO_DB:users_views}"
+  # Parked-events replay driver (omnicore_projection_failures). The framework
+  # default cadence is 10 minutes — right for production, where a park is rare
+  # and polling should be quiet. Dev (and the QA suites, which boot through
+  # this profile) pin 1 minute so a parked event's recovery is observable
+  # within a test's patience.
+  parkedRetry:
+    intervalMinutes: 1
   # Mongo schema evolution — drift between the declared ViewDefinition and the
   # materialized collection state is detected at boot via the omnicore_mongo_views
   # registry row carrying the spec hash. autoRun governs whether the framework

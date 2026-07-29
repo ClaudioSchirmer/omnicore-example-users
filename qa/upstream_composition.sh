@@ -15,7 +15,7 @@
 # readable through a normal ViewReader endpoint, not just via a direct Mongo
 # query; (2) onUpstreamDelete=cascade removes the local doc (and 404s the embedded
 # endpoint) when the upstream entity is deleted; (3) the failure registry stays
-# empty on the happy path and the /admin/retries/upstream drain route responds.
+# empty on the happy path and the /admin/retries/projection sweep route responds.
 # Uses the qa binary + microservice.qa.yaml (upstreamSubscriptions).
 #
 # Prereqs: docker compose up + the OUTBOX Debezium connector registered (routes
@@ -153,7 +153,7 @@ qa_cdc_warmup_gadget
 title "0.4 Reset gadgets + upstream_gadgets + gadgets view collection"
 qa_db_exec "DELETE FROM gadget_journal;" 2>/dev/null || true
 qa_db_exec "DELETE FROM gadgets;"
-qa_db_exec "DELETE FROM omnicore_upstream_failures;" 2>/dev/null || true
+qa_db_exec "DELETE FROM omnicore_projection_failures WHERE kind='ripple';" 2>/dev/null || true
 qa_view_clear gadgets "$UP_COLL"
 sleep 1
 ok "clean baseline"
@@ -370,14 +370,14 @@ done
 ##############################################################################
 sec "3. Failure registry + admin drain route"
 ##############################################################################
-title "3.1 omnicore_upstream_failures has no pending rows on the happy path"
-PENDING=$(qa_db_query "SELECT count(*) FROM omnicore_upstream_failures WHERE resolved_at IS NULL;" 2>/dev/null | tr -d ' ')
+title "3.1 the unified ledger has no pending ripple rows on the happy path"
+PENDING=$(qa_db_query "SELECT count(*) FROM omnicore_projection_failures WHERE kind='ripple' AND resolved_at IS NULL;" 2>/dev/null | tr -d ' ')
 [ "${PENDING:-0}" = "0" ] && ok "no pending upstream failures" || bad "unexpected pending failures: $PENDING"
 
-title "3.2 POST /admin/retries/upstream drains (responds 200)"
-ST=$(curl -sS -o /tmp/qa-up-retry.json.${BACKEND:-default} -w "%{http_code}" -X POST "$BASE/admin/retries/upstream")
+title "3.2 POST /admin/retries/projection sweeps the unified ledger (responds 200)"
+ST=$(curl -sS -o /tmp/qa-up-retry.json.${BACKEND:-default} -w "%{http_code}" -X POST "$BASE/admin/retries/projection")
 echo "response: $(cat /tmp/qa-up-retry.json.${BACKEND:-default} 2>/dev/null)"
-[ "$ST" = "200" ] && ok "admin upstream-retry route responds 200" || bad "admin retry status $ST"
+[ "$ST" = "200" ] && ok "admin projection-sweep route responds 200" || bad "admin retry status $ST"
 rm -f /tmp/qa-up-retry.json.${BACKEND:-default}
 
 ##############################################################################

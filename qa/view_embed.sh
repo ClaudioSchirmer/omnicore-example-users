@@ -532,7 +532,7 @@ for _ in $(seq 1 60); do [ "$(code_of "$BASE/qa/lens-kits/$KIT2")" = "404" ] && 
 ##############################################################################
 sec "11. The failure registry stays clean on the happy path"
 ##############################################################################
-PENDING=$(qa_db_query "SELECT count(*) FROM omnicore_upstream_failures WHERE resolved_at IS NULL AND subscription_topic LIKE 'view:%';" 2>/dev/null | tr -dc '0-9')
+PENDING=$(qa_db_query "SELECT count(*) FROM omnicore_projection_failures WHERE kind='ripple' AND resolved_at IS NULL AND topic LIKE 'view:%';" 2>/dev/null | tr -dc '0-9')
 [ -z "$PENDING" ] && PENDING=0
 [ "$PENDING" = "0" ] && ok "no pending view-sourced ripple failures" || bad "$PENDING pending view:* failure rows"
 
