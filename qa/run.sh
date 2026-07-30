@@ -430,6 +430,42 @@ run_lane() {
   qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
   qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
 
+  # ── Per-lane integration tests — the `integration`-tagged Go suites, run on a
+  # fully-prepped lane BEFORE the server starts serving E2E ─────────────────────
+  # Framework: self-manages throwaway databases (admin DSN) + throwaway Mongo
+  #   collections, so it never touches users_db. Its Mongo default is the DEV
+  #   bench (27018) → point it at this lane's qa Mongo; its MySQL admin DSN
+  #   default is the DEV port 3307 → point it at the qa bench 3317 (harmless on
+  #   the non-MySQL lanes, which read their own engine's default). PG :5433,
+  #   SQL Server :14333 and Oracle :15211 defaults already match the qa bench.
+  # Example: reads DATABASE_URL (already this lane's users_db) + the yaml dialect
+  #   via ${REL_DIALECT}, so it follows the lane's engine. It is DESTRUCTIVE —
+  #   resetState does DELETE FROM the domain tables — which is exactly why it runs
+  #   HERE, before the server boots, so it can never collide with the live E2E
+  #   suites (which seed their own data on a clean DB). Both the plain and the qa
+  #   builds run. Reported as the `fw-integration` / `ex-integration` rows.
+  if ! stop_requested; then
+    local it0=$(date +%s)
+    ( cd "$STACK_ROOT/omnicore"
+      export OMNICORE_TEST_MONGO_URI="$MONGO_URI"
+      export OMNICORE_TEST_MYSQL_ADMIN_DSN="root:root@tcp(127.0.0.1:3317)/?parseTime=true&multiStatements=true"
+      go test -tags "integration $QA_BUILD_TAGS" ./... -count=1 -timeout 600s
+    ) > "$LOG_DIR/fw-integration-$B.log" 2>&1; local irc=$?
+    if ! record "fw-integration" "$B" "$LOG_DIR/fw-integration-$B.log" "$irc" "$(( $(date +%s) - it0 ))"; then
+      fail_fast "fw-integration" "$B" && return 1
+    fi
+  fi
+  if ! stop_requested; then
+    local et0=$(date +%s) erc=0
+    APP_PROFILE=dev OMNICORE_TEST_MONGO_URI="$MONGO_URI" \
+      go test -tags "integration $QA_BUILD_TAGS"    ./... -count=1 >  "$LOG_DIR/ex-integration-$B.log" 2>&1 || erc=1
+    APP_PROFILE=dev OMNICORE_TEST_MONGO_URI="$MONGO_URI" \
+      go test -tags "integration $QA_BUILD_TAGS qa" ./... -count=1 >> "$LOG_DIR/ex-integration-$B.log" 2>&1 || erc=1
+    if ! record "ex-integration" "$B" "$LOG_DIR/ex-integration-$B.log" "$erc" "$(( $(date +%s) - et0 ))"; then
+      fail_fast "ex-integration" "$B" && return 1
+    fi
+  fi
+
   local run_server_suites="" run_self_suites=""
   for s in $SUITES; do
     grep -qw "$s" <<<"$SERIAL_SUITES" && continue   # serial suites run after the parallel matrix
@@ -472,6 +508,31 @@ run_lane() {
 
 # ── Preflight ────────────────────────────────────────────────────────────────
 command -v jq >/dev/null || { ABORT_REASON="jq not installed"; echo "jq is required (brew install jq)" >&2; exit 2; }
+
+# ── Unit-test gate: framework THEN example, EVERY build tag, before any bench ──
+# "green" is never a subset — this runs the full //go:build tag matrix from the
+# stack-root CLAUDE.md (unit only; no `integration` tag → no DB needed). It runs
+# BEFORE Docker is touched: a single FAIL aborts the whole run and the bench
+# never comes up. (The per-lane `integration` matrix runs later, inside run_lane,
+# once each lane's engine + Mongo are up — see below.)
+FW_UNIT_TAGS=("postgres kafka" "mysql nats" "sqlserver kafka" "oracle nats" "postgres nats" "mysql kafka")
+EX_UNIT_TAGS=("postgres kafka" "postgres nats" "postgres kafka qa" "postgres nats qa")
+run_unit_matrix() { # run_unit_matrix <dir> <name> <tag-combo>...
+  local dir="$1" name="$2"; shift 2
+  local tags
+  for tags in "$@"; do
+    bold "unit [$name] -tags '$tags' ..."
+    if ! ( cd "$dir" && go test -tags "$tags" ./... -count=1 ); then
+      ABORT_REASON="unit tests RED: $name -tags '$tags'"
+      echo "UNIT TESTS RED — $name -tags '$tags'; aborting before the bench" >&2
+      exit 1
+    fi
+  done
+}
+bold "unit-test gate — framework then example, all tags (no bench yet) ..."
+run_unit_matrix "$STACK_ROOT/omnicore" framework "${FW_UNIT_TAGS[@]}"
+run_unit_matrix "." example "${EX_UNIT_TAGS[@]}"
+
 # Shared, wave-independent infra up front; each wave manages only its lanes.
 bold "shared infra up (mongo + keycloak + jaeger) ..."
 docker compose -f devops/docker-compose.yml up -d --wait mongo keycloak jaeger >/dev/null 2>&1 \
