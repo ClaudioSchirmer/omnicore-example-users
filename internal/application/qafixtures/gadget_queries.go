@@ -50,7 +50,7 @@ func (*DeleteGadgetCommand) FromEntity(_ *configuration.AppContext, _ *qadomain.
 	return fwresults.None{}, nil
 }
 
-// ArchiveGadgetCommand / UnarchiveGadgetCommand are the soft-delete pair (same
+// ArchiveGadgetCommand / UnarchiveGadgetCommand are the DeletedAt pair (same
 // bodyless, id-from-path shape as delete). They exist so the DeleteOnArchive
 // read-side option is exercisable end to end: archiving a gadget drops it from
 // the `gadgets_hot` view (which opts into DeleteOnArchive) while it survives,

@@ -118,7 +118,7 @@ func MountGadgets(
 		},
 		fwopenapi.RequirePermission("gadgets:delete"))
 
-	// Archive / Unarchive — the soft-delete pair, so the DeleteOnArchive view
+	// Archive / Unarchive — the DeletedAt pair, so the DeleteOnArchive view
 	// (gadgets_hot) can be exercised: archive drops the doc there but keeps it
 	// (hidden) in the default gadgets view.
 	archiveH, archiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
@@ -129,8 +129,8 @@ func MountGadgets(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
-			Summary:     "Archive (soft-delete) a gadget",
-			Description: "Soft-deletes the gadget: kept (hidden) in the default gadgets view, DROPPED from the DeleteOnArchive gadgets_hot view.",
+			Summary:     "Archive (DeletedAt) a gadget",
+			Description: "DeletedAts the gadget: kept (hidden) in the default gadgets view, DROPPED from the DeleteOnArchive gadgets_hot view.",
 			Tags:        []string{"QA Gadgets"},
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))
@@ -144,7 +144,7 @@ func MountGadgets(
 		unarchiveH, unarchiveSpec,
 		fwopenapi.Doc{
 			Summary:     "Unarchive a gadget",
-			Description: "Restores a soft-deleted gadget.",
+			Description: "Restores a archived gadget.",
 			Tags:        []string{"QA Gadgets"},
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))

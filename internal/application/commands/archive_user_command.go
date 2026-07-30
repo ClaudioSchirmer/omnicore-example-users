@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// ArchiveUserCommand triggers a soft-delete. ID comes from the URL path.
+// ArchiveUserCommand triggers a DeletedAt. ID comes from the URL path.
 type ArchiveUserCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the hook for ctx → business translation on the archive verb.

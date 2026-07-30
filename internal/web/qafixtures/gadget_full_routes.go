@@ -70,8 +70,8 @@ func MountGadgetNotes(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
-			Summary:     "Archive (soft-delete) a gadget note",
-			Description: "Soft-deletes the note: it vanishes from the composed `notes` segment on default reads (the leg's own gate) and from this view's default list; `?includeArchived=true` surfaces it on both.",
+			Summary:     "Archive (DeletedAt) a gadget note",
+			Description: "DeletedAts the note: it vanishes from the composed `notes` segment on default reads (the leg's own gate) and from this view's default list; `?includeArchived=true` surfaces it on both.",
 			Tags:        []string{"QA Gadget Notes"},
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))
@@ -85,7 +85,7 @@ func MountGadgetNotes(
 		unarchiveH, unarchiveSpec,
 		fwopenapi.Doc{
 			Summary:     "Unarchive a gadget note",
-			Description: "Restores a soft-deleted note (and its composed-segment visibility).",
+			Description: "Restores a archived note (and its composed-segment visibility).",
 			Tags:        []string{"QA Gadget Notes"},
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))

@@ -6,7 +6,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
 )
 
-// TestArchiveUserCustomCommandHandler_HappyPath proves the soft-delete lifecycle:
+// TestArchiveUserCustomCommandHandler_HappyPath proves the DeletedAt lifecycle:
 // FindByDocument → GetArchivable → Orchestrator.Archive. Repo.Archive runs
 // exactly once. The handler returns fwresults.None — same shape as the
 // canonical Auto handler — so the wire layer emits the success envelope

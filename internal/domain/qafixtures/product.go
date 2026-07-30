@@ -21,7 +21,7 @@ type Product struct {
 }
 
 // Modes advertises the lifecycle verbs; Archive/Unarchive pair with the
-// schema's SoftDelete so QA can prove the active-only scope gate rides the
+// schema's DeletedAt so QA can prove the active-only scope gate rides the
 // grouped SELECT (an archived product must fold out of its category group).
 func (p *Product) Modes() []domain.EntityMode {
 	return []domain.EntityMode{

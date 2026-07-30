@@ -46,7 +46,7 @@ func MountEmployees(
 		insertH, insertSpec,
 		fwopenapi.Doc{
 			Summary:     "Create an employee (employee)",
-			Description: "Creates an employee backed by the SAME shared Person identity the User role uses. Because the person is deduplicated by `document`, this POST is an UPSERT: when the person already exists (e.g. created as a User), it gains its employee role — shared fields update last-write-wins, existing addresses are deduped against the request's. Re-POSTing the same document for a person who already has an ACTIVE employee returns 409; an ARCHIVED employee is invisible to the insert (soft-delete is delete) and the shared-ID remnant vetoes the write — the same 409, with `PATCH /employees/:id/unarchive` as the explicit way back. The bank block persists to the `employee_bank_accounts` sibling (row materialized only when at least one field is sent); each dependent's plan block behaves identically one level down (`dependent_health_plans`).",
+			Description: "Creates an employee backed by the SAME shared Person identity the User role uses. Because the person is deduplicated by `document`, this POST is an UPSERT: when the person already exists (e.g. created as a User), it gains its employee role — shared fields update last-write-wins, existing addresses are deduped against the request's. Re-POSTing the same document for a person who already has an ACTIVE employee returns 409; an ARCHIVED employee is invisible to the insert (DeletedAt is delete) and the shared-ID remnant vetoes the write — the same 409, with `PATCH /employees/:id/unarchive` as the explicit way back. The bank block persists to the `employee_bank_accounts` sibling (row materialized only when at least one field is sent); each dependent's plan block behaves identically one level down (`dependent_health_plans`).",
 			Tags:        []string{"Employees"},
 		},
 		fwopenapi.RequirePermission("employees:write"))
@@ -104,7 +104,7 @@ func MountEmployees(
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
 			Summary:     "Archive an employee (cascade children)",
-			Description: "Soft delete via `deleted_at = NOW()`. Aggregate-aware: the same TX archives every active dependent and job-history entry. The shared Person base converges per role lifecycle — it archives only when the LAST active role of that identity goes (keep-by-default across roles). Symmetric inverse of `/unarchive`.",
+			Description: "Archive via `deleted_at = NOW()`. Aggregate-aware: the same TX archives every active dependent and job-history entry. The shared Person base converges per role lifecycle — it archives only when the LAST active role of that identity goes (keep-by-default across roles). Symmetric inverse of `/unarchive`.",
 			Tags:        []string{"Employees"},
 		},
 		fwopenapi.RequirePermission("employees:archive"))

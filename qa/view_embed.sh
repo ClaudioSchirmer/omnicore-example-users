@@ -459,7 +459,7 @@ sec "9. Archive / unarchive"
 ##############################################################################
 title "9.1 archive the SOURCE — ONE archived rule, every segment"
 # The rule: a default read hides an archived entry in EVERY segment whose source
-# schema declares SoftDelete, and ?includeArchived=true brings them all back —
+# schema declares DeletedAt, and ?includeArchived=true brings them all back —
 # the same contract a native child collection and a ComposedView leg follow. A
 # materialized segment is not an exception.
 curl -sS -o /dev/null -X PATCH "$BASE/qa/lens-brands/$BRAND/archive"
@@ -472,8 +472,8 @@ title "9.1b the archived source is hidden TWO HOPS out as well"
 [ -z "$(jelem "$KIT_URL" "left lens v2" "brand.name")" ] && ok "hop 2: nested segment hidden by default" || bad "hop 2 still shows the archived source"
 [ "$(jelem "$KIT_URL?includeArchived=true" "left lens v2" "brand.name")" = "Zeiss RENAMED" ] && ok "hop 2: ?includeArchived brings it back" || bad "hop 2 includeArchived failed"
 
-title "9.1c a source WITHOUT a declared soft-delete is never filtered"
-# The gadgets view declares SoftDelete, but the upstream_items mirror the other
+title "9.1c a source WITHOUT a declared DeletedAt is never filtered"
+# The gadgets view declares DeletedAt, but the upstream_items mirror the other
 # fixtures embed does NOT — and that asymmetry is the rule itself: no declaration,
 # no filtering. Asserted here on the segment that DOES declare one, by proving the
 # ACTIVE sibling survives untouched beside the archived one.

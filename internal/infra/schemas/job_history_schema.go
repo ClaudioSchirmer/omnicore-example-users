@@ -16,7 +16,7 @@ func JobHistorySchema() *core.TableSchema {
 		Field("Department", "department").
 		Field("HiredAt", "hired_at").
 		Field("TerminatedAt", "terminated_at").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

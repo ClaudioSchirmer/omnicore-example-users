@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// ArchiveUserCustomCommand triggers a soft-delete in the manual showcase chain.
+// ArchiveUserCustomCommand triggers a DeletedAt in the manual showcase chain.
 // DocumentKey comes from the /:email path segment and is populated by the route
 // handler before Dispatch.
 type ArchiveUserCustomCommand struct {

@@ -17,7 +17,7 @@ func DependentSchema() *core.TableSchema {
 		Field("Name", "name").
 		Field("BirthDate", "birth_date").
 		Field("Relationship", "relationship").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		Sibling(core.NewSiblingSchema[appdomain.Dependent]("dependent_health_plans").

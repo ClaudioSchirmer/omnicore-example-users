@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// UnarchiveUserCommand restores a soft-deleted user. ID comes from the URL path.
+// UnarchiveUserCommand restores a archived user. ID comes from the URL path.
 type UnarchiveUserCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the hook for ctx → business translation on the unarchive verb.

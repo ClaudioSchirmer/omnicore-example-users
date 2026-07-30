@@ -22,7 +22,7 @@ func CatalogSchema() *fwdb.TableSchema {
 		Revision("revision").
 		Field("Name", "name").
 		Field("FeaturedItemID", "featured_item_id").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		Child(CatalogLineSchema())
@@ -37,7 +37,7 @@ func CatalogLineSchema() *fwdb.TableSchema {
 		ParentID("catalog_id").
 		Field("ItemID", "item_id").
 		Field("Note", "note").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

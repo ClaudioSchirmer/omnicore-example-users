@@ -219,7 +219,7 @@ func MountUsersCustom(
 		fwopenapi.RouteSpecOf[requests.UserCustomKeyRequest, fwresponses.None](fiber.StatusNoContent),
 		fwopenapi.Doc{
 			Summary:     "Archive a user by document (manual showcase)",
-			Description: "Manual variant of /users/:id/archive keyed by document. Aggregate-aware soft delete; the same TX archives every active address. Symmetric inverse of `/unarchive`.",
+			Description: "Manual variant of /users/:id/archive keyed by document. Aggregate-aware archive; the same TX archives every active address. Symmetric inverse of `/unarchive`.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("users:archive"))

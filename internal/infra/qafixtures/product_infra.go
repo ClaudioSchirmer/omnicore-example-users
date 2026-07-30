@@ -24,7 +24,7 @@ func ProductSchema() *fwdb.TableSchema {
 		Field("Category", "category").
 		Field("PriceCents", "price_cents").
 		Field("Weight", "weight").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

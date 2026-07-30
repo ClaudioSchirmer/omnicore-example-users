@@ -22,7 +22,7 @@ import (
 //
 //	POST  /qa/products               Auto insert (ProductService injected —
 //	                                 the grouped-facts rule fires in BuildRules)
-//	PATCH /qa/products/:id/archive   soft-delete (folds the row out of the stats)
+//	PATCH /qa/products/:id/archive   DeletedAt (folds the row out of the stats)
 //	PATCH /qa/products/:id/unarchive restore
 //	GET   /qa/products/stats         ungrouped + per-category scalar facts
 //	                                 (Aggregate + AggregateBy, whole spec set)
@@ -59,7 +59,7 @@ func MountProducts(
 		},
 		fwopenapi.RequirePermission("products:write"))
 
-	// Archive / Unarchive — the soft-delete pair the stats suite uses to prove
+	// Archive / Unarchive — the DeletedAt pair the stats suite uses to prove
 	// the active-only scope gate rides the grouped SELECT.
 	archiveH, archiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
 		fwresponses.NoBody,
@@ -70,8 +70,8 @@ func MountProducts(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
-			Summary:     "Archive (soft-delete) a product",
-			Description: "Soft-deletes the product: it folds out of the active stats (default scope) but stays visible under ?includeArchived=true.",
+			Summary:     "Archive (DeletedAt) a product",
+			Description: "DeletedAts the product: it folds out of the active stats (default scope) but stays visible under ?includeArchived=true.",
 			Tags:        []string{"QA Products"},
 		},
 		fwopenapi.RequirePermission("products:archive"))
@@ -86,7 +86,7 @@ func MountProducts(
 		unarchiveH, unarchiveSpec,
 		fwopenapi.Doc{
 			Summary:     "Unarchive a product",
-			Description: "Restores a soft-deleted product — it folds back into the active stats.",
+			Description: "Restores a archived product — it folds back into the active stats.",
 			Tags:        []string{"QA Products"},
 		},
 		fwopenapi.RequirePermission("products:archive"))

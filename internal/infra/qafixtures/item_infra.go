@@ -23,7 +23,7 @@ func ItemSchema() *fwdb.TableSchema {
 		Field("AccountID", "account_id").
 		Field("CatalogID", "catalog_id").
 		Field("Label", "label").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

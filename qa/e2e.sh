@@ -335,7 +335,7 @@ show "3.1 EntityAlreadyAddedNotification (retry Bob's document 10000000002, acti
   "addresses":[{"label":"home","street":"Other","number":"2","neighborhood":"X","city":"London","state":"England","zipCode":"SW1A 1AA","country":"GB"}]
 }' 409
 
-# 3.2 demonstrates that an ARCHIVED role is NOT revived by POST: soft-delete is
+# 3.2 demonstrates that an ARCHIVED role is NOT revived by POST: DeletedAt is
 # delete, so the archived user is invisible to the insert probe; the write
 # proceeds and the shared-PK remnant (user PK IS the person id) collides on the
 # primary key, which the repository's ConstraintBinding maps to the same 409 as
@@ -850,7 +850,7 @@ show "10.5b GET /users/USER_C default reader (unarchived → active → 200)" GE
 # UNARCHIVED re-upserts clearing deleted_at via SyncEngine, then the
 # standard GET returns 200. Using USER_A keeps section 10 self-contained:
 # USER_C is left archived and its email "anna@example.com" is still held
-# by a sibling active user from the 3.2 soft-delete-aware uniqueness test,
+# by a sibling active user from the 3.2 DeletedAt-aware uniqueness test,
 # so unarchiving USER_C would 409.
 show "10.6 PATCH /users/USER_A/archive (re-archive to exercise the query-side cycle)" PATCH "/users/$USER_A/archive" "" 204
 
@@ -915,7 +915,7 @@ show "11.3 PUT /showcase/users-custom/10000000011 (full replace — no Document 
 
 show "11.4 PATCH /showcase/users-custom/10000000011 (name only)" PATCH /showcase/users-custom/10000000011 '{"name":"Mike Patched"}' 200
 
-show "11.5 PATCH /showcase/users-custom/10000000011/archive (aggregate-aware soft-delete)" PATCH /showcase/users-custom/10000000011/archive "" 204
+show "11.5 PATCH /showcase/users-custom/10000000011/archive (aggregate-aware DeletedAt)" PATCH /showcase/users-custom/10000000011/archive "" 204
 show "11.6 PATCH /showcase/users-custom/10000000011/unarchive (FindArchivedByDocument path)" PATCH /showcase/users-custom/10000000011/unarchive "" 204
 show "11.7 DELETE /showcase/users-custom/10000000011 (hard delete — 204 No Content)" DELETE /showcase/users-custom/10000000011 "" 204
 

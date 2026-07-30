@@ -8,7 +8,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
 )
 
-// ArchiveUserCustomCommandHandler is the manual soft-delete handler. State transition,
+// ArchiveUserCustomCommandHandler is the manual DeletedAt handler. State transition,
 // not field mutation — there is no apply closure; cmd.ApplyTo lands AFTER
 // FindByDocument and BEFORE GetArchivable as the seam for future ctx → authz
 // translation, then GetArchivable snapshots the entity (so audit logs

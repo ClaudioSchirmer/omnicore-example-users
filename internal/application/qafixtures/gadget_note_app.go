@@ -46,7 +46,7 @@ type InsertGadgetNoteResult struct {
 
 var _ pipeline.InsertCommand[*qadomain.GadgetNote, InsertGadgetNoteResult] = (*InsertGadgetNoteCommand)(nil)
 
-// ArchiveGadgetNoteCommand / UnarchiveGadgetNoteCommand are the soft-delete
+// ArchiveGadgetNoteCommand / UnarchiveGadgetNoteCommand are the DeletedAt
 // pair, exercised by the composed suite: an archived note vanishes from the
 // composed `Notes` segment on default reads (the leg's own gate) and returns
 // under ?includeArchived — the R8 per-leg behavior, observed end to end.

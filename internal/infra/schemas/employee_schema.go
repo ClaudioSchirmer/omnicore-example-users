@@ -22,7 +22,7 @@ func EmployeeSchema() *core.TableSchema {
 		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("EmployeeNumber", "employee_number").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		Sibling(core.NewSiblingSchema[*appdomain.Employee]("employee_bank_accounts").

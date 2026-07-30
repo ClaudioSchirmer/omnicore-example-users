@@ -23,7 +23,7 @@ func UserSchema() *core.TableSchema {
 		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("UserName", "user_name").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		Sibling(core.NewSiblingSchema[*appdomain.User]("user_configurations").

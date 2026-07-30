@@ -54,7 +54,7 @@ type InsertProductResult struct {
 
 var _ pipeline.InsertCommand[*qadomain.Product, InsertProductResult] = (*InsertProductCommand)(nil)
 
-// ArchiveProductCommand / UnarchiveProductCommand — the soft-delete pair, so
+// ArchiveProductCommand / UnarchiveProductCommand — the DeletedAt pair, so
 // QA can prove archived rows fold out of (and back into) the grouped facts.
 type ArchiveProductCommand struct{ pipeline.CommandByIDBase }
 

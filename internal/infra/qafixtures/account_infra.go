@@ -27,7 +27,7 @@ func accountBase() *fwdb.TableSchema {
 		Field("DisplayName", "display_name").
 		Field("FeaturedItemID", "featured_item_id").
 		NaturalID("account_ref").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		OrphanPolicy(fwdb.DeleteWhenUnreferenced).
 		Child(AccountLineSchema())
 }
@@ -41,7 +41,7 @@ func AccountLineSchema() *fwdb.TableSchema {
 		ParentID("account_id").
 		Field("ItemID", "item_id").
 		Field("Note", "note").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }
@@ -55,7 +55,7 @@ func AccountHolderSchema() *fwdb.TableSchema {
 		Revision("revision").
 		SharedBase(accountBase(), "id").
 		Field("HolderName", "holder_name").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

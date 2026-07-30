@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// UnarchiveEmployeeCommand restores a soft-deleted employee (symmetric
+// UnarchiveEmployeeCommand restores a archived employee (symmetric
 // cascade to the children archived alongside it). ID comes from the URL path.
 type UnarchiveEmployeeCommand struct{ pipeline.CommandByIDBase }
 
