@@ -308,6 +308,10 @@ N=$(jcount "$BASE/qa/lens-parts?gadget.code=VE-G1")
 [ "$N" = "1" ] && ok "gadget.code=VE-G1 ⇒ exactly the matching row" || bad "1:1 segment filter returned $N rows"
 [ "$(jpath "$BASE/qa/lens-parts?gadget.code=VE-G1" "label")" = "left lens v2" ] && ok "the row returned is the right one" || bad "wrong row returned"
 
+title "5.2b filter INTO the 1:1 segment BY ITS IDENTITY (gadget.id) — the embedded view's own id, deep"
+[ "$(jcount "$BASE/qa/lens-parts?gadget.id=$GADGET")" = "1" ] && ok "gadget.id=<id> ⇒ exactly the matching row (deep view-on-view segment id is queryable)" || bad "deep segment id filter wrong"
+[ "$(jcount "$BASE/qa/lens-parts?gadget.id=no-such-gadget")" = "0" ] && ok "gadget.id=bogus ⇒ 0 rows (no false positive)" || bad "deep segment id filter false positive"
+
 title "5.3 the same filter with an operator + a match-nothing value"
 [ "$(jcount "$BASE/qa/lens-parts?gadget.code.startswith=VE-")" -ge 1 ] && ok "startswith on a segment field works" || bad "segment operator failed"
 [ "$(jcount "$BASE/qa/lens-parts?gadget.code=NOPE")" = "0" ] && ok "match-nothing removes the ROW (composed leg would keep it)" || bad "match-nothing kept rows"
@@ -421,6 +425,10 @@ K=$(jkeys "$BASE/qa/lens-parts?fields=label&label=spare" "")
 title "7.2 into a 1:1 segment"
 K=$(jkeys "$BASE/qa/lens-parts?fields=label,gadget.code&gadget.code=VE-G1" "gadget")
 [ "$K" = "code" ] && ok "segment pruned to gadget.code ($K)" || bad "segment ?fields= returned: $K"
+
+title "7.2b into a 1:1 segment BY ID — gadget.id kept when asked (dropped otherwise, see 7.2)"
+K=$(jkeys "$BASE/qa/lens-parts?fields=label,gadget.id&gadget.code=VE-G1" "gadget")
+[ "$K" = "id" ] && ok "segment pruned to gadget.id ($K)" || bad "segment ?fields=gadget.id returned: $K"
 
 title "7.3 TWO levels deep (kits ⇒ parts ⇒ gadget)"
 K=$(jelem_keys "$BASE/qa/lens-kits?fields=name,parts.label,parts.gadget.code&parts.label=left%20lens%20v2" "left lens v2" "gadget")

@@ -305,6 +305,41 @@ feat = (d[0] if d else {}).get("featuredItem") or {}
 print("OK" if feat.get("id") == sys.argv[2] else "BAD %s" % feat)' "$GET_TMP" "$FC_ID")
 [ "$CHK" = "OK" ] && ok "?fields=…featuredItem.id KEEPS the mirror-segment id (==$FC_ID)" || bad "mirror-segment id dropped when requested: $CHK"
 
+title "4.4c Embed 1:N segment IDENTITY (items[].id) — the SAME external id path as the 1:1"
+# The 1:N array elements carry the external source id too (promoted from each
+# element's `_id`). Row-select via filter AND obey ?fields=, on both view kinds.
+ACC_IT=$(curl -sS "$ACC_URL" | python3 -c 'import sys,json; its=(json.load(sys.stdin).get("data") or {}).get("items") or []; print(its[0].get("id","") if its else "")')
+CAT_IT=$(curl -sS "$CAT_URL" | python3 -c 'import sys,json; its=(json.load(sys.stdin).get("data") or {}).get("items") or []; print(its[0].get("id","") if its else "")')
+{ [ -n "$ACC_IT" ] && [ -n "$CAT_IT" ]; } || bad "could not read a 1:N items[].id from the full docs (acc='$ACC_IT' cat='$CAT_IT')"
+lget "$ACCLIST" "items.id=$ACC_IT"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "account ?items.id=<itemId> → selects the account (1:N mirror-segment id queryable, shared-base)" || bad "1:N mirror id not queryable on shared-base (count=$(lcount))"
+lget "$CATLIST" "items.id=$CAT_IT"; [ "$(lcount)" = "1" ] && ok "catalog ?items.id=<itemId> → selects the catalog (1:N mirror-segment id queryable, normal view)" || bad "1:N mirror id not queryable on normal view (count=$(lcount))"
+lget "$ACCLIST" "items.id=no-such-item"; [ "$(lcount)" = "0" ] && ok "?items.id=bogus → 0 rows (no false positive)" || bad "1:N mirror id filter false positive (count=$(lcount))"
+lget "$ACCLIST" "accountRef=acct-001" "fields=displayName,items.label"
+CHK=$(python3 -c '
+import sys, json
+d = json.load(open(sys.argv[1])).get("data") or []
+its = (d[0] if d else {}).get("items") or []
+# every 1:N element carries label but NOT id when id was not requested
+ok = bool(its) and all(("label" in it) and ("id" not in it) for it in its)
+print("OK" if ok else "BAD %s" % (its[0] if its else None))' "$GET_TMP")
+[ "$CHK" = "OK" ] && ok "?fields=…items.label DROPS the 1:N segment id (stripped like any field)" || bad "1:N segment id leaked past ?fields=: $CHK"
+lget "$ACCLIST" "accountRef=acct-001" "fields=displayName,items.id"
+CHK=$(python3 -c '
+import sys, json
+d = json.load(open(sys.argv[1])).get("data") or []
+its = (d[0] if d else {}).get("items") or []
+ok = bool(its) and all(bool(it.get("id")) for it in its)
+print("OK" if ok else "BAD %s" % (its[0] if its else None))' "$GET_TMP")
+[ "$CHK" = "OK" ] && ok "?fields=…items.id KEEPS the 1:N segment id" || bad "1:N segment id dropped when requested: $CHK"
+
+title "4.4d SharedBaseView root id — queryable + strippable (the base id, == the view _id)"
+# The shared-base root id is a stored physical column (own[pk] in payload_project),
+# NOT an _id-only value — so it obeys filter + ?fields= exactly like the normal view.
+lget "$ACCLIST" "id=$ACC_ID"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "account ?id=<baseId> → selects the account (shared-base root id queryable)" || bad "shared-base root id not queryable (count=$(lcount))"
+lget "$ACCLIST" "id=no-such-account"; [ "$(lcount)" = "0" ] && ok "?id=bogus → 0 rows (no false positive)" || bad "shared-base root id filter false positive (count=$(lcount))"
+lget "$ACCLIST" "accountRef=acct-001" "fields=displayName"; [ "$(lhaskey 0 id)" = n ] && ok "?fields=displayName DROPS the shared-base root id" || bad "shared-base root id leaked past ?fields=displayName"
+lget "$ACCLIST" "accountRef=acct-001" "fields=id,displayName"; { [ "$(lhaskey 0 id)" = y ] && [ "$(lfield 0 id)" = "$ACC_ID" ]; } && ok "?fields=id,displayName KEEPS the shared-base root id (==$ACC_ID)" || bad "shared-base root id dropped when requested"
+
 title "4.5 Embed 1:N segment filter (items.label) — array-element match selects the row"
 lget "$ACCLIST" "items.label=A1"; { [ "$(lcount)" = "1" ] && [ "$(lfield 0 accountRef)" = "acct-001" ]; } && ok "account ?items.label=A1 → the account owning it (1:N embed)" || bad "1:N segment filter (account) wrong"
 lget "$CATLIST" "items.label=C1"; [ "$(lcount)" = "1" ] && ok "catalog ?items.label=C1 → the catalog owning it (1:N embed, normal view)" || bad "1:N segment filter (catalog) wrong"

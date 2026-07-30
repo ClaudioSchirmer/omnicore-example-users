@@ -276,6 +276,9 @@ type AccountLineFilter struct {
 
 // FindAccountsRequest is the wire allowlist of GET /qa/accounts (+ .csv/.xlsx).
 type FindAccountsRequest struct {
+	// ID (the shared-base root id, == the view `_id`) is allowlisted for filtering
+	// to prove the SharedBaseView root identity is queryable, like the normal view.
+	ID          *string `query:"id"          filter:"eq"`
 	AccountRef  *string `query:"accountRef"  filter:"eq,startswith"`
 	DisplayName *string `query:"displayName" filter:"eq,icontains"`
 
