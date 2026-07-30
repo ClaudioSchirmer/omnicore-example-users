@@ -43,12 +43,10 @@ func (c *Catalog) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 // write model normalized (the line stores only the ParentID). Value type so the
 // framework's aggregate primitives compare by field equality.
 type CatalogLine struct {
-	ID     domain.ID
+	domain.Managed
 	ItemID *string // ParentID → upstream_items._id; the EmbedInChild join key (nullable)
 	Note   string
 }
-
-func (l CatalogLine) GetID() domain.ID { return l.ID }
 
 func (l CatalogLine) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 	r.IfInsertOrUpdate(func() {

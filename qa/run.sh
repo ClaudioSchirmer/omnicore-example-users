@@ -218,8 +218,11 @@ render_report() {
 }
 
 # progress_footer — the live status line stamped after each suite completes.
+# Counts only completed SUITE runs (against EXPECTED_RUNS = N_SUITES × N_BACKENDS),
+# excluding the fw/ex-integration preflight rows and any ABORT rows — same basis as
+# the final verdict, so the live count never overshoots the scheduled total.
 progress_footer() {
-  local done; done=$(cat "$LOG_DIR"/rows-*.tsv 2>/dev/null | grep -c .)
+  local done; done=$(cat "$LOG_DIR"/rows-*.tsv 2>/dev/null | grep -vE $'^(fw|ex)-integration\t' | grep -cv $'\tABORT\t')
   echo "_🔄 Running… ${done}/${EXPECTED_RUNS} runs completed (refreshes after each suite)._"
 }
 
@@ -629,7 +632,11 @@ elapsed=$(( $(date +%s) - overall_start ))
 
 # ── Accounting from the per-lane rows ────────────────────────────────────────
 cat "$LOG_DIR"/rows-*.tsv > "$LOG_DIR/rows.tsv" 2>/dev/null || : > "$LOG_DIR/rows.tsv"
-COMPLETED_RUNS=$(grep -cv $'\tABORT\t' "$LOG_DIR/rows.tsv" 2>/dev/null); COMPLETED_RUNS=${COMPLETED_RUNS:-0}
+# COMPLETED counts only scheduled SUITE runs — the fw-integration / ex-integration
+# preflight rows are extra (not part of N_SUITES × N_BACKENDS), so excluding them
+# keeps COMPLETED comparable to EXPECTED_RUNS (a fully-green matrix lands
+# COMPLETED == EXPECTED == 0 missing). A RED preflight still trips RED_RUNS below.
+COMPLETED_RUNS=$(grep -vE $'^(fw|ex)-integration\t' "$LOG_DIR/rows.tsv" 2>/dev/null | grep -cv $'\tABORT\t'); COMPLETED_RUNS=${COMPLETED_RUNS:-0}
 RED_RUNS=$(awk -F'\t' '$5 != "OK" && $5 != "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); RED_RUNS=${RED_RUNS:-0}
 SKIP_RUNS=$(awk -F'\t' '$5 == "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); SKIP_RUNS=${SKIP_RUNS:-0}
 MISSING_RUNS=$((EXPECTED_RUNS - COMPLETED_RUNS))

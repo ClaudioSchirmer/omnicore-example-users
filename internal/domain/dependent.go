@@ -15,7 +15,7 @@ import (
 // Value type (not pointer) so the framework's typed primitives track it by
 // value; identity for that tracking is IsSameBusinessIdentity — as with Address.
 type Dependent struct {
-	ID           domain.ID
+	domain.Managed
 	Name         string    `labelKey:"DependentNameField"`
 	BirthDate    time.Time `labelKey:"DependentBirthDateField"`
 	Relationship string    `labelKey:"DependentRelationshipField"`
@@ -27,8 +27,6 @@ type Dependent struct {
 	HealthPlanCard     *string    `labelKey:"DependentHealthPlanCardField"`
 	HealthPlanExpiry   *time.Time `labelKey:"DependentHealthPlanExpiryField"`
 }
-
-func (d Dependent) GetID() domain.ID { return d.ID }
 
 // IsSameBusinessIdentity is the framework-required identity for change tracking
 // (replacing the former reflect.DeepEqual guess). A Dependent has no natural key

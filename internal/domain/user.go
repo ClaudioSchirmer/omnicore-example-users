@@ -212,7 +212,7 @@ func (u *User) ChangeAddressByID(addressID string, replacement Address) {
 	domain.EnsureInitialized(u)
 	for _, addr := range domain.GetCurrentItemsOf[Address](&u.AggregateRoot) {
 		if addr.GetID().Value() == addressID {
-			replacement.ID = domain.NewID(addressID)
+			replacement.SetID(domain.NewID(addressID))
 			domain.ChangeAggregateChild(u, addr, replacement)
 			return
 		}

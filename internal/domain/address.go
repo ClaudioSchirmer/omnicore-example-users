@@ -18,7 +18,7 @@ import (
 // Label and Complement are *string because the corresponding columns in
 // addresses are nullable. Same convention as User.Phone: nil → NULL.
 type Address struct {
-	ID           domain.ID
+	domain.Managed
 	Label        *string `labelKey:"AddressLabelField"`
 	Street       string  `labelKey:"AddressStreetField"`
 	Number       string  `labelKey:"AddressNumberField"`
@@ -29,8 +29,6 @@ type Address struct {
 	ZipCode      string  `labelKey:"AddressZipCodeField"`
 	Country      string  `labelKey:"AddressCountryField"`
 }
-
-func (a Address) GetID() domain.ID { return a.ID }
 
 // IsSameBusinessIdentity is the User's notion of "same address": the same
 // real-world place — Country+ZipCode+Street+Number — regardless of

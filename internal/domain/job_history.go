@@ -13,14 +13,12 @@ import (
 //
 // TerminatedAt is *time.Time: nil = the position is the current one.
 type JobHistory struct {
-	ID           domain.ID
+	domain.Managed
 	JobTitle     string     `labelKey:"JobHistoryJobTitleField"`
 	Department   string     `labelKey:"JobHistoryDepartmentField"`
 	HiredAt      time.Time  `labelKey:"JobHistoryHiredAtField"`
 	TerminatedAt *time.Time `labelKey:"JobHistoryTerminatedAtField"`
 }
-
-func (h JobHistory) GetID() domain.ID { return h.ID }
 
 // IsSameBusinessIdentity is the framework-required identity for change tracking
 // (replacing the former reflect.DeepEqual guess). A JobHistory has no natural key

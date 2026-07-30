@@ -75,11 +75,11 @@ func TestInsertUserCustomCommandHandler_WarmUpsert(t *testing.T) {
 		UserName: "jane",
 	}
 	existing.AggregateConstructor([]domain.AggregateValueObject{
-		appdomain.Address{
-			ID: domain.NewID(uuid.NewString()), Street: "1 Infinite Loop", Number: "1",
+		domain.WithID(appdomain.Address{
+			Street: "1 Infinite Loop", Number: "1",
 			Neighborhood: "Mariani", City: "Cupertino", State: "CA",
 			ZipCode: "95014", Country: "US",
-		},
+		}, domain.NewID(uuid.NewString())),
 	})
 	repo := &fakeRepo{foundUser: existing}
 	h := &InsertUserCustomCommandHandler{Repo: repo, Service: fakeService{}}
