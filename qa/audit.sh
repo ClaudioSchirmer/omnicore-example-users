@@ -393,9 +393,9 @@ sec "3. Full Update — PUT /users/:id (replaces addresses)"
 # calls domain.ReplaceAggregateChildrenOf, which marks every loaded child as
 # REMOVED (status) and adds the new ones with status ADDED. The persister
 # emits the corresponding SQL — UPDATE addresses SET deleted_at=NOW() for the
-# REMOVED slot (soft-delete; row stays in the DB, recoverable via unarchive),
+# REMOVED slot (DeletedAt; row stays in the DB, recoverable via unarchive),
 # INSERT INTO addresses for the new ones. SQL-grounded vocabulary means the
-# audit reflects the SQL: op=archived for the soft-deleted slot, op=inserted
+# audit reflects the SQL: op=archived for the archived slot, op=inserted
 # for the new ones. The op=updated case (UPDATE col=val) is exercised by the
 # dedicated PUT /users/:id/addresses/:addressId endpoint at section 8.
 PUT_BODY='{
@@ -422,7 +422,7 @@ if phone_changes:
     eq(phone_changes[0].get("to"),   "14155553333", "phone.to")
 addrs = (a.get("children") or {}).get("Address") or []
 ops = sorted(e.get("op","") for e in addrs)
-# SQL-grounded: one slot soft-deleted (UPDATE deleted_at=NOW → archived) +
+# SQL-grounded: one slot archived (UPDATE deleted_at=NOW → archived) +
 # two new (INSERT INTO addresses → inserted) = ["archived","inserted","inserted"].
 eq(ops, ["archived","inserted","inserted"], "children.Address ops (SQL-grounded)")
 archived = [e for e in addrs if e.get("op") == "archived"]

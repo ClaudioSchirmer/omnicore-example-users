@@ -24,7 +24,7 @@ func GadgetNoteSchema() *fwdb.TableSchema {
 		Field("GadgetID", "gadget_id").
 		Field("Text", "text").
 		Field("Kind", "kind").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

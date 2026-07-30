@@ -343,7 +343,7 @@ wait_person "document=$D1&onlyTotal=true" "d['pagination']['total'] == 1" && \
 sec "8. Hard-delete of ONE role: the segment vanishes (payload-FK recompose)"
 ####################################
 # The employee is still ARCHIVED from 7.1 — and an archived row is invisible
-# to the DELETE's load-first read (soft-delete is delete). Revive it first.
+# to the DELETE's load-first read (DeletedAt is delete). Revive it first.
 req PATCH "/employees/$USER_ID/unarchive"
 expect_status "8.0 unarchive the employee (archived rows cannot be hard-deleted)" 204
 req DELETE "/employees/$USER_ID"

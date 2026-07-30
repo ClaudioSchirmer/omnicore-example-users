@@ -30,7 +30,7 @@ func LensBrandSchema() *fwdb.TableSchema {
 		ID("id").
 		Revision("revision").
 		Field("Name", "name").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }
@@ -50,7 +50,7 @@ func LensKitSchema() *fwdb.TableSchema {
 		ID("id").
 		Revision("revision").
 		Field("Name", "name").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }
@@ -67,7 +67,7 @@ func LensPartSchema() *fwdb.TableSchema {
 		Field("BrandID", "brand_id").
 		Field("Label", "label").
 		Field("Slot", "slot").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

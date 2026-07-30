@@ -17,7 +17,7 @@
 # the segment (R2); (4) ?sort into a segment → 400 (R3); (5) MaxLinkManyLimit
 # truncates deterministically in the declared order (first 3 by text); (6) the
 # archived gate is per leg — an archived note leaves the segment on default
-# reads, returns under ?includeArchived (the mirror leg has no soft-delete: the
+# reads, returns under ?includeArchived (the mirror leg has no DeletedAt: the
 # knob is a no-op there); (7) keyset cursors round-trip WITH a segment filter,
 # and a changed segment filter invalidates the cursor (composed context hash);
 # (8) ?onlyTotal short-circuits; (9) ?fields= projects into segments; (10) the
@@ -251,7 +251,7 @@ curl -sS -o /tmp/qa-cv.json.${BACKEND:-default} "$BASE/qa/gadgets-full/$GB?inclu
 BTX=$(jget '",".join(n["text"] for n in d["data"]["notes"])' /tmp/qa-cv.json.${BACKEND:-default})
 MB=$(jget 'd["data"]["upstreamMirror"]["code"]' /tmp/qa-cv.json.${BACKEND:-default})
 [ "$BTX" = "b-pub" ] && ok "?includeArchived surfaces the archived note (overlay still hides internal)" || bad "includeArchived segment wrong: '$BTX'"
-[ "$MB" = "CV-002" ] && ok "the mirror leg has no soft-delete — the knob is a no-op there" || bad "mirror broken under includeArchived ('$MB')"
+[ "$MB" = "CV-002" ] && ok "the mirror leg has no DeletedAt — the knob is a no-op there" || bad "mirror broken under includeArchived ('$MB')"
 
 title "5.2 Remove B's upstream doc → mirror is LEFT-null; the row survives"
 docker exec omnicore-qa-mongo mongosh "$QA_MONGO_DB" --quiet --eval "db.getCollection('$(qa_view_coll upstream_gadgets)').deleteOne({code:'CV-002'})" >/dev/null 2>&1

@@ -20,7 +20,7 @@ func GadgetKitSchema() *fwdb.TableSchema {
 		ID("id").
 		Revision("revision").
 		Field("Name", "name").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		Child(GadgetKitLineSchema())
@@ -34,7 +34,7 @@ func GadgetKitLineSchema() *fwdb.TableSchema {
 		ParentID("gadget_kit_id").
 		Field("GadgetID", "gadget_id").
 		Field("Note", "note").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }

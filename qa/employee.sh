@@ -18,8 +18,8 @@
 #   7. The same handlers through GraphQL (query + all six mutations).
 #   9-12. The CROSS-ROLE matrix: last-write-wins on shared fields with fan-out
 #      in both directions, base children edited through either role, the
-#      soft-delete matrix in both orders (an ARCHIVED role is invisible to a
-#      re-POST — soft-delete is delete; /unarchive is the only way back), the
+#      DeletedAt matrix in both orders (an ARCHIVED role is invisible to a
+#      re-POST — DeletedAt is delete; /unarchive is the only way back), the
 #      hard-delete matrix in both orders, and the archived-row refcount (an
 #      archived role still blocks the purge).
 #
@@ -592,7 +592,7 @@ ACT=$(qa_db_query "SELECT count(*) FROM addresses a JOIN persons p ON a.person_i
   || bad "active addresses = $ACT (want 1 — dedup failed)"
 
 ####################################
-sec "11. Cross soft-delete matrix — reverse order, base convergence, no POST revival"
+sec "11. Cross DeletedAt matrix — reverse order, base convergence, no POST revival"
 ####################################
 D11="30000000023"
 req POST /users "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"userName\":\"soft11\"}"
@@ -625,7 +625,7 @@ if [ "$ROW" = "1/1/1" ]; then ok "base revived; employee + dependent remain arch
 
 title "11.4 Re-POST over the ARCHIVED employee → invisible to the probe; shared-PK remnant vetoes → 409"
 req POST /employees "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"employeeNumber\":\"EMP-C11\"}"
-expect_status "re-POST over an archived employee (soft-delete is delete — no revival)" 409
+expect_status "re-POST over an archived employee (DeletedAt is delete — no revival)" 409
 EARCH=$(qa_db_query "SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NOT NULL;")
 [ "$EARCH" = "1" ] && ok "employee stays archived — the rejected POST applied nothing" || bad "employee archived rows = $EARCH"
 
@@ -730,11 +730,11 @@ DARCH=$(qa_db_query "SELECT count(*) FROM employee_dependents WHERE employee_id=
 AACT=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA4") AND deleted_at IS NULL;")
 AARCH=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA4") AND deleted_at IS NOT NULL;")
 [ "$DACT" = "2" ] && ok "2 active dependents" || bad "active dependents = $DACT (want 2)"
-[ "$DARCH" = "2" ] && ok "2 archived dependents (rows kept by soft-delete)" || bad "archived dependents = $DARCH (want 2)"
+[ "$DARCH" = "2" ] && ok "2 archived dependents (rows kept by DeletedAt)" || bad "archived dependents = $DARCH (want 2)"
 [ "$AACT" = "2" ] && ok "2 active addresses" || bad "active addresses = $AACT (want 2)"
 [ "$AARCH" = "1" ] && ok "1 archived address (row kept)" || bad "archived addresses = $AARCH (want 1)"
 MPLAN=$(qa_db_query "SELECT count(*) FROM dependent_health_plans hp JOIN employee_dependents d ON hp.id = d.id WHERE d.employee_id=$(qa_uuid_lit "$EIDA4") AND d.name = 'Maria' AND d.deleted_at IS NOT NULL;")
-[ "$MPLAN" = "1" ] && ok "removed Maria's A2b plan row survives on her archived child row (soft-delete keeps the 1:1 sibling)" \
+[ "$MPLAN" = "1" ] && ok "removed Maria's A2b plan row survives on her archived child row (DeletedAt keeps the 1:1 sibling)" \
                    || bad "archived-Maria plan rows = $MPLAN (want 1)"
 
 title "13.4 Default read shows ONLY active children — archived dependents + address stripped, no A2b leak"

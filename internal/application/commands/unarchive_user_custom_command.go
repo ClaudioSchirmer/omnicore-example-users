@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// UnarchiveUserCustomCommand restores a soft-deleted user in the manual
+// UnarchiveUserCustomCommand restores a archived user in the manual
 // showcase chain. DocumentKey comes from the /:email path segment.
 type UnarchiveUserCustomCommand struct {
 	pipeline.CommandBase

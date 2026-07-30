@@ -80,7 +80,7 @@ func MountLensBrands(
 		&handlers.ArchiveCommandHandler[*qadomain.LensBrand, *appqa.ArchiveLensBrandCommand, fwresults.None]{Repo: repo},
 		fiber.StatusOK)
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id/archive", archiveH, archiveSpec,
-		fwopenapi.Doc{Summary: "Archive a lens brand", Description: "Archived content is hidden on a default read in EVERY segment that materializes this brand, at any depth, and `?includeArchived=true` reveals it — the rule applies because the brand schema declares SoftDelete.", Tags: tags},
+		fwopenapi.Doc{Summary: "Archive a lens brand", Description: "Archived content is hidden on a default read in EVERY segment that materializes this brand, at any depth, and `?includeArchived=true` reveals it — the rule applies because the brand schema declares DeletedAt.", Tags: tags},
 		fwopenapi.RequirePermission("gadgets:archive"))
 
 	unarchiveH, unarchiveSpec := fwweb.CommandByIDSpec(d.Pipeline,
@@ -180,7 +180,7 @@ func MountLensParts(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
-			Summary:     "Archive (soft-delete) a lens part",
+			Summary:     "Archive (DeletedAt) a lens part",
 			Description: "The part's own document keeps its `deleted_at` (default reads hide it), and the archived element also LEAVES the kit's 1:N segment on a default read — one archived rule for every segment. `?includeArchived=true` brings it back, in the declared order. `DeleteOnArchive()` on the source view is the stronger option: archiving then REMOVES the document for every reader.",
 			Tags:        tags,
 		},
@@ -295,8 +295,8 @@ func MountLensKits(
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodPatch, "/:id/archive",
 		archiveH, archiveSpec,
 		fwopenapi.Doc{
-			Summary:     "Archive (soft-delete) a lens kit",
-			Description: "The kit's own soft-delete gate hides it from default reads; `?includeArchived=true` returns it with its segments intact.",
+			Summary:     "Archive (DeletedAt) a lens kit",
+			Description: "The kit's own DeletedAt gate hides it from default reads; `?includeArchived=true` returns it with its segments intact.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("gadgets:archive"))

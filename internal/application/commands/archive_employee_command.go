@@ -8,7 +8,7 @@ import (
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
-// ArchiveEmployeeCommand triggers a soft-delete (cascade to the role-owned
+// ArchiveEmployeeCommand triggers a DeletedAt (cascade to the role-owned
 // dependents/job history plus the shared base per convergeBase). ID comes from
 // the URL path. Unlike ArchiveUserCommand there is no Layer-2 owner-check
 // here — the Employee surface exercises Layer 1 only (the User surface

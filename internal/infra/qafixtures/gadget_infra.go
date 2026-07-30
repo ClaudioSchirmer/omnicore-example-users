@@ -27,7 +27,7 @@ import (
 )
 
 // GadgetSchema is the FLAT Go↔column map for the gadgets table: ID + four
-// business columns + the managed columns (soft-delete, created/updated). No
+// business columns + the managed columns (DeletedAt, created/updated). No
 // SharedBase, no children — the single-table write path.
 func GadgetSchema() *fwdb.TableSchema {
 	return fwdb.NewTableSchema[*qadomain.Gadget]("gadgets").
@@ -37,7 +37,7 @@ func GadgetSchema() *fwdb.TableSchema {
 		Field("Name", "name").
 		Field("Category", "category").
 		Field("Status", "status").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")
 }
@@ -101,17 +101,17 @@ func GadgetCappedView() *query.ViewDefinition {
 // the composer's one-to-one join (parent gadget.id → source _id) resolves the
 // mirror.
 //
-// SoftDelete("deleted_at") makes the mirror ARCHIVE-AWARE: the upstream gadget
-// soft-deletes, so an ARCHIVED event carries deleted_at populated and the mirror
+// DeletedAt("deleted_at") makes the mirror ARCHIVE-AWARE: the upstream gadget
+// archives, so an ARCHIVED event carries deleted_at populated and the mirror
 // must keep it to reflect the archive. The §8.5 boot guard enforces the pairing —
-// declaring the soft-delete column here REQUIRES the subscription filter to keep
+// declaring the DeletedAt column here REQUIRES the subscription filter to keep
 // it (or boot aborts), which is why the yaml filter lists deleted_at.
 func GadgetUpstreamMirrorSchema() *fwdb.TableSchema {
 	return fwdb.NewExternalSchema("upstream_gadgets").
 		ID("id").
 		Field("Code", "code").
 		Field("Name", "name").
-		SoftDelete("deleted_at")
+		DeletedAt("deleted_at")
 }
 
 // GadgetEmbeddedView is a FOURTH projection over the SAME `gadgets` root,

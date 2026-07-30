@@ -8,7 +8,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
 )
 
-// UnarchiveUserCustomCommandHandler restores a soft-deleted user. The lookup goes through
+// UnarchiveUserCustomCommandHandler restores a archived user. The lookup goes through
 // FindArchivedByDocument because the canonical FindByDocument filters
 // deleted_at IS NULL — an archived row would surface as NotFound. Hydrating
 // the archived aggregate (children included) before dispatch is what allows

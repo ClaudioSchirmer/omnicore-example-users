@@ -26,9 +26,9 @@ type Gadget struct {
 	Status   string
 }
 
-// Modes advertises the lifecycle verbs the aggregate supports. SoftDelete on
+// Modes advertises the lifecycle verbs the aggregate supports. DeletedAt on
 // the schema pairs with ModeArchive/ModeUnarchive (the framework cross-checks
-// Modes() ⟺ SoftDelete at repository construction).
+// Modes() ⟺ DeletedAt at repository construction).
 func (g *Gadget) Modes() []domain.EntityMode {
 	return []domain.EntityMode{
 		domain.ModeDisplay,

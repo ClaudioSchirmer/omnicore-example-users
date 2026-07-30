@@ -40,7 +40,7 @@ import (
 
 // PersonBase is the SharedBase: the deduplicated Person identity. Document is
 // the natural key — the framework derives the deterministic id UUIDv5(document)
-// from it (no read-back) and de-duplicates on it. SoftDelete on the base is the
+// from it (no read-back) and de-duplicates on it. DeletedAt on the base is the
 // recommended unified-lifecycle path: the base behaves as a mini-root over its
 // addresses, archived/unarchived/deleted in lock-step with its role via the
 // framework's convergeBase (so the addresses are gated by deleted_at exactly
@@ -64,7 +64,7 @@ func PersonBase() *core.TableSchema {
 		Field("Email", "email").
 		Field("Phone", "phone").
 		NaturalID("document").
-		SoftDelete("deleted_at").
+		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		OrphanPolicy(core.DeleteWhenUnreferenced).

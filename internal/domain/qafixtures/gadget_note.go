@@ -23,7 +23,7 @@ type GadgetNote struct {
 	Kind     string
 }
 
-// Modes advertises the lifecycle verbs; SoftDelete on the schema pairs with
+// Modes advertises the lifecycle verbs; DeletedAt on the schema pairs with
 // ModeArchive/ModeUnarchive so the composed leg's archived gate is exercisable.
 func (n *GadgetNote) Modes() []domain.EntityMode {
 	return []domain.EntityMode{
