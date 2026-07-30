@@ -9,7 +9,7 @@
 # materializing a filtered `upstream_gadgets` Mongo collection.
 #
 # Asserts: (1) an upstream event materializes the local projection carrying ONLY
-# the allow-listed fields (filter: [id, code, name]); (1.5) the COMPOSED read view
+# the allow-listed fields (fields: [id, code, name]); (1.5) the COMPOSED read view
 # `gadgets_embedded` one-to-one-embeds that projection under "upstreamMirror" and
 # serves it over GET /qa/gadgets-embedded/:id — proving the composition is
 # readable through a normal ViewReader endpoint, not just via a direct Mongo
@@ -44,7 +44,7 @@ twins = """  - topic: gadgets.events
     collection: upstream_gadgets_anon
     consumerGroup: omnicore-example-users-upstream-gadgets-anon
     workers: 1
-    filter: [id, code, name]
+    fields: [id, code, name]
     startFrom: earliest
     onUpstreamDelete: anonymize
     anonymizeFields: [name]
@@ -52,7 +52,7 @@ twins = """  - topic: gadgets.events
     collection: upstream_gadgets_keep
     consumerGroup: omnicore-example-users-upstream-gadgets-keep
     workers: 1
-    filter: [id, code, name]
+    fields: [id, code, name]
     startFrom: earliest
     onUpstreamDelete: keep
 """
@@ -176,7 +176,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
 done
 [ "$seen" = ok ] && ok "upstream_gadgets carries the projected gadget" || { bad "upstream projection never materialized"; tail -n 25 "$SERVER_LOG"; }
 
-title "1.3 The projection keeps ONLY the allow-listed fields (filter: [id, code, name])"
+title "1.3 The projection keeps ONLY the allow-listed fields (fields: [id, code, name])"
 HASCODE=$(mongo_up "var d=db.$UP_COLL.findOne({code:'UP-001'}); print(d && d.code ? 'y':'n')")
 HASNAME=$(mongo_up "var d=db.$UP_COLL.findOne({code:'UP-001'}); print(d && d.name ? 'y':'n')")
 HASCAT=$(mongo_up "var d=db.$UP_COLL.findOne({code:'UP-001'}); print(d && d.category ? 'y':'n')")
