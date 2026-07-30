@@ -289,5 +289,5 @@ ROWS=$(qa_db_query "SELECT COUNT(*) FROM omnicore_projection_failures WHERE topi
 [ "${ROWS:-0}" = "0" ] && ok "no view:* ripple failures for the fields family" || bad "ripple failures recorded: $ROWS"
 
 hr
-printf 'RESULT: \033[1;32m%d PASS\033[0m / \033[1;31m%d FAIL\033[0m\n' "$PASS" "$FAIL"
+printf '\033[1;37mRESULT\033[0m  PASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ]
