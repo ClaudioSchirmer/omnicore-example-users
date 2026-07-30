@@ -134,6 +134,9 @@ func (LensPartWriteResponse) FromResult(r appqa.LensPartResult) LensPartWriteRes
 // "Gadget.Code" → the physical "gadget.code" INSIDE the document. Unlike a
 // composed leg filter, a miss removes the ROW.
 type LensGadgetSegmentFilter struct {
+	// ID allowlists row-select by the embedded view's own id — the deep
+	// (view-on-view) segment identity, a stored physical column of the source view.
+	ID       *string `query:"id"       filter:"eq"`
 	Code     *string `query:"code"     filter:"eq,startswith"`
 	Name     *string `query:"name"     filter:"eq,icontains"`
 	Category *string `query:"category" filter:"eq"`
