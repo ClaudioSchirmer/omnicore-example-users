@@ -93,7 +93,7 @@ func (f *Employee) AggregateChildren() []domain.AggregateValueObject {
 func (f *Employee) AddAddress(addr Address, svc domain.Service) {
 	domain.EnsureInitialized(f)
 	for _, existing := range domain.GetCurrentItemsOf[Address](&f.AggregateRoot) {
-		if existing.sameBusinessIdentity(addr) {
+		if existing.IsSameBusinessIdentity(addr) {
 			return
 		}
 	}

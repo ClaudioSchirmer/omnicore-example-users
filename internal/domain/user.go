@@ -157,17 +157,15 @@ func (u *User) AggregateChildren() []domain.AggregateValueObject {
 // itself; a future UserService could come in as a dependency for external
 // lookups (e.g., "is this ZIP already used by another user?").
 //
-// Why the manual sameBusinessIdentity loop? The framework already rejects a
-// fully-equal duplicate inside AddAggregateChild (reflect.DeepEqual on the
-// whole struct → EntityAlreadyAddedNotification). That covers structural
-// equality but not the User's notion of "same address": two Address values
-// can differ on Label/Complement and still represent the same physical place
-// (Country+ZipCode+Street+Number). DeepEqual sees them as distinct; the
-// domain doesn't. Defining "same" is a per-aggregate invariant — Address as
-// a value type has no canonical identity, the consuming root does — so the
-// check lives here, in the root method, as orthodox DDD prescribes. If
-// another aggregate ever consumes Address with a different criterion (e.g.,
-// one address per country), its own AddAddress would carry its own rule.
+// Why the manual loop? The framework now rejects a same-identity duplicate
+// inside AddAggregateChild itself — via Address.IsSameBusinessIdentity, the very
+// same Country+ZipCode+Street+Number rule — but with a generic
+// EntityAlreadyAddedNotification. This loop runs first so the User answers with
+// its own, domain-specific DuplicateAddressNotification instead, and it leaves
+// room for a future UserService-backed cross-aggregate rule (e.g. "is this ZIP
+// already used by another user?"). Defining "same" is the aggregate's call —
+// which is exactly why Address.IsSameBusinessIdentity, not a framework guess,
+// now decides it.
 //
 // EnsureInitialized is the first call — without it, AddNotification before
 // the boundary (GetInsertable) would be silently a no-op because the
@@ -182,7 +180,7 @@ func (u *User) AggregateChildren() []domain.AggregateValueObject {
 func (u *User) AddAddress(addr Address, svc domain.Service) {
 	domain.EnsureInitialized(u)
 	for _, existing := range domain.GetCurrentItemsOf[Address](&u.AggregateRoot) {
-		if existing.sameBusinessIdentity(addr) {
+		if existing.IsSameBusinessIdentity(addr) {
 			u.AddNotification("Address", DuplicateAddressNotification{})
 			return
 		}

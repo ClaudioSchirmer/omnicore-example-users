@@ -22,6 +22,13 @@ type JobHistory struct {
 
 func (h JobHistory) GetID() domain.ID { return h.ID }
 
+// IsSameBusinessIdentity is the framework-required identity for change tracking
+// (replacing the former reflect.DeepEqual guess). A JobHistory has no natural key
+// narrower than its full value, so it delegates to IsSameByBusinessFields.
+func (h JobHistory) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
+	return domain.IsSameByBusinessFields(h, other)
+}
+
 // BuildRules fires at the boundary via runAggregateValidations, scoped at
 // jobHistories[i].
 func (h JobHistory) BuildRules(actionName string, service domain.Service, r *domain.Rules) {
