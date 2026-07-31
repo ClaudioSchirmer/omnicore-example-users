@@ -6,9 +6,12 @@ import (
 	"context"
 	"os"
 
+	"github.com/ClaudioSchirmer/omnicore/application/handlers"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	"github.com/ClaudioSchirmer/omnicore/infra/integration"
+	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
+	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/qafixtures"
@@ -232,4 +235,34 @@ func (f *GadgetFeature) MountReceivers(reg *integration.Registry, d bootstrap.De
 		webqa.GadgetCreatedReceivedRequest{},
 		&appqa.RecordGadgetEventHandler{Sink: f.sink},
 	)
+}
+
+// MountGraphQL satisfies bootstrap.GraphQLFeature: it contributes the QA-only
+// `gadgetsFull` connection over the COMPOSED gadgets_full view into the shared
+// GraphQL registry, resolving through the same ViewReader port the canonical
+// fields use (so the read-time composition arrives with zero GraphQL-specific
+// wiring). Gated on the `upstream_gadgets` subscription (only microservice.qa.yaml
+// declares it), exactly like embeddedView — under the prd configs the leg is
+// absent so the field stays unmounted and the surface still boots.
+func (f *GadgetFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) {
+	if !declaresUpstreamCollection(d, "upstream_gadgets") {
+		return
+	}
+	reg.Register(fwgraphql.QueryWithParams[
+		webqa.FindGadgetsFullRequest,
+		webqa.FindGadgetsFullResponse,
+	](
+		"gadgetsFull", "GadgetFull",
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery]{
+			Reader: d.ViewReader, View: "gadgets_full",
+		},
+		fwgraphql.RequirePermission("gadgets:read")))
+}
+
+// MountGRPC satisfies bootstrap.GRPCFeature: it contributes the QA-only gRPC
+// fixture surface (Provoke's full Semantic table, the gadgets StringOp
+// vocabulary, the FlakyEcho/Boom transport fixtures) into the shared gRPC
+// registry — the discovered twin of the canonical UsersService MountGRPC.
+func (f *GadgetFeature) MountGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
+	webqa.MountQAGRPC(reg, d)
 }
