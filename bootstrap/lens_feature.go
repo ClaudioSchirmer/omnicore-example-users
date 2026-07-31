@@ -33,10 +33,11 @@ type LensFeature struct {
 	brandRepo    *infraqa.LensBrandRepository
 	kitRepo      *infraqa.LensKitRepository
 	partRepo     *infraqa.LensPartRepository
-	brandsView   *query.ViewDefinition
-	kitsView     *query.ViewDefinition
-	kitsDescView *query.ViewDefinition
-	partsView    *query.ViewDefinition
+	brandsView    *query.ViewDefinition
+	brandsRelView *query.ViewDefinition
+	kitsView      *query.ViewDefinition
+	kitsDescView  *query.ViewDefinition
+	partsView     *query.ViewDefinition
 }
 
 // NewLensFeature provisions the two QA tables in the constructor for the same
@@ -50,10 +51,11 @@ func NewLensFeature(d bootstrap.Deps) *LensFeature {
 		brandRepo:    infraqa.NewLensBrandRepository(d.DB),
 		kitRepo:      infraqa.NewLensKitRepository(d.DB),
 		partRepo:     infraqa.NewLensPartRepository(d.DB),
-		brandsView:   infraqa.LensBrandsView(),
-		kitsView:     infraqa.LensKitsView(),
-		kitsDescView: infraqa.LensKitsDescView(),
-		partsView:    infraqa.LensPartsView(),
+		brandsView:    infraqa.LensBrandsView(),
+		brandsRelView: infraqa.LensBrandsRelView(d.DB),
+		kitsView:      infraqa.LensKitsView(),
+		kitsDescView:  infraqa.LensKitsDescView(),
+		partsView:     infraqa.LensPartsView(),
 	}
 }
 
@@ -61,11 +63,12 @@ func NewLensFeature(d bootstrap.Deps) *LensFeature {
 // materialized views — the SyncEngine projects each one from its own root
 // table, and the embed signal keeps the segments fresh across the chain.
 func (f *LensFeature) Views() []*query.ViewDefinition {
-	return []*query.ViewDefinition{f.brandsView, f.partsView, f.kitsView, f.kitsDescView}
+	return []*query.ViewDefinition{f.brandsView, f.brandsRelView, f.partsView, f.kitsView, f.kitsDescView}
 }
 
 func (f *LensFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	webqa.MountLensBrands(app, f.brandRepo, f.brandsView.Name(), d)
+	webqa.MountLensBrandsRel(app, f.brandsRelView, d)
 	webqa.MountLensParts(app, f.partRepo, f.partsView.Name(), d)
 	webqa.MountLensKits(app, f.kitRepo, f.kitsView.Name(), d)
 	webqa.MountLensKitsDesc(app, f.kitsDescView.Name(), d)
