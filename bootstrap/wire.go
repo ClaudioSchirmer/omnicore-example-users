@@ -3,8 +3,6 @@ package main
 import (
 	"github.com/ClaudioSchirmer/omnicore/application/translation"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
-	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
-	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
 	"github.com/ClaudioSchirmer/omnicore/web/openapi"
 
 	apptrans "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/translations"
@@ -24,27 +22,13 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	employees := NewEmployeesFeature(d)
 	persons := NewPersonsFeature(d)
 
-	// GraphQL is ONE surface (POST /graphql) backed by ONE registry, created
-	// here like the OpenAPI registry. Registration is cumulative: each feature
-	// contributes its fields into the same graph. Served separately from REST —
-	// never in the Swagger document; serving knobs live under graphql: in the YAML.
-	gql := fwgraphql.New(d.Pipeline)
-	users.MountGraphQL(gql, d)
-	employees.MountGraphQL(gql, d)
-	persons.MountGraphQL(gql, d)
-	// QA-only GraphQL fields (no-op in the canonical build) — the same
-	// build-tag seam qaFeatures uses, applied to the shared registry.
-	qaMountGraphQL(gql, d)
-
-	// gRPC is ONE surface (its own listener, yaml `grpc:` block) backed by ONE
-	// registry, mirroring the GraphQL pattern. Registration is cumulative; the
-	// UsersService is the showcase: the SAME handlers as REST/GraphQL behind a
-	// hand-written proto contract (proto/users/v1/users.proto).
-	grpcReg := fwgrpc.New(d.Pipeline)
-	users.MountGRPC(grpcReg, d)
-	// QA-only gRPC fixtures (no-op in the canonical build) — same build-tag
-	// seam qaFeatures/qaMountGraphQL use.
-	qaMountGRPC(grpcReg, d)
+	// GraphQL and gRPC are NOT wired here: each feature opts into those surfaces
+	// by implementing bootstrap.GraphQLFeature / bootstrap.GRPCFeature, and the
+	// framework discovers them (like ReadableFeature), builds the single shared
+	// registry per surface and serves it. users/employees/persons contribute
+	// GraphQL fields; users contributes the gRPC UsersService; the QA GadgetFeature
+	// contributes the QA GraphQL/gRPC fixtures — all cumulatively, no hand-wiring.
+	// Serving knobs live under graphql:/grpc: in the YAML.
 
 	return bootstrap.Wiring{
 		Translations: []translation.Module{
@@ -68,7 +52,5 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 			Description:      "Reference microservice exercising every OmniCore feature: CRUD with addresses as an aggregate child, manual showcase, outbound HTTP showcases, and the auth identity demo.",
 			LanguageSelector: true,
 		},
-		GraphQL: gql,
-		GRPC:    grpcReg,
 	}
 }

@@ -30,9 +30,9 @@ import (
 // the upstream-mirror showcases, which are gated on their subscription being
 // declared): it boots under every profile the QA suites use.
 type LensFeature struct {
-	brandRepo    *infraqa.LensBrandRepository
-	kitRepo      *infraqa.LensKitRepository
-	partRepo     *infraqa.LensPartRepository
+	brandRepo     *infraqa.LensBrandRepository
+	kitRepo       *infraqa.LensKitRepository
+	partRepo      *infraqa.LensPartRepository
 	brandsView    *query.ViewDefinition
 	brandsRelView *query.ViewDefinition
 	kitsView      *query.ViewDefinition
