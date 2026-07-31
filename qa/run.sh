@@ -94,7 +94,7 @@ RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution rebuild_scale projection_resilience projection_ripple config_validation migrations tracing status_mapping probes http_hardening view_options projection_convergence httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed link_in_child view_embed fields integration_events transport auth grpc grpcclient grpc_security"
+SELF_SUITES="audit cache authz schema_evolution relational_evolution rebuild_scale projection_resilience projection_ripple config_validation migrations tracing status_mapping probes http_hardening view_options relational_view projection_convergence httpclient_middleware lifecycle_hooks filter_operators aggregates upstream_composition composed_view external_embed link_in_child view_embed fields integration_events transport auth grpc grpcclient grpc_security"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -107,7 +107,7 @@ SUITES="${SUITES:-$ALL_SUITES}"
 # projection_resilience degrades the SHARED Mongo replica set (primary step-down,
 # quorum loss) for bounded windows — running it beside a parallel wave would fail
 # every sibling lane's projections, so it is serial for a different reason.
-SERIAL_SUITES="schema_evolution rebuild_scale projection_resilience"
+SERIAL_SUITES="schema_evolution relational_evolution rebuild_scale projection_resilience"
 
 # rebuild_scale's per-lane seed under run.sh (its standalone default is 1,000,000
 # — far too heavy for the matrix). The SAME seed on every lane, on purpose: the

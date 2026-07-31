@@ -47,12 +47,15 @@ func NewLensFeature(d bootstrap.Deps) *LensFeature {
 	if err := infraqa.ProvisionLensTables(context.Background(), d.DB); err != nil {
 		panic("LensFeature: provisioning QA tables failed: " + err.Error())
 	}
+	// The brand repository's loader (schema-bound) is threaded into the relational
+	// twin — one loader, shared with the repo, not a second construction.
+	brandRepo := infraqa.NewLensBrandRepository(d.DB)
 	return &LensFeature{
-		brandRepo:    infraqa.NewLensBrandRepository(d.DB),
-		kitRepo:      infraqa.NewLensKitRepository(d.DB),
-		partRepo:     infraqa.NewLensPartRepository(d.DB),
+		brandRepo:     brandRepo,
+		kitRepo:       infraqa.NewLensKitRepository(d.DB),
+		partRepo:      infraqa.NewLensPartRepository(d.DB),
 		brandsView:    infraqa.LensBrandsView(),
-		brandsRelView: infraqa.LensBrandsRelView(d.DB),
+		brandsRelView: infraqa.LensBrandsRelView(brandRepo.Loader),
 		kitsView:      infraqa.LensKitsView(),
 		kitsDescView:  infraqa.LensKitsDescView(),
 		partsView:     infraqa.LensPartsView(),

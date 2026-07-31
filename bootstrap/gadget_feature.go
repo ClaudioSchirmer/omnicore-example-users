@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"os"
 
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
@@ -33,6 +34,10 @@ type GadgetFeature struct {
 	// boots under every profile the qa binary runs.
 	relView       *query.ViewDefinition
 	cappedRelView *query.ViewDefinition
+	// evolveView is the flippable mongo↔relational toggle view (gadgets_evolve),
+	// contributed ONLY under QA_RELATIONAL_EVOLVE=1 (the relational_evolution
+	// suite) so it stays invisible to every other suite.
+	evolveView *query.ViewDefinition
 	// embeddedView is nil unless the loaded config declares the
 	// `upstream_gadgets` subscription (only microservice.qa.yaml does). It embeds
 	// that upstream projection, and the §8.3 boot guard requires a matching
@@ -79,19 +84,29 @@ func NewGadgetFeature(d bootstrap.Deps) *GadgetFeature {
 	if err := infraqa.ProvisionGadgetKitTables(context.Background(), d.DB); err != nil {
 		panic("GadgetFeature: provisioning gadget_kits failed: " + err.Error())
 	}
+	// One loader per aggregate: the gadget repository already holds it
+	// (repo.Loader, schema-bound). Both relational twins over the gadgets root
+	// reuse THAT loader — no second AggregateLoader is constructed.
+	repo := infraqa.NewGadgetRepository(d.DB)
 	f := &GadgetFeature{
-		repo:       infraqa.NewGadgetRepository(d.DB),
+		repo:          repo,
 		view:          infraqa.GadgetView(),
 		hotView:       infraqa.GadgetHotView(),
 		cappedView:    infraqa.GadgetCappedView(),
-		relView:       infraqa.GadgetRelView(d.DB),
-		cappedRelView: infraqa.GadgetCappedRelView(d.DB),
-		notesView:  infraqa.GadgetNotesView(),
-		noteRepo:   infraqa.NewGadgetNoteRepository(d.DB),
-		journal:    infraqa.GadgetJournalAdapter{},
-		publisher:  infraqa.GadgetEventPublisherAdapter{},
-		sink:       infraqa.NewGadgetEventSinkAdapter(d.DB),
-		httpShow:   infraqa.NewQaHttpShowcase(d.HttpClient),
+		relView:       infraqa.GadgetRelView(repo.Loader),
+		cappedRelView: infraqa.GadgetCappedRelView(repo.Loader),
+		notesView:     infraqa.GadgetNotesView(),
+		noteRepo:      infraqa.NewGadgetNoteRepository(d.DB),
+		journal:       infraqa.GadgetJournalAdapter{},
+		publisher:     infraqa.GadgetEventPublisherAdapter{},
+		sink:          infraqa.NewGadgetEventSinkAdapter(d.DB),
+		httpShow:      infraqa.NewQaHttpShowcase(d.HttpClient),
+	}
+	// The flippable evolution view is opt-in: only the relational_evolution suite
+	// (which sets QA_RELATIONAL_EVOLVE=1) contributes it, so no other suite pays
+	// for an extra gadgets projection or a route it never exercises.
+	if os.Getenv("QA_RELATIONAL_EVOLVE") == "1" {
+		f.evolveView = infraqa.GadgetEvolveView(repo.Loader)
 	}
 	// The embedded view is only bootable when its embedded `upstream_gadgets`
 	// projection has a declared subscription (microservice.qa.yaml). Under the
@@ -129,6 +144,9 @@ func declaresUpstreamCollection(d bootstrap.Deps, collection string) bool {
 // change.
 func (f *GadgetFeature) Views() []*query.ViewDefinition {
 	views := []*query.ViewDefinition{f.view, f.hotView, f.cappedView, f.notesView, f.relView, f.cappedRelView}
+	if f.evolveView != nil {
+		views = append(views, f.evolveView)
+	}
 	// gadgets_embedded embeds the upstream_gadgets projection; contributed only
 	// when the config declares that subscription (see NewGadgetFeature).
 	if f.embeddedView != nil {
@@ -164,6 +182,9 @@ func (f *GadgetFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	// Relational-source read twins (/qa/rel/gadgets*): parity + the 4xx and
 	// MaxLimit/MaxExportRows surfaces the relational_view suite drives.
 	webqa.MountGadgetsRel(app, f.relView, f.cappedRelView, d)
+	if f.evolveView != nil {
+		webqa.MountGadgetEvolve(app, f.evolveView.Name(), d)
+	}
 	// Embedded read surface (/qa/gadgets-embedded/:id) — mounted only when the
 	// embedded view exists (i.e. the upstream_gadgets subscription is declared).
 	if f.embeddedView != nil {

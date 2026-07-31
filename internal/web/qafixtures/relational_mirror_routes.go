@@ -126,6 +126,29 @@ func MountGadgetsRel(
 		fwopenapi.RequirePermission("gadgets:read"))
 }
 
+// MountGadgetEvolve mounts a single GET list route over the flippable
+// `gadgets_evolve` view (see GadgetEvolveView) so the relational_evolution suite
+// can observe reads following the active backing across a mongo↔relational
+// transition — the SAME route serves from the Mongo collection or the SoR
+// depending on the view's current variant.
+func MountGadgetEvolve(app *fiber.App, viewName string, d bootstrap.Deps) {
+	g := app.Group("/qa/gadgets-evolve")
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
+		FindGadgetsRequest{},
+		fwresponses.AutoFromDoc[FindGadgetsResponse],
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
+		listH, listSpec,
+		fwopenapi.Doc{
+			Summary:     "List gadgets_evolve (backing flips mongo↔relational across the evolution suite)",
+			Description: "Reads the flippable gadgets_evolve view. Served from the Mongo projection or the relational SoR depending on the view's current variant — the dispatch seam routes by name.",
+			Tags:        []string{"QA Relational Views"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+}
+
 // MountLensBrandsRel mounts the relational read twin of the lens-brands surface:
 //
 //	GET /qa/rel/lens-brands   list (name filter, archive gate) served from the SoR

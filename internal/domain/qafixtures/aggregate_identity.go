@@ -20,3 +20,7 @@ func (l CatalogLine) IsSameBusinessIdentity(other domain.AggregateValueObject) b
 func (l AccountLine) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
 	return domain.IsSameByBusinessFields(l, other)
 }
+
+func (p WidgetPart) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
+	return domain.IsSameByBusinessFields(p, other)
+}
