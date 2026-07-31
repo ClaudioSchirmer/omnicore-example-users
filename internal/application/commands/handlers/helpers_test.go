@@ -134,8 +134,7 @@ func newPersistedUser(t testHelper) *appdomain.User {
 	}
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		appdomain.Address{
-			ID:           domain.NewID(uuid.NewString()),
+		domain.WithID(appdomain.Address{
 			Street:       "1 Infinite Loop",
 			Number:       "1",
 			Neighborhood: "Mariani",
@@ -143,7 +142,7 @@ func newPersistedUser(t testHelper) *appdomain.User {
 			State:        "CA",
 			ZipCode:      "95014",
 			Country:      "US",
-		},
+		}, domain.NewID(uuid.NewString())),
 	})
 	return u
 }

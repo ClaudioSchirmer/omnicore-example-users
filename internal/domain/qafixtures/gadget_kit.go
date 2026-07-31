@@ -30,12 +30,10 @@ func (k *GadgetKit) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 // is the ParentID the view enriches via EmbedInChild (→ upstream_gadgets._id); Note is
 // the line's own field.
 type GadgetKitLine struct {
-	ID       domain.ID
+	domain.Managed
 	GadgetID *string
 	Note     string
 }
-
-func (l GadgetKitLine) GetID() domain.ID { return l.ID }
 
 func (l GadgetKitLine) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 	r.IfInsertOrUpdate(func() {

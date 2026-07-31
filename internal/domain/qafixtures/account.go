@@ -61,12 +61,10 @@ func (a *AccountHolder) BuildRules(_ string, _ domain.Service, r *domain.Rules) 
 // AccountHolder role, and each line's ItemID is enriched with the upstream item
 // by qa_accounts_view. Value type for the aggregate primitives.
 type AccountLine struct {
-	ID     domain.ID
+	domain.Managed
 	ItemID *string // ParentID → upstream_items._id; the EmbedInChild join key (nullable)
 	Note   string
 }
-
-func (l AccountLine) GetID() domain.ID { return l.ID }
 
 func (l AccountLine) BuildRules(_ string, _ domain.Service, r *domain.Rules) {
 	r.IfInsertOrUpdate(func() {

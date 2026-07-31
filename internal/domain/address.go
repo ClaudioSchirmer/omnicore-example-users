@@ -11,14 +11,14 @@ import (
 // (AddressSchema) and handled by the framework's aggregate persister; the
 // domain itself names no table or column.
 //
-// Value type (not pointer) so reflect.DeepEqual inside the framework's typed
-// primitives (AddAggregateChild / ChangeAggregateChild) compares by field
-// equality, not pointer identity.
+// Value type (not pointer) so the framework's typed primitives
+// (AddAggregateChild / ChangeAggregateChild) track it by value; identity for
+// that tracking is declared by IsSameBusinessIdentity below, not by pointer.
 //
 // Label and Complement are *string because the corresponding columns in
 // addresses are nullable. Same convention as User.Phone: nil → NULL.
 type Address struct {
-	ID           domain.ID
+	domain.Managed
 	Label        *string `labelKey:"AddressLabelField"`
 	Street       string  `labelKey:"AddressStreetField"`
 	Number       string  `labelKey:"AddressNumberField"`
@@ -30,18 +30,20 @@ type Address struct {
 	Country      string  `labelKey:"AddressCountryField"`
 }
 
-func (a Address) GetID() domain.ID { return a.ID }
-
-// sameBusinessIdentity returns true when two addresses point to the same
-// real-world place from the user's perspective. Used by User.AddAddress to
-// reject duplicates. Country + ZipCode + Street + Number is a country-agnostic
-// shape good enough for the sandbox; production systems would normalize
-// whitespace / casing first.
-func (a Address) sameBusinessIdentity(other Address) bool {
-	return a.Country == other.Country &&
-		a.ZipCode == other.ZipCode &&
-		a.Street == other.Street &&
-		a.Number == other.Number
+// IsSameBusinessIdentity is the User's notion of "same address": the same
+// real-world place — Country+ZipCode+Street+Number — regardless of
+// Label/Complement. It is the framework-required identity that replaced the
+// change tracker's former reflect.DeepEqual structural guess, and User.AddAddress
+// reuses it as its duplicate rule. Country+ZipCode+Street+Number is a
+// country-agnostic shape good enough for the sandbox; production systems would
+// normalize whitespace / casing first. A non-Address is never the same.
+func (a Address) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
+	o, ok := other.(Address)
+	return ok &&
+		a.Country == o.Country &&
+		a.ZipCode == o.ZipCode &&
+		a.Street == o.Street &&
+		a.Number == o.Number
 }
 
 // The physical columns are declared explicitly in infra/schema.go via

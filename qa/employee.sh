@@ -777,12 +777,15 @@ sec "14. ONE PUT, mixed child operations — keep-changed + drop + add + identic
 ####################################
 # Coverage audit 2026-07-21: every child operation existed only in ISOLATION
 # (replace-all §13, dedup §10.3, subresource change e2e §13). This section fires
-# them TOGETHER in a single strict PUT — the replace contract (e2e 5.1:
-# archive-old + insert-new for every re-sent, id-less child) must categorize
-# per child in one write: Rita re-sent with a CHANGED plan value (the update
-# expression; the A2b value must follow), Saulo omitted (archive-only), Tania
-# new (insert), and the address collection churned alongside. Also locks the
-# A2b plan VALUE change, which was never asserted (only create + clear were).
+# them TOGETHER in a single strict PUT — the replace contract categorizes per
+# child in one write, now driven by each child's declared IsSameBusinessIdentity:
+# Dependent matches STRUCTURALLY (IsSameByBusinessFields — every field), so Rita
+# re-sent with a CHANGED plan is a distinct value → archive-old + insert-new
+# (history preserved), Saulo omitted → archive-only, Tania → insert. Address
+# matches by BUSINESS identity (Country+ZipCode+Street+Number, id-agnostic), so
+# A1 re-sent identical → UPDATE in-place, id preserved, NO archive churn; A2 →
+# insert. Also locks the A2b plan VALUE change, which was never asserted (only
+# create + clear were).
 # The true child NOOP is a different route by design (the address subresource
 # leaves the other children untouched — e2e §13.5/§26).
 DA5="40000000040"
@@ -819,7 +822,7 @@ OLDPLAN=$(qa_db_query "SELECT hp.provider FROM dependent_health_plans hp JOIN em
 A5ACT=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA5") AND deleted_at IS NULL;" | tr -d '[:space:]')
 A5ARCH=$(qa_db_query "SELECT count(*) FROM addresses WHERE person_id=$(qa_uuid_lit "$EIDA5") AND deleted_at IS NOT NULL;" | tr -d '[:space:]')
 [ "$A5ACT" = "2" ] && ok "2 active addresses after the replace" || bad "active addresses = $A5ACT (want 2)"
-[ "$A5ARCH" = "1" ] && ok "original A1 archived by the replace contract (archive-old + insert-new)" || bad "archived addresses = $A5ARCH (want 1)"
+[ "$A5ARCH" = "0" ] && ok "A1 re-sent identical → UPDATE in-place, id preserved (Address.IsSameBusinessIdentity is id-agnostic; no archive churn)" || bad "archived addresses = $A5ARCH (want 0)"
 
 title "14.4 Default view: exactly [Rita(Bradesco), Tania]; includeArchived surfaces all four"
 deadline=$(( $(date +%s) + 60 )); mixv=fail; got=""; plan=""

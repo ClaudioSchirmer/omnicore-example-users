@@ -23,8 +23,7 @@ func loadedUserWithAddress(addressID string) *appdomain.User {
 	}
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		appdomain.Address{
-			ID:           domain.NewID(addressID),
+		domain.WithID(appdomain.Address{
 			Street:       "1 Audit Way",
 			Number:       "1",
 			Neighborhood: "Downtown",
@@ -32,7 +31,7 @@ func loadedUserWithAddress(addressID string) *appdomain.User {
 			State:        "CA",
 			ZipCode:      "94103",
 			Country:      "US",
-		},
+		}, domain.NewID(addressID)),
 	})
 	return u
 }

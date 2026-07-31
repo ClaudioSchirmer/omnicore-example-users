@@ -29,8 +29,7 @@ func TestUserCustomResultFromUser_HappyPath(t *testing.T) {
 
 	label := "home"
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		appdomain.Address{
-			ID:           domain.NewID(uuid.NewString()),
+		domain.WithID(appdomain.Address{
 			Label:        &label,
 			Street:       "1 Infinite Loop",
 			Number:       "1",
@@ -39,7 +38,7 @@ func TestUserCustomResultFromUser_HappyPath(t *testing.T) {
 			State:        "CA",
 			ZipCode:      "95014",
 			Country:      "US",
-		},
+		}, domain.NewID(uuid.NewString())),
 	})
 
 	r := userCustomResultFromUser(u)
