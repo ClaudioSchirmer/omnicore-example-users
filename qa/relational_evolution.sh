@@ -8,8 +8,12 @@
 #
 #   P0  Baseline (Mongo, V1)      — seed 3 via API, CDC materializes gadgets_evolve.
 #   P1  Mongo → Relational (V2)   — DriftRelationalSync: registry synced, NO rebuild,
-#                                   Mongo collection untouched, reads now hit the SoR
-#                                   (a fresh write is visible with NO CDC wait).
+#                                   the old Mongo collection is DROPPED (relational
+#                                   holds none), reads now hit the SoR (a fresh write
+#                                   is visible with NO CDC wait).
+#   P1b Registry delete is safe   — with no collection, deleting the registry row by
+#                                   hand → DriftFreshInit (re-record), not DriftAlienData;
+#                                   self-restores the V2 relational state for P2.
 #   P2  Relational → Mongo (V3)   — a rebuild fires, the Mongo collection is rebuilt
 #                                   from the SoR (every row, incl. the P1 write).
 #   P3  New Mongo over EXISTING data — drop the registry row + collection while the
@@ -19,6 +23,9 @@
 #   P4  New Relational over EXISTING data — drop the registry + collection, boot the
 #                                   relational variant → DriftFreshInit: registry only,
 #                                   NO rebuild, no Mongo collection, reads from the SoR.
+#   P5  Flip WITHOUT a Version bump — build a variant that changes the marker but
+#                                   keeps the version → DriftForgotToBump: the boot is
+#                                   REJECTED (the version-bump discipline, negative side).
 #
 # Self-managed; qa binary (-tags '<engine> qa') + microservice.qa.yaml, with
 # QA_RELATIONAL_EVOLVE=1 so the flippable view is contributed. SERIAL (patches the
@@ -139,12 +146,37 @@ boot "$BIN_R2" || exit 1
 assert_log    "P1 log: relational registry synced (no rebuild)" "relational view registry synced (no rebuild)"
 assert_eq     "P1 NO rebuild fired for $VIEW" "0" "$(rebuild_lines)"
 assert_eq     "P1 registry.version bumped to 2" "2" "$(reg version)"
-assert_eq     "P1 Mongo collection UNTOUCHED (still 3, sync does not rebuild)" "3" "$(evolve_count)"
+# A relational view holds NO Mongo collection: the flip drops the old one (was 3),
+# so the invariant "relational ⇒ no collection" stays true.
+assert_eq     "P1 Mongo collection DROPPED on the flip (relational holds none)" "0" "$(evolve_count)"
 title "Read-your-writes: a NEW gadget is visible on the relational view with NO CDC wait"
 seed_g "EV-04" "Four"
 # No sleep — the relational reader hits the SoR directly.
 assert_eq "P1 relational read sees the fresh write immediately" "4" "$(api_count /qa/gadgets-evolve)"
-assert_eq "P1 Mongo collection STILL 3 (not fed by the SoR write)" "3" "$(evolve_count)"
+assert_eq "P1 Mongo collection STILL absent (SoR write feeds no collection)" "0" "$(evolve_count)"
+stop
+
+##############################################################################
+sec "P1b — footgun closed: with no collection, a manual registry delete is SAFE"
+##############################################################################
+# The whole point of dropping the collection on the flip: a relational view now
+# genuinely has no collection, so deleting its registry row by hand (a plausible
+# "a relational view needs no registry row" edit) resolves to DriftFreshInit on
+# the next boot — NOT DriftAlienData (which a populated-but-uncertified collection
+# would trigger, aborting the boot). Self-restoring: FreshInit re-records the row
+# at V2 relational, exactly the state P2 expects.
+title "Delete the registry row and reboot the SAME relational binary"
+qa_db_exec "DELETE FROM omnicore_mongo_views WHERE view_name='$VIEW';"
+if boot "$BIN_R2"; then
+  assert_no_log "P1b did NOT abort on DriftAlienData" "cannot certify"
+  assert_log    "P1b FreshInit re-recorded the registry (no rebuild)" "view registry initialized"
+  assert_eq     "P1b still NO Mongo collection" "0" "$(evolve_count)"
+  assert_eq     "P1b registry re-recorded at V2 (P2 premise restored)" "2" "$(reg version)"
+  assert_eq     "P1b reads still come from the SoR (all 4)" "4" "$(api_count /qa/gadgets-evolve)"
+else
+  FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m P1b relational reboot after a registry delete must SUCCEED (FreshInit), but it aborted\n'
+  tail -n 20 "$LOG" >&2
+fi
 stop
 
 ##############################################################################
@@ -193,6 +225,31 @@ assert_log    "P4 log: registry initialized (FreshInit, no rebuild)" "view regis
 assert_eq     "P4 NO rebuild fired for $VIEW" "0" "$(rebuild_lines)"
 assert_eq     "P4 Mongo collection NOT recreated (relational projects nothing)" "0" "$(evolve_count)"
 assert_eq     "P4 GET /qa/gadgets-evolve (from the SoR) sees all 4" "4" "$(api_count /qa/gadgets-evolve)"
+stop
+
+##############################################################################
+sec "P5 — a marker flip WITHOUT a Version bump is REJECTED (forgot-to-bump)"
+##############################################################################
+# State after P4: gadgets_evolve is RELATIONAL at V4, registry V4. Build a MONGO
+# variant STILL at V4 — the marker flip moves the rebuild hash but the version
+# does not, so the drift engine must REJECT the boot (DriftForgotToBump is an
+# unconditional abort) instead of silently rebuilding. The positive discipline is
+# proven at every P1–P4 transition; this is its negative half.
+title "Build a Mongo variant STILL at V4 (no bump) and boot it — expected to ABORT"
+BIN_NOBUMP="/tmp/omnicore-qa-relevolve-nobump-${BACKEND}"
+build_variant mongo 4 "$BIN_NOBUMP"
+: > "$LOG"; kill_port "${HTTP_PORT:-8080}"
+( cd "$REPO_ROOT" && APP_PROFILE=dev QA_RELATIONAL_EVOLVE=1 OMNICORE_CONFIG_PATH="$REPO_ROOT/microservice.qa.yaml" exec "$BIN_NOBUMP" >>"$LOG" 2>&1 ) &
+SERVER_PID=$!
+# The abort fails the boot before serving — the process exits on its own. Wait a
+# bounded time for that, then assert it never served and the diagnostic is logged.
+d=$(( $(date +%s) + 25 )); died=fail
+while [ "$(date +%s)" -lt "$d" ]; do kill -0 "$SERVER_PID" 2>/dev/null || { died=ok; break; }; sleep 0.5; done
+ready=$(curl -sf -o /dev/null "$BASE/readyz" && echo yes || echo no)
+assert_eq  "P5 boot aborted (process exited, never became ready)" "ok" "$died"
+assert_eq  "P5 /readyz never came up" "no" "$ready"
+assert_log "P5 forgot-to-bump diagnostic emitted" "view shape changed in code without bumping Version()"
+assert_log "P5 diagnostic names $VIEW" "$VIEW"
 stop
 
 ##############################################################################

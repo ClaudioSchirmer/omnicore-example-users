@@ -52,6 +52,17 @@ try:
   print(len(data) if isinstance(data,list) else -1)
 except Exception: print(-1)' "$1"; }
 
+# ids_of — the sorted list of aggregate ids in a listing body ("ERR" on parse
+# failure, "" for an empty/objectless list). Every view doc carries the SAME
+# aggregate id whether served from Mongo or the SoR, so comparing the id sets of
+# the two backings proves they returned the SAME ROWS — not merely the same
+# COUNT (a reader returning the wrong rows with the right count is caught here).
+ids_of() { python3 -c 'import sys,json
+try:
+  data=json.load(open(sys.argv[1])).get("data",[])
+  print("\n".join(sorted(str(x.get("id") or x.get("_id") or "") for x in data)) if isinstance(data,list) else "ERR")
+except Exception: print("ERR")' "$1"; }
+
 # first notificationKey found anywhere in a JSON body file ("" if none).
 notif_key() { python3 -c 'import sys,json
 def walk(o,acc):
@@ -100,11 +111,14 @@ parity() {
   ms=$(curl -sS -o "$mt" -w "%{http_code}" "${CURL_ARGS[@]}" "$BASE$mpath")
   rs=$(curl -sS -o "$rt" -w "%{http_code}" "${CURL_ARGS[@]}" "$BASE$rpath")
   mn=$(len_of "$mt"); rn=$(len_of "$rt")
-  echo "mongo $mpath?$qs → $ms/$mn   rel $rpath?$qs → $rs/$rn   (want $want)"
-  if [ "$ms" = "200" ] && [ "$rs" = "200" ] && [ "$mn" = "$want" ] && [ "$rn" = "$want" ]; then
-    ok "$name (mongo=$mn rel=$rn)"
+  local mids rids same=no
+  mids=$(ids_of "$mt"); rids=$(ids_of "$rt")
+  [ "$mids" = "$rids" ] && same=yes
+  echo "mongo $mpath?$qs → $ms/$mn   rel $rpath?$qs → $rs/$rn   (want $want, same-rows=$same)"
+  if [ "$ms" = "200" ] && [ "$rs" = "200" ] && [ "$mn" = "$want" ] && [ "$rn" = "$want" ] && [ "$same" = "yes" ]; then
+    ok "$name (mongo=$mn rel=$rn, same rows)"
   else
-    bad "$name (want 200/$want both, got mongo $ms/$mn rel $rs/$rn)"
+    bad "$name (want 200/$want both + identical rows, got mongo $ms/$mn rel $rs/$rn same-rows=$same)"
   fi
   rm -f "$mt" "$rt"
 }
