@@ -318,6 +318,13 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 N_SUITES=0; for _s in $SUITES; do N_SUITES=$((N_SUITES+1)); done
 N_BACKENDS=0; for _b in $BACKEND_LIST; do N_BACKENDS=$((N_BACKENDS+1)); done
 EXPECTED_RUNS=$((N_SUITES * N_BACKENDS))
+# The isolated SQLite step (Lane E) is one scheduled run too. Count it UP FRONT
+# (whenever it will run — a full `all` sweep or a `sqlite`-only invocation) so the
+# live progress reads x/157 throughout instead of sitting at x/156 and only
+# jumping to 157/157 once the step finishes.
+if [ "$BACKENDS" = "all" ] || [ "$BACKENDS" = "sqlite" ]; then
+  EXPECTED_RUNS=$((EXPECTED_RUNS + 1))
+fi
 
 # summarize <log> <exit-code> → "passed failed" from the suite's own summary
 # line, falling back to the exit code when no summary is recognized.
@@ -741,13 +748,13 @@ SKIP_RUNS=$(awk -F'\t' '$5 == "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/nul
 # ── SQLite isolated step at the END of a full run ────────────────────────────
 # After the four projection lanes finish, run the SQLite step (see its header and
 # the note by the arg parser: SQLite is relational-only, so it is NOT a lane). It
-# counts as ONE scheduled run — Lane E — in the final tally: it bumps
-# EXPECTED_RUNS and, on success, COMPLETED_RUNS (RED_RUNS on failure), so the
-# verdict's X/Y and the ALL-GREEN/RED decision include it exactly like a lane
-# suite. It runs only for a full `all` run; a single-lane invocation stays scoped.
+# counts as ONE scheduled run — Lane E — in the final tally (its slot is already
+# reserved in EXPECTED_RUNS up front). On success it bumps COMPLETED_RUNS
+# (RED_RUNS on failure), so the verdict's X/Y and the ALL-GREEN/RED decision
+# include it exactly like a lane suite. It runs only for a full `all` run or a
+# `sqlite`-only invocation; a single-lane invocation stays scoped.
 if [ "$BACKENDS" = "all" ] || [ "$BACKENDS" = "sqlite" ]; then
   run_sqlite_step; sqlite_rc=$?
-  EXPECTED_RUNS=$((EXPECTED_RUNS + 1))
   # The step RAN (OK or RED), so it counts as completed — exactly like a suite
   # row (which counts in COMPLETED whether OK or RED). A RED only adds to RED_RUNS;
   # counting it as completed too keeps it from ALSO showing as "never ran".
