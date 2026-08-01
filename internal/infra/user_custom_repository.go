@@ -69,9 +69,13 @@ func NewUserCustomRepository(eng core.RelationalEngine) *UserCustomRepository {
 		loader:      loader,
 		schema:      schema,
 		contextName: "User",
+		// One key per engine (Postgres/SQL Server/Oracle `users_pkey`, MySQL
+		// `PRIMARY`, SQLite the column list `users.id` — it carries no constraint
+		// name); the framework matches whichever the running dialect returns.
 		constraints: map[string]write.ConstraintBinding{
 			"users_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 			"PRIMARY":    {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
+			"users.id":   {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		},
 	}
 }
