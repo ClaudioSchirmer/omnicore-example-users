@@ -273,6 +273,14 @@ echo "page1 next_cursor: ${cur:0:16}…"
 p2=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "sort=code" --data-urlencode "limit=2" --data-urlencode "after=$cur" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
 [ -n "$cur" ] && [ "$p2" = "2" ] && ok "relational after-cursor returns the second page (2)" || bad "after-cursor page2 got $p2 (cursor=${cur:0:12})"
 
+title "4.4b before the FIRST row (offset-0 cursor) → EMPTY page, never a full-table dump"
+# Page 1 hands out a prev_cursor pointing at offset 0. Paging `before` it must
+# return an EMPTY page — a regression guard for the zero-fetch window that would
+# otherwise emit no LIMIT clause and stream the whole table (bypassing MaxLimit).
+prev=$(curl -sS "$BASE/qa/rel/gadgets?sort=code&limit=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("prev_cursor",""))')
+bcount=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "sort=code" --data-urlencode "limit=2" --data-urlencode "before=$prev" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
+[ -n "$prev" ] && [ "$bcount" = "0" ] && ok "before-first-row returns an empty page (0)" || bad "before-first-row expected 0 items, got ${bcount:-?} (prev=${prev:0:12})"
+
 title "4.5 by-id parity — same document from both backings"
 GID=$(curl -sS "$BASE/qa/rel/gadgets?code.eq=GADGET-03" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
 mdoc=$(curl -sS "$BASE/qa/gadgets/$GID" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",{});print(d.get("code"),d.get("name"),d.get("category"),d.get("status"))')
@@ -351,6 +359,42 @@ d=json.load(sys.stdin).get("data",{})
 parts=sorted((p.get("label"),p.get("tag")) for p in d.get("widgetParts",[]))
 print(d.get("name"),d.get("material"),parts)')
 [ -n "$WID" ] && [ "$mdoc" = "$rdoc" ] && ok "widget by-id nested doc parity ($rdoc)" || bad "widget by-id mongo=[$mdoc] rel=[$rdoc]"
+
+# The ?fields= projection is a LIST-endpoint control (the by-id request DTO does
+# not opt into it), so these read the list filtered to Widget A. Helpers take the
+# first widget doc of the "data" array.
+wid_first_doc='import sys,json
+d=json.load(sys.stdin).get("data",[])
+d = d[0] if isinstance(d,list) and d else (d if isinstance(d,dict) else {})'
+part_keys_of() { curl -sS -G "$1" "${@:2}" | python3 -c "$wid_first_doc"'
+wp=d.get("widgetParts",[])
+print(",".join(sorted(wp[0].keys())) if wp else "<none>")'; }
+labels_of()   { curl -sS -G "$1" "${@:2}" | python3 -c "$wid_first_doc"'
+print(",".join(sorted(p.get("label","") for p in d.get("widgetParts",[]))))'; }
+
+title "8.5 ?fields=widgetParts.label prunes each part to the LEAF, SAME shape as Mongo (Fix #6)"
+# Projection into a child array (a LIST control; child filter/sort are still 400).
+# The relational reader composes the aggregate then applies Mongo's nested
+# projection semantics — each part comes back with only 'label', not the whole
+# element — so the shapes match the Mongo view.
+mk=$(part_keys_of "$BASE/qa/widgets"     --data-urlencode "name.eq=Widget A" --data-urlencode "fields=widgetParts.label")
+rk=$(part_keys_of "$BASE/qa/rel/widgets" --data-urlencode "name.eq=Widget A" --data-urlencode "fields=widgetParts.label")
+echo "widgetParts[0] keys → mongo=[$mk] rel=[$rk]"
+[ "$mk" = "label" ] && [ "$rk" = "label" ] && ok "nested ?fields= prunes each part to label on BOTH backings" || bad "nested fields mongo=[$mk] rel=[$rk]"
+
+title "8.6 archive strip runs UNDER a nested ?fields= that never names deletedAt (Fix #6 + strip order)"
+# Soft-delete Widget A's 'grip' part directly in the SoR (the qa widget has no
+# archive endpoint). CURRENT_TIMESTAMP is portable across all four dialects. The
+# relational reader must still HIDE it on a default read even though the
+# projection asks only for widgetParts.label — the active scope + archived strip
+# run BEFORE the ?fields= prune, so a projection omitting deletedAt cannot
+# resurrect an archived child.
+qa_db_exec "UPDATE qa_widget_parts SET deleted_at = CURRENT_TIMESTAMP WHERE label = 'grip';"
+def_labels=$(labels_of "$BASE/qa/rel/widgets" --data-urlencode "name.eq=Widget A" --data-urlencode "fields=widgetParts.label")
+arc_labels=$(labels_of "$BASE/qa/rel/widgets" --data-urlencode "name.eq=Widget A" --data-urlencode "fields=widgetParts.label" --data-urlencode "includeArchived=true")
+echo "default=[$def_labels] includeArchived=[$arc_labels]"
+[ "$def_labels" = "lens" ] && ok "8.6a default hides the archived 'grip' under ?fields=widgetParts.label" || bad "8.6a default labels=[$def_labels] (want lens)"
+[ "$arc_labels" = "grip,lens" ] && ok "8.6b ?includeArchived surfaces both parts" || bad "8.6b includeArchived labels=[$arc_labels] (want grip,lens)"
 
 ##############################################################################
 sec "Summary"

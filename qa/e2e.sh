@@ -632,6 +632,37 @@ else
   FAIL=$((FAIL+1))
 fi
 
+title "5.1b PUT re-sending the SAME address identity with a CHANGED non-identity field (label) — updates in place, id preserved, change persisted"
+# Address identity is Country+ZipCode+Street+Number (Address.IsSameBusinessIdentity),
+# so re-sending 5.1's address with only its LABEL changed is the SAME child. The
+# framework must update it in place — preserve the id (no archive-old+insert-new
+# churn) AND apply the re-sent label — never silently drop the change back to the
+# tracked value. Regression guard for the aggregate-child reactivation contract.
+BODY_51B='{
+  "name":"Jane Doe (updated)","email":"jane.updated@example.com","phone":"14155553333",
+  "userName":"jane","emailNotification":true,"smsNotification":true,
+  "addresses":[{
+    "label":"office","street":"New Address","number":"200",
+    "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"
+  }]
+}'
+RESP_51B=$(curl -sS -w "\n__STATUS__%{http_code}" -X PUT "$BASE/users/$USER_A" \
+  -H "Content-Type: application/json" -H "Accept-Language: en-US" --data "$BODY_51B")
+ST_51B=${RESP_51B##*__STATUS__}
+JSON_51B=${RESP_51B%__STATUS__*}
+ADDR_51B_ID=$(echo "$JSON_51B" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);a=d["data"].get("addresses") or [];print(a[0].get("id","") if a else "")' 2>/dev/null)
+ADDR_51B_LABEL=$(echo "$JSON_51B" | python3 -c \
+  'import sys,json;d=json.load(sys.stdin);a=d["data"].get("addresses") or [];print(a[0].get("label","") if a else "")' 2>/dev/null)
+if [ "$ST_51B" = "200" ] && [ "$ADDR_51B_ID" = "$ADDR_51_ID" ] && [ "$ADDR_51B_LABEL" = "office" ]; then
+  printf '\033[1;32mPASS\033[0m (200; id preserved %s, label updated to %q)\n' "$ADDR_51B_ID" "$ADDR_51B_LABEL"
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (expected 200 + SAME id %q + label "office"; got status=%s id=%q label=%q)\n' \
+    "$ADDR_51_ID" "$ST_51B" "$ADDR_51B_ID" "$ADDR_51B_LABEL"
+  FAIL=$((FAIL+1))
+fi
+
 show "5.2 PUT without phone (Phase 21: RequiredFieldNotification semantic Schema → 400)" PUT "/users/$USER_A" '{
   "name":"Jane","email":"jane@example.com",
   "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]

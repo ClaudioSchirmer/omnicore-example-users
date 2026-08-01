@@ -32,11 +32,15 @@ func NewEmployeeRepository(eng core.RelationalEngine) *EmployeeRepository {
 	// Concurrency safety net, mirroring UserRepository: two simultaneous POSTs
 	// for the same new document race past the existence probe and one loses on
 	// the PRIMARY KEY (shared-ID: employees.id == persons.id) — map that to
-	// the same 409 the happy-path conflict emits. Postgres names the ID
-	// `employees_pkey`; MySQL reports the colliding key as `PRIMARY`.
+	// the same 409 the happy-path conflict emits. Each engine names the violated
+	// key differently: Postgres `employees_pkey`, MySQL `PRIMARY`, SQL Server +
+	// Oracle `employees_pkey` (named so in their DDL); SQLite carries no
+	// constraint name and reports the COLUMN LIST, so its key is `employees.id`
+	// (dialect D2). One entry per engine — the framework matches the running one.
 	r.Constraints = map[string]write.ConstraintBinding{
 		"employees_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		"PRIMARY":        {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
+		"employees.id":   {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 	}
 	r.WithSchema(schemas.EmployeeSchema())
 	return r

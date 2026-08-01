@@ -39,11 +39,15 @@ func NewUserRepository(eng core.RelationalEngine) *UserRepository {
 	// concurrency safety net: two simultaneous POSTs for the same new document
 	// race past the existence probe and one loses on the PRIMARY KEY (shared-ID:
 	// users.id == persons.id) — map that violation to the SAME 409 notification for
-	// a consistent envelope. Postgres names the ID `users_pkey`; MySQL reports the
-	// colliding key as `PRIMARY`.
+	// a consistent envelope. Each engine names the violated key differently:
+	// Postgres `users_pkey`, MySQL `PRIMARY`, SQL Server + Oracle `users_pkey`
+	// (named so in their DDL); SQLite carries no constraint name and reports the
+	// COLUMN LIST instead, so its key is `users.id` (dialect D2). One entry per
+	// engine — the framework matches whichever the running dialect returns.
 	r.Constraints = map[string]write.ConstraintBinding{
 		"users_pkey": {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 		"PRIMARY":    {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
+		"users.id":   {Notification: domain.EntityAlreadyAddedNotification{}, Field: "id"},
 	}
 	r.WithSchema(schemas.UserSchema())
 	return r

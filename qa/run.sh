@@ -47,6 +47,12 @@
 # completed green. Logs: per-run temp dir, removed on ALL GREEN, kept on RED.
 set -u
 
+# Absolute path to THIS script's dir (qa/), resolved BEFORE the cd below. The cd
+# moves the cwd to the repo root, which would make a later `dirname "$BASH_SOURCE"`
+# resolve against the WRONG directory — so the SQLite step below must reference
+# this captured path, not re-derive it post-cd. Works no matter the caller's cwd or
+# how run.sh was invoked (`./run.sh` from inside qa/, `bash qa/run.sh` from root).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$(dirname "$0")/.."
 STACK_ROOT="$(cd ../ && pwd)"
 
@@ -54,11 +60,31 @@ BACKENDS="all"
 KEEP_GOING="${KEEP_GOING:-0}"
 for arg in "$@"; do
   case "$arg" in
-    all|postgres|mysql|sqlserver|oracle) BACKENDS="$arg" ;;
+    all|postgres|mysql|sqlserver|oracle|sqlite) BACKENDS="$arg" ;;
     --keep-going|-k)    KEEP_GOING=1 ;;
-    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle] [--keep-going]" >&2; exit 2 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle|sqlite] [--keep-going]" >&2; exit 2 ;;
   esac
 done
+
+# ── SQLite is an ISOLATED individual step, NOT a lane ────────────────────────
+# The four run.sh lanes are each an engine + broker + Mongo projection pipeline,
+# and EVERY *.sh suite reads its result through the MONGO VIEW (outbox → CDC relay
+# → broker → SyncEngine → Mongo). SQLite has NO CDC source (Debezium cannot tail
+# a SQLite file), so Mongo-projected views never materialize on it — by design.
+# SQLite's read side is the RELATIONAL view (served straight from the SoR), so it
+# CANNOT run the projection-dependent suites as a lane. It runs APART, as ONE
+# self-contained step (qa/sqlite.sh): boot the SQLite engine as SoR and assert the
+# WRITE side over real HTTP, verified directly against the app.db file with
+# sqlite3 (the read side that does not need a projection).
+#
+#   ./qa/run.sh sqlite   → runs ONLY this isolated step (no lanes, no bench waves)
+#   ./qa/run.sh          → runs the four DB lanes, THEN this step at the very end
+#
+# `./qa/run.sh sqlite` has an EMPTY lane list (BACKEND_LIST=""): it skips the unit
+# gate, the cold-bench waves and the CDC relays, and runs ONLY the isolated step —
+# but it flows through the SAME report machinery as a full run, so it produces the
+# consolidated qa-report.md (the SQLite section), instead of the bare, report-less
+# `exec` it used to do (a `sqlite` run left qa-report.md untouched from a prior run).
 case "$BACKENDS" in
   # `all` schedules the full 4-lane matrix; a lane whose infrastructure is not
   # reachable SKIPs (⚠ in the report, never RED) via the availability filter
@@ -68,6 +94,7 @@ case "$BACKENDS" in
   mysql)     BACKEND_LIST="mysql" ;;
   sqlserver) BACKEND_LIST="sqlserver" ;;
   oracle)    BACKEND_LIST="oracle" ;;
+  sqlite)    BACKEND_LIST="" ;;   # not a lane — only the isolated SQLite step runs
 esac
 
 # Lane availability: a requested lane RUNS when its infrastructure answers and
@@ -155,7 +182,7 @@ render_report() {
   # inside run_lane's `local B` scope. Bash is dynamically scoped, so an unqualified
   # `for B` here would CLOBBER the lane's B (leaving it "mysql"), mislabeling every
   # subsequent row and colliding log paths. Keep B (and any loop var) local.
-  local status="$1" lock="$LOG_DIR/report.lock" tries=0 B
+  local status="$1" lock="$LOG_DIR/report.lock" tries=0 B smark
   # Best-effort lock: if the sibling lane is mid-render, skip — the next suite's
   # render catches up. A lane is never blocked on the report.
   until mkdir "$lock" 2>/dev/null; do
@@ -166,51 +193,87 @@ render_report() {
     echo "# QA Matrix Report"
     echo
     echo "- **Updated:** $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "- **Lanes:** $BACKEND_LIST (parallel)"
-    echo "- **Suites:** $SUITES"
-    echo "- **Scheduled runs:** $EXPECTED_RUNS"
+    if [ -n "$BACKEND_LIST" ]; then
+      echo "- **Lanes:** $BACKEND_LIST (parallel)"
+      echo "- **Suites:** $SUITES"
+      echo "- **Scheduled runs:** $EXPECTED_RUNS"
+    else
+      # `./qa/run.sh sqlite`: no lanes, so there is no side-by-side matrix — only
+      # the SQLite isolated step below. Keep the same report shape, just skip the
+      # matrix header/body entirely.
+      echo "- **Mode:** SQLite isolated step only (relational-only — no CDC/Mongo projection; not a lane)"
+    fi
     echo
-    # Lane legend + build one SIDE-BY-SIDE header: each lane repeats today's
-    # Backend/Pass/Fail/Verdict/Time columns, so the suite name is written once and
-    # the matrix grows DOWN (one row per suite) AND ACROSS (a column group per lane).
-    for B in $BACKEND_LIST; do
-      case "$B" in
-        postgres)  echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
-        mysql)     echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
-        sqlserver) echo "- **Lane C** — SQL Server + Kafka (Debezium Connect, dedicated broker)" ;;
-        oracle)    echo "- **Lane D** — Oracle Free 23ai + NATS (Debezium Server, dedicated JetStream)" ;;
-        *)         echo "- **Lane** — $B" ;;
-      esac
-      hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
-      sep="$sep---|---:|---:|:---:|---:|"
-    done
-    echo
-    echo "$hdr"
-    echo "$sep"
-    # Body from every lane's rows-*.tsv, keyed by suite. awk keeps us off bash-4
-    # associative arrays (macOS ships bash 3.2). A suite prints once it has at least
-    # one lane result; a lane missing that suite (fail-fast/abort) gets a dash cell.
-    # Rows not in the declared suite order (e.g. "(abort)") print after the rest.
-    awk -F'\t' -v suites="$SUITES" -v backends="$BACKEND_LIST" '
-      function emit(s,   line,any,j,b) {
-        line = "| " s " |"; any = 0
-        for (j=1;j<=nb;j++) {
-          b = B[j]
-          if ((s SUBSEP b) in cell) { line = line cell[s,b]; any = 1 }
-          else                      { line = line " — | — | — | — | — |" }
+    if [ -n "$BACKEND_LIST" ]; then
+      # Lane legend + build one SIDE-BY-SIDE header: each lane repeats today's
+      # Backend/Pass/Fail/Verdict/Time columns, so the suite name is written once and
+      # the matrix grows DOWN (one row per suite) AND ACROSS (a column group per lane).
+      for B in $BACKEND_LIST; do
+        case "$B" in
+          postgres)  echo "- **Lane A** — Postgres + Kafka (Debezium Connect)" ;;
+          mysql)     echo "- **Lane B** — MySQL + NATS (Debezium Server)" ;;
+          sqlserver) echo "- **Lane C** — SQL Server + Kafka (Debezium Connect, dedicated broker)" ;;
+          oracle)    echo "- **Lane D** — Oracle Free 23ai + NATS (Debezium Server, dedicated JetStream)" ;;
+          *)         echo "- **Lane** — $B" ;;
+        esac
+        hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
+        sep="$sep---|---:|---:|:---:|---:|"
+      done
+      # SQLite is the isolated 5th track (Lane E) on a full run — listed in the
+      # legend so it is visible up front, but reported in its OWN section below the
+      # matrix: it is relational-only (no CDC → no Mongo projection), so it cannot be
+      # a side-by-side matrix column that runs every suite like the DB lanes.
+      [ "$BACKENDS" = "all" ] && echo "- **Lane E** — SQLite (ISOLATED, relational-only — no CDC/projection; verdict below the matrix)"
+      echo
+      echo "$hdr"
+      echo "$sep"
+      # Body from every lane's rows-*.tsv, keyed by suite. awk keeps us off bash-4
+      # associative arrays (macOS ships bash 3.2). A suite prints once it has at least
+      # one lane result; a lane missing that suite (fail-fast/abort) gets a dash cell.
+      # Rows not in the declared suite order (e.g. "(abort)") print after the rest.
+      awk -F'\t' -v suites="$SUITES" -v backends="$BACKEND_LIST" '
+        function emit(s,   line,any,j,b) {
+          line = "| " s " |"; any = 0
+          for (j=1;j<=nb;j++) {
+            b = B[j]
+            if ((s SUBSEP b) in cell) { line = line cell[s,b]; any = 1 }
+            else                      { line = line " — | — | — | — | — |" }
+          }
+          if (any) print line
         }
-        if (any) print line
-      }
-      { seen[$1]=1
-        mark = ($5=="OK") ? "✅ OK" : (($5=="SKIP") ? "⚠️ SKIP" : "❌ " $5)
-        secstr = ($6=="-") ? "-" : $6 "s"
-        cell[$1,$2] = " " $2 " | " $3 " | " $4 " | " mark " | " secstr " |" }
-      END {
-        ns=split(suites,S," "); nb=split(backends,B," ")
-        for (i=1;i<=ns;i++) { inlist[S[i]]=1; emit(S[i]) }
-        for (k in seen) if (!(k in inlist)) emit(k)
-      }
-    ' "$LOG_DIR"/rows-*.tsv 2>/dev/null
+        { seen[$1]=1
+          mark = ($5=="OK") ? "✅ OK" : (($5=="SKIP") ? "⚠️ SKIP" : "❌ " $5)
+          secstr = ($6=="-") ? "-" : $6 "s"
+          cell[$1,$2] = " " $2 " | " $3 " | " $4 " | " mark " | " secstr " |" }
+        END {
+          ns=split(suites,S," "); nb=split(backends,B," ")
+          for (i=1;i<=ns;i++) { inlist[S[i]]=1; emit(S[i]) }
+          for (k in seen) if (!(k in inlist)) emit(k)
+        }
+      ' "$LOG_DIR"/rows-*.tsv 2>/dev/null
+    fi
+    # SQLite is NOT a lane (relational-only, no CDC → no Mongo projection), so it
+    # is reported in its OWN section BELOW the lane matrix, not as a matrix column.
+    # SQLITE_VERDICT is set by the isolated step that runs after the lanes.
+    if [ "$BACKENDS" = "all" ] || [ -n "${SQLITE_VERDICT:-}" ]; then
+      case "${SQLITE_VERDICT:-}" in
+        OK) smark="✅ OK" ;;
+        "") smark="⏳ pending (runs after the DB lanes)" ;;
+        *)  smark="❌ $SQLITE_VERDICT" ;;
+      esac
+      echo
+      if [ -n "$BACKEND_LIST" ]; then
+        echo "### Lane E — SQLite (isolated; relational-only, not a projection lane)"
+      else
+        echo "### SQLite isolated step (relational-only, not a projection lane)"
+      fi
+      echo
+      echo "Boots the SQLite engine as SoR (\`-tags 'sqlite nats'\`, \`CGO_ENABLED=0\`) and asserts the write side over HTTP — verified directly in the \`app.db\` file. No CDC/Mongo projection, so it runs apart from the matrix. See \`qa/sqlite.sh\`."
+      echo
+      echo "| Step | Backend | Pass | Fail | Verdict | Time |"
+      echo "|---|---|---:|---:|:---:|---:|"
+      echo "| sqlite (boot + migrations + write-side, checked in app.db) | sqlite | ${SQLITE_PASS:-–} | ${SQLITE_FAIL:-–} | $smark | ${SQLITE_SECS:+${SQLITE_SECS}s} |"
+    fi
     echo
     echo "$status"
   } > "$REPORT_MD"
@@ -255,6 +318,13 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 N_SUITES=0; for _s in $SUITES; do N_SUITES=$((N_SUITES+1)); done
 N_BACKENDS=0; for _b in $BACKEND_LIST; do N_BACKENDS=$((N_BACKENDS+1)); done
 EXPECTED_RUNS=$((N_SUITES * N_BACKENDS))
+# The isolated SQLite step (Lane E) is one scheduled run too. Count it UP FRONT
+# (whenever it will run — a full `all` sweep or a `sqlite`-only invocation) so the
+# live progress reads x/157 throughout instead of sitting at x/156 and only
+# jumping to 157/157 once the step finishes.
+if [ "$BACKENDS" = "all" ] || [ "$BACKENDS" = "sqlite" ]; then
+  EXPECTED_RUNS=$((EXPECTED_RUNS + 1))
+fi
 
 # summarize <log> <exit-code> → "passed failed" from the suite's own summary
 # line, falling back to the exit code when no summary is recognized.
@@ -509,8 +579,31 @@ run_lane() {
   done
 }
 
+# run_sqlite_step — run the isolated SQLite step (qa/sqlite.sh) and parse its
+# result through the SAME summarize() every lane suite uses. sqlite.sh emits the
+# standard `PASS=N  FAIL=M` summary line (like every other suite), so there is no
+# bespoke parsing here — summarize() handles it. Sets SQLITE_PASS/FAIL/SECS/VERDICT
+# for the report's SQLite section and returns the step's exit code. Called from BOTH
+# `./qa/run.sh sqlite` (only this) and the tail of a full `all` run, so the two
+# entry points can never drift.
+run_sqlite_step() {
+  bold ""
+  bold "════════════════ SQLite isolated step (relational-only) ════════════════"
+  local t0=$SECONDS counts rc
+  bash "$SCRIPT_DIR/sqlite.sh" > "$LOG_DIR/sqlite.log" 2>&1
+  rc=$?
+  SQLITE_SECS=$((SECONDS - t0))
+  tail -3 "$LOG_DIR/sqlite.log"
+  counts=$(summarize "$LOG_DIR/sqlite.log" "$rc")
+  SQLITE_PASS=${counts%% *}; SQLITE_FAIL=${counts##* }
+  if [ "$rc" = "0" ]; then SQLITE_VERDICT="OK"; else SQLITE_VERDICT="RED"; fi
+  return "$rc"
+}
+
 # ── Preflight ────────────────────────────────────────────────────────────────
-command -v jq >/dev/null || { ABORT_REASON="jq not installed"; echo "jq is required (brew install jq)" >&2; exit 2; }
+# jq is a LANE prerequisite (cdc_warmup parses view docs with it); the SQLite-only
+# run has no lanes and no CDC, so it does not require jq.
+[ -n "$BACKEND_LIST" ] && { command -v jq >/dev/null || { ABORT_REASON="jq not installed"; echo "jq is required (brew install jq)" >&2; exit 2; }; }
 
 # ── Unit-test gate: framework THEN example, EVERY build tag, before any bench ──
 # "green" is never a subset — this runs the full //go:build tag matrix from the
@@ -532,22 +625,34 @@ run_unit_matrix() { # run_unit_matrix <dir> <name> <tag-combo>...
     fi
   done
 }
-bold "unit-test gate — framework then example, all tags (no bench yet) ..."
-run_unit_matrix "$STACK_ROOT/omnicore" framework "${FW_UNIT_TAGS[@]}"
-run_unit_matrix "." example "${EX_UNIT_TAGS[@]}"
+# The unit-test gate and the shared lane infra are LANE machinery — a SQLite-only
+# run skips both (the isolated step self-builds its `sqlite nats` binary and boots
+# against just Mongo + NATS). It brings up only what sqlite.sh needs to boot.
+if [ -n "$BACKEND_LIST" ]; then
+  bold "unit-test gate — framework then example, all tags (no bench yet) ..."
+  run_unit_matrix "$STACK_ROOT/omnicore" framework "${FW_UNIT_TAGS[@]}"
+  run_unit_matrix "." example "${EX_UNIT_TAGS[@]}"
 
-# Shared, wave-independent infra up front; each wave manages only its lanes.
-bold "shared infra up (mongo + keycloak + jaeger) ..."
-docker compose -f devops/docker-compose.yml up -d --wait mongo keycloak jaeger >/dev/null 2>&1 \
-  || { ABORT_REASON="shared infra failed to start"; echo "could not start mongo/keycloak/jaeger — is Docker running?" >&2; exit 2; }
-if grep -qE 'auth|authz' <<<"$SUITES"; then
-  bold "waiting for Keycloak (auth/authz suites requested) ..."
-  ./devops/keycloak/wait-ready.sh >/dev/null 2>&1 || true
+  # Shared, wave-independent infra up front; each wave manages only its lanes.
+  bold "shared infra up (mongo + keycloak + jaeger) ..."
+  docker compose -f devops/docker-compose.yml up -d --wait mongo keycloak jaeger >/dev/null 2>&1 \
+    || { ABORT_REASON="shared infra failed to start"; echo "could not start mongo/keycloak/jaeger — is Docker running?" >&2; exit 2; }
+  if grep -qE 'auth|authz' <<<"$SUITES"; then
+    bold "waiting for Keycloak (auth/authz suites requested) ..."
+    ./devops/keycloak/wait-ready.sh >/dev/null 2>&1 || true
+  fi
+
+  bold "qa/run.sh — suites: $SUITES"
+  bold "lanes: $BACKEND_LIST (parallel)   logs: $LOG_DIR"
+  bold "report: $REPORT_MD"
+else
+  # SQLite boots against the QA-bench Mongo + NATS; bring just those up (best-effort)
+  # so `./qa/run.sh sqlite` is self-sufficient even on a cold bench.
+  bold "shared infra up (mongo + nats — the SQLite step boots against them) ..."
+  docker compose -f devops/docker-compose.yml up -d --wait mongo nats >/dev/null 2>&1 || true
+  bold "qa/run.sh — SQLite isolated step only (relational-only; not a projection lane)"
+  bold "report: $REPORT_MD   logs: $LOG_DIR"
 fi
-
-bold "qa/run.sh — suites: $SUITES"
-bold "lanes: $BACKEND_LIST (parallel)   logs: $LOG_DIR"
-bold "report: $REPORT_MD"
 
 # ── Launch the lanes in parallel ─────────────────────────────────────────────
 overall_start=$(date +%s)
@@ -622,13 +727,14 @@ while [ "$#" -gt 0 ] && ! stop_requested; do
 done
 
 # Restore the documented default bench (lanes A/B up, C/D down) — unless
-# fail-fast tripped, in which case the failing wave's infra is still up.
-stop_requested || docker compose -f devops/docker-compose.yml up -d >/dev/null 2>&1 || true
-
-elapsed=$(( $(date +%s) - overall_start ))
+# fail-fast tripped, in which case the failing wave's infra is still up. A
+# SQLite-only run never touched the lane bench, so it has nothing to restore.
+[ -n "$BACKEND_LIST" ] && { stop_requested || docker compose -f devops/docker-compose.yml up -d >/dev/null 2>&1 || true; }
 
 # The report has been rendered LIVE after every suite (render_report); the final
-# verdict is stamped onto that same file by the branches below.
+# verdict is stamped onto that same file by the branches below. `elapsed` is
+# computed AFTER the SQLite step below, so the wall-clock total includes it (on a
+# SQLite-only run it IS the whole run).
 
 # ── Accounting from the per-lane rows ────────────────────────────────────────
 cat "$LOG_DIR"/rows-*.tsv > "$LOG_DIR/rows.tsv" 2>/dev/null || : > "$LOG_DIR/rows.tsv"
@@ -639,10 +745,30 @@ cat "$LOG_DIR"/rows-*.tsv > "$LOG_DIR/rows.tsv" 2>/dev/null || : > "$LOG_DIR/row
 COMPLETED_RUNS=$(grep -vE $'^(fw|ex)-integration\t' "$LOG_DIR/rows.tsv" 2>/dev/null | grep -cv $'\tABORT\t'); COMPLETED_RUNS=${COMPLETED_RUNS:-0}
 RED_RUNS=$(awk -F'\t' '$5 != "OK" && $5 != "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); RED_RUNS=${RED_RUNS:-0}
 SKIP_RUNS=$(awk -F'\t' '$5 == "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); SKIP_RUNS=${SKIP_RUNS:-0}
+# ── SQLite isolated step at the END of a full run ────────────────────────────
+# After the four projection lanes finish, run the SQLite step (see its header and
+# the note by the arg parser: SQLite is relational-only, so it is NOT a lane). It
+# counts as ONE scheduled run — Lane E — in the final tally (its slot is already
+# reserved in EXPECTED_RUNS up front). On success it bumps COMPLETED_RUNS
+# (RED_RUNS on failure), so the verdict's X/Y and the ALL-GREEN/RED decision
+# include it exactly like a lane suite. It runs only for a full `all` run or a
+# `sqlite`-only invocation; a single-lane invocation stays scoped.
+if [ "$BACKENDS" = "all" ] || [ "$BACKENDS" = "sqlite" ]; then
+  run_sqlite_step; sqlite_rc=$?
+  # The step RAN (OK or RED), so it counts as completed — exactly like a suite
+  # row (which counts in COMPLETED whether OK or RED). A RED only adds to RED_RUNS;
+  # counting it as completed too keeps it from ALSO showing as "never ran".
+  COMPLETED_RUNS=$((COMPLETED_RUNS + 1))
+  [ "$sqlite_rc" = "0" ] || RED_RUNS=$((RED_RUNS + 1))
+fi
+
+# Computed AFTER the SQLite step so its +1 (Lane E) is included in the tally.
 MISSING_RUNS=$((EXPECTED_RUNS - COMPLETED_RUNS))
+elapsed=$(( $(date +%s) - overall_start ))
 
 bold ""
 bold "════════════════ QA MATRIX REPORT ════════════════"
+[ -n "${SQLITE_VERDICT:-}" ] && bold "$(printf '  %-18s %-9s %6s pass %5s fail   %-5s %4ss' 'sqlite' 'sqlite' "${SQLITE_PASS:-?}" "${SQLITE_FAIL:-?}" "$SQLITE_VERDICT" "${SQLITE_SECS:-0}")"
 awk -F'\t' '{printf "  %-18s %-9s %6s pass %5s fail   %-5s %4ss\n", $1, $2, $3, $4, $5, $6}' "$LOG_DIR/rows.tsv"
 bold "═══════════════════════════════════════════════════"
 
