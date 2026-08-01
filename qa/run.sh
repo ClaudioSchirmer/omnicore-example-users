@@ -54,11 +54,32 @@ BACKENDS="all"
 KEEP_GOING="${KEEP_GOING:-0}"
 for arg in "$@"; do
   case "$arg" in
-    all|postgres|mysql|sqlserver|oracle) BACKENDS="$arg" ;;
+    all|postgres|mysql|sqlserver|oracle|sqlite) BACKENDS="$arg" ;;
     --keep-going|-k)    KEEP_GOING=1 ;;
-    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle] [--keep-going]" >&2; exit 2 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle|sqlite] [--keep-going]" >&2; exit 2 ;;
   esac
 done
+
+# ── SQLite is an ISOLATED individual step, NOT a lane ────────────────────────
+# The four run.sh lanes are each an engine + broker + Mongo projection pipeline,
+# and EVERY *.sh suite reads its result through the MONGO VIEW (outbox → CDC relay
+# → broker → SyncEngine → Mongo). SQLite has NO CDC source (Debezium cannot tail
+# a SQLite file), so Mongo-projected views never materialize on it — by design.
+# SQLite's read side is the RELATIONAL view (served straight from the SoR), so it
+# CANNOT run the projection-dependent suites as a lane. It runs APART, as ONE
+# self-contained step (qa/sqlite.sh): boot the SQLite engine as SoR and assert the
+# WRITE side over real HTTP, verified directly against the app.db file with
+# sqlite3 (the read side that does not need a projection).
+#
+#   ./qa/run.sh sqlite   → runs ONLY this isolated step (no lanes, no bench waves)
+#   ./qa/run.sh          → runs the four DB lanes, THEN this step at the very end
+#
+# `./qa/run.sh sqlite` exits here — it needs neither jq, the cold-bench waves, nor
+# the CDC relays, so it never touches the lane machinery below.
+if [ "$BACKENDS" = "sqlite" ]; then
+  echo "── SQLite isolated step (relational-only; not a projection lane) ──"
+  exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sqlite.sh"
+fi
 case "$BACKENDS" in
   # `all` schedules the full 4-lane matrix; a lane whose infrastructure is not
   # reachable SKIPs (⚠ in the report, never RED) via the availability filter
@@ -155,7 +176,7 @@ render_report() {
   # inside run_lane's `local B` scope. Bash is dynamically scoped, so an unqualified
   # `for B` here would CLOBBER the lane's B (leaving it "mysql"), mislabeling every
   # subsequent row and colliding log paths. Keep B (and any loop var) local.
-  local status="$1" lock="$LOG_DIR/report.lock" tries=0 B
+  local status="$1" lock="$LOG_DIR/report.lock" tries=0 B smark
   # Best-effort lock: if the sibling lane is mid-render, skip — the next suite's
   # render catches up. A lane is never blocked on the report.
   until mkdir "$lock" 2>/dev/null; do
@@ -184,6 +205,11 @@ render_report() {
       hdr="$hdr Backend | Pass | Fail | Verdict | Time |"
       sep="$sep---|---:|---:|:---:|---:|"
     done
+    # SQLite is the isolated 5th track (Lane E) on a full run — listed in the
+    # legend so it is visible up front, but reported in its OWN section below the
+    # matrix: it is relational-only (no CDC → no Mongo projection), so it cannot be
+    # a side-by-side matrix column that runs every suite like the DB lanes.
+    [ "$BACKENDS" = "all" ] && echo "- **Lane E** — SQLite (ISOLATED, relational-only — no CDC/projection; verdict below the matrix)"
     echo
     echo "$hdr"
     echo "$sep"
@@ -211,6 +237,24 @@ render_report() {
         for (k in seen) if (!(k in inlist)) emit(k)
       }
     ' "$LOG_DIR"/rows-*.tsv 2>/dev/null
+    # SQLite is NOT a lane (relational-only, no CDC → no Mongo projection), so it
+    # is reported in its OWN section BELOW the lane matrix, not as a matrix column.
+    # SQLITE_VERDICT is set by the isolated step that runs after the lanes.
+    if [ "$BACKENDS" = "all" ] || [ -n "${SQLITE_VERDICT:-}" ]; then
+      case "${SQLITE_VERDICT:-}" in
+        OK) smark="✅ OK" ;;
+        "") smark="⏳ pending (runs after the DB lanes)" ;;
+        *)  smark="❌ $SQLITE_VERDICT" ;;
+      esac
+      echo
+      echo "### Lane E — SQLite (isolated; relational-only, not a projection lane)"
+      echo
+      echo "Boots the SQLite engine as SoR (\`-tags 'sqlite nats'\`, \`CGO_ENABLED=0\`) and asserts the write side over HTTP — verified directly in the \`app.db\` file. No CDC/Mongo projection, so it runs apart from the matrix. See \`qa/sqlite.sh\`."
+      echo
+      echo "| Step | Verdict |"
+      echo "|---|:---:|"
+      echo "| sqlite (boot + migrations + write-side, checked in app.db) | $smark |"
+    fi
     echo
     echo "$status"
   } > "$REPORT_MD"
@@ -639,10 +683,37 @@ cat "$LOG_DIR"/rows-*.tsv > "$LOG_DIR/rows.tsv" 2>/dev/null || : > "$LOG_DIR/row
 COMPLETED_RUNS=$(grep -vE $'^(fw|ex)-integration\t' "$LOG_DIR/rows.tsv" 2>/dev/null | grep -cv $'\tABORT\t'); COMPLETED_RUNS=${COMPLETED_RUNS:-0}
 RED_RUNS=$(awk -F'\t' '$5 != "OK" && $5 != "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); RED_RUNS=${RED_RUNS:-0}
 SKIP_RUNS=$(awk -F'\t' '$5 == "SKIP"' "$LOG_DIR/rows.tsv" | grep -c . 2>/dev/null); SKIP_RUNS=${SKIP_RUNS:-0}
+# ── SQLite isolated step at the END of a full run ────────────────────────────
+# After the four projection lanes finish, run the SQLite step (see its header and
+# the note by the arg parser: SQLite is relational-only, so it is NOT a lane). It
+# counts as ONE scheduled run — Lane E — in the final tally: it bumps
+# EXPECTED_RUNS and, on success, COMPLETED_RUNS (RED_RUNS on failure), so the
+# verdict's X/Y and the ALL-GREEN/RED decision include it exactly like a lane
+# suite. It runs only for a full `all` run; a single-lane invocation stays scoped.
+if [ "$BACKENDS" = "all" ]; then
+  bold ""
+  bold "════════════════ Lane E — SQLite isolated step (relational-only) ════════════════"
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sqlite.sh" > "$LOG_DIR/sqlite.log" 2>&1
+  sqlite_rc=$?
+  tail -3 "$LOG_DIR/sqlite.log"
+  EXPECTED_RUNS=$((EXPECTED_RUNS + 1))
+  # The step RAN (OK or RED), so it counts as completed — exactly like a suite
+  # row (which counts in COMPLETED whether OK or RED). A RED only adds to RED_RUNS;
+  # counting it as completed too keeps it from ALSO showing as "never ran".
+  COMPLETED_RUNS=$((COMPLETED_RUNS + 1))
+  if [ "$sqlite_rc" = "0" ]; then
+    SQLITE_VERDICT="OK"
+  else
+    SQLITE_VERDICT="RED"; RED_RUNS=$((RED_RUNS + 1))
+  fi
+fi
+
+# Computed AFTER the SQLite step so its +1 (Lane E) is included in the tally.
 MISSING_RUNS=$((EXPECTED_RUNS - COMPLETED_RUNS))
 
 bold ""
 bold "════════════════ QA MATRIX REPORT ════════════════"
+[ -n "${SQLITE_VERDICT:-}" ] && bold "  sqlite (isolated)  $SQLITE_VERDICT"
 awk -F'\t' '{printf "  %-18s %-9s %6s pass %5s fail   %-5s %4ss\n", $1, $2, $3, $4, $5, $6}' "$LOG_DIR/rows.tsv"
 bold "═══════════════════════════════════════════════════"
 
