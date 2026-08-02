@@ -10,12 +10,14 @@
 #   2. READ-YOUR-WRITES — the relational twin reads the SoR directly, so a
 #      just-written row is visible with NO CDC wait (contrast: the Mongo view needs
 #      the outbox→CDC→SyncEngine hop). Asserted before the connector even warms.
-#   3. UNSUPPORTED → 400 RelationalCapabilityNotification — a capability a single
-#      root SELECT cannot express: ?search=, and (on the Widget twin, an aggregate
-#      with a child array + a root sibling + a child-level sibling) a filter or
-#      sort on a child field (widgetParts.label), a root sibling (material) or a
-#      child-level sibling (widgetParts.tag). The SAME query row-selects on the
-#      Mongo view — the contrast the suite asserts side by side.
+#   3. 1:1 SATELLITE PARITY vs 1:N 400 — a root-level 1:1 sibling field (material,
+#      on the Widget twin) and a shared-base field (displayName, on the AccountHolder
+#      twin) filter/sort identically to the Mongo view: the loader LEFT JOINs the
+#      satellite in. But a 1:N child field (widgetParts.label) or a child-level
+#      sibling (widgetParts.tag) is a pushdown a single root SELECT cannot express,
+#      so it stays 400 RelationalCapabilityNotification — the SAME query row-selects
+#      on the Mongo view, the contrast the suite asserts side by side. ?search= is
+#      likewise 400.
 #   4. CEILINGS — the relational reader honors MaxLimit (?limit over the cap → 400
 #      LimitExceededNotification) and MaxExportRows (CSV/XLSX truncates at the cap),
 #      exactly like the Mongo reader, plus CSV/XLSX content parity.
@@ -40,7 +42,7 @@ kill_port() { local p; p=$(lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true); [
 cleanup() {
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   kill_port "${HTTP_PORT:-8080}"
-  qa_view_drop gadgets gadgets_hot gadgets_capped gadget_notes qa_lens_brands_view qa_widgets_view upstream_gadgets
+  qa_view_drop gadgets gadgets_hot gadgets_capped gadget_notes qa_lens_brands_view qa_widgets_view qa_accounts_view upstream_gadgets
 }
 trap cleanup EXIT INT TERM
 
@@ -330,23 +332,28 @@ parity "7.2 brand name.contains" "/qa/lens-brands" "/qa/rel/lens-brands" "name.c
 parity "7.3 all brands"          "/qa/lens-brands" "/qa/rel/lens-brands" ""                  3
 
 ##############################################################################
-sec "8. Widgets twin — child + sibling fields: 400 (rel) vs row-select (mongo)"
+sec "8. Widgets twin — 1:1 sibling fields reach parity; 1:N child fields → 400"
 ##############################################################################
 title "8.1 root name is served identically (parity)"
 parity "8.1 name parity" "/qa/widgets" "/qa/rel/widgets" "name.eq=Widget A" 1
 
-title "8.2 the relational twin rejects every non-root field"
-reject4xx "8.2a material (root sibling, flat)"     "/qa/rel/widgets" "material.eq=aluminium"
-reject4xx "8.2b widgetParts.label (child field)"   "/qa/rel/widgets" "widgetParts.label.eq=lens"
-reject4xx "8.2c widgetParts.tag (child sibling)"   "/qa/rel/widgets" "widgetParts.tag.eq=optical"
-reject4xx "8.2d sort=material (root sibling)"       "/qa/rel/widgets" "sort=material"
-reject4xx "8.2e sort=widgetParts.label (child)"     "/qa/rel/widgets" "sort=widgetParts.label"
+title "8.2 a root-level 1:1 sibling filter/sort now reaches parity (LEFT JOIN)"
+# material lives in the qa_widget_specs 1:1 sibling — the loader LEFT JOINs it, so
+# the relational twin filters AND sorts by it identically to the Mongo view (the
+# id tiebreak is qualified to qa_widgets under the join, no ambiguity).
+parity "8.2a material.eq (root sibling → 1:1 JOIN)" "/qa/widgets" "/qa/rel/widgets" "material.eq=steel" 1
+parity "8.2b sort=material (root sibling)"          "/qa/widgets" "/qa/rel/widgets" "sort=material"     2
 
-title "8.3 the SAME queries row-select on the Mongo view (the contrast)"
-status_is "8.3a mongo material.eq → 200"           "$BASE/qa/widgets?material.eq=aluminium" 200
-status_is "8.3b mongo widgetParts.label.eq → 200"  "$BASE/qa/widgets?widgetParts.label.eq=lens" 200
-mn=$(curl -sS "$BASE/qa/widgets?material.eq=steel" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("data",[])))')
-[ "$mn" = "1" ] && ok "8.3c mongo material.eq=steel selects the 1 matching widget" || bad "8.3c mongo material row-select got $mn (want 1)"
+title "8.3 a 1:N child field (or a child-level sibling) is still 400 on the twin"
+# widgetParts is a 1:N child array, and its tag a child-level sibling — a single
+# root SELECT cannot push those down, so the relational twin rejects them 400 …
+reject4xx "8.3a widgetParts.label (1:N child field)"     "/qa/rel/widgets" "widgetParts.label.eq=lens"
+reject4xx "8.3b widgetParts.tag (child-level sibling)"   "/qa/rel/widgets" "widgetParts.tag.eq=optical"
+reject4xx "8.3c sort=widgetParts.label (1:N child)"      "/qa/rel/widgets" "sort=widgetParts.label"
+# … while the SAME queries row-select on the Mongo view (the contrast).
+status_is "8.3d mongo widgetParts.label.eq → 200"  "$BASE/qa/widgets?widgetParts.label.eq=lens" 200
+mn=$(curl -sS "$BASE/qa/widgets?widgetParts.tag.eq=optical" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("data",[])))')
+[ "$mn" = "1" ] && ok "8.3e mongo widgetParts.tag.eq=optical selects the 1 matching widget" || bad "8.3e mongo child row-select got $mn (want 1)"
 
 title "8.4 by-id parity — the relational twin surfaces the SAME nested doc (material + parts + tag)"
 WID=$(curl -sS "$BASE/qa/rel/widgets?name.eq=Widget%20A" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
@@ -395,6 +402,40 @@ arc_labels=$(labels_of "$BASE/qa/rel/widgets" --data-urlencode "name.eq=Widget A
 echo "default=[$def_labels] includeArchived=[$arc_labels]"
 [ "$def_labels" = "lens" ] && ok "8.6a default hides the archived 'grip' under ?fields=widgetParts.label" || bad "8.6a default labels=[$def_labels] (want lens)"
 [ "$arc_labels" = "grip,lens" ] && ok "8.6b ?includeArchived surfaces both parts" || bad "8.6b includeArchived labels=[$arc_labels] (want grip,lens)"
+
+##############################################################################
+sec "9. Account holders twin — SHARED-BASE field parity (read-your-writes)"
+##############################################################################
+# The AccountHolder ROLE is served relationally over /qa/rel/account-holders. Its
+# displayName + accountRef live in the qa_accounts BASE (1:1), so filtering and
+# sorting by them exercises the loader's shared-base LEFT JOIN — the capability
+# that used to return 400. No CDC: the SoR twin sees the writes immediately.
+qa_db_exec "DELETE FROM qa_account_lines;"   2>/dev/null || true
+qa_db_exec "DELETE FROM qa_account_holders;" 2>/dev/null || true
+qa_db_exec "DELETE FROM qa_accounts;"
+qa_view_clear qa_account_holders_rel 2>/dev/null || true
+
+title "9.1 seed two account holders (distinct base displayName / accountRef)"
+curl -sS -o /dev/null -X POST "$BASE/qa/accounts" -H "Content-Type: application/json" \
+  --data '{"accountRef":"acct-acme","displayName":"ACME Corp","holderName":"Ada"}'
+curl -sS -o /dev/null -X POST "$BASE/qa/accounts" -H "Content-Type: application/json" \
+  --data '{"accountRef":"acct-globex","displayName":"Globex Inc","holderName":"Grace"}'
+rel "9.1 twin sees both writes immediately (no CDC)" "/qa/rel/account-holders" "accountRef.startswith=acct-" 2
+
+title "9.2 filter by a SHARED-BASE field — the loader LEFT JOINs qa_accounts in"
+rel "9.2a displayName.eq (base field, exact)"        "/qa/rel/account-holders" "displayName.eq=ACME Corp"      1
+rel "9.2b displayName.icontains (base field)"        "/qa/rel/account-holders" "displayName.icontains=globex" 1
+rel "9.2c accountRef.eq (base natural key)"          "/qa/rel/account-holders" "accountRef.eq=acct-acme"      1
+rel "9.2d no match on a base field → empty page"     "/qa/rel/account-holders" "displayName.eq=Nope"          0
+
+title "9.3 sort by a SHARED-BASE field is accepted (ORDER BY the joined column + id tiebreak)"
+rel "9.3a sort=displayName asc"  "/qa/rel/account-holders" "sort=displayName"  2
+rel "9.3b sort=-displayName desc" "/qa/rel/account-holders" "sort=-displayName" 2
+
+title "9.4 by-id surfaces the base fields flat on the role-rooted doc"
+AID=$(curl -sS -G "$BASE/qa/rel/account-holders" --data-urlencode "accountRef.eq=acct-acme" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["id"] if d else "")')
+disp=$(curl -sS "$BASE/qa/rel/account-holders/$AID" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("displayName",""))')
+[ -n "$AID" ] && [ "$disp" = "ACME Corp" ] && ok "9.4 by-id displayName=ACME Corp (base field flat)" || bad "9.4 by-id base field, got id=[$AID] displayName=[$disp]"
 
 ##############################################################################
 sec "Summary"

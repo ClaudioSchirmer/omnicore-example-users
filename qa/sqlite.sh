@@ -22,10 +22,14 @@
 # (strict) / PATCH (partial) / archive / unarchive, SharedBase reuse + refcount
 # across roles (Employee over the same Person, its two child collections, its
 # role sibling + child-level sibling), the soft-delete cascade + convergence, and
-# hard delete with the savepoint orphan-purge VETO (RESTRICT FKs). Boot,
-# migrations control plane and probes are proven too. Mongo + NATS from the QA
-# bench are attached only so the service boots (its views are declared
-# Mongo-backed); those views stay empty, as expected.
+# hard delete with the savepoint orphan-purge VETO (RESTRICT FKs). It ALSO proves
+# the RELATIONAL READ SIDE (RelationalSource /users-rel): SQLite's only read path
+# (no CDC → the Mongo views never materialize), served straight from the SoR —
+# read-your-writes, and filter/sort on shared-base (name/email/document) + root
+# (userName) fields via the loader's 1:1 JOINs, with 1:N child fields + ?search=
+# → 400. Boot, migrations control plane and probes are proven too. Mongo + NATS
+# from the QA bench are attached only so the service boots; the Mongo-backed views
+# stay empty, as expected — the relational twin is the read side that works.
 #
 # OUTPUT CONTRACT: like every other qa suite, it ends on the standard
 # `PASS=N  FAIL=M` line (run.sh's summarize() parses it — no bespoke format).
@@ -494,30 +498,83 @@ patch "/users/$U15/archive"; status_is "re-archive already-archived" 404
 patch "/users/$U15/unarchive" >/dev/null 2>&1; delete "/users/$U15" >/dev/null 2>&1
 
 ##############################################################################
-sec "16. Read side is EMPTY by design (no CDC → no Mongo projection)"
+sec "16. Relational read side (RelationalSource twin /users-rel) — SQLite's read path"
 ##############################################################################
-# Every HTTP read goes through d.ViewReader → the Mongo view, which SQLite never
-# populates (Debezium cannot tail a .db file). This is not a gap to fix — it is
-# the documented contract: SQLite serves WRITES to the SoR; its projected read
-# side stays empty. We assert that positively so a future regression that
-# silently starts serving stale/partial reads on SQLite is caught.
+# SQLite has no CDC, so the Mongo views never materialize (asserted in section 17).
+# The users_rel view is served STRAIGHT FROM THE SoR (RelationalSource), so it is
+# the read side that DOES work on SQLite — read-your-writes, zero projection lag.
+# It also proves the reader's 1:1 reach on a shared-base role: name/email/document
+# are Person SHARED-BASE fields, userName the role field — all filterable/sortable
+# because the loader LEFT JOINs the base (and the user_configurations sibling) in.
+# Self-contained: seeds its own user (UID1 has been mutated/archived by earlier
+# sections) and cleans it up.
+RDOC="90000000200"
+post /users "{\"name\":\"Rel Read\",\"email\":\"relread@example.com\",\"phone\":\"14155550200\",\"document\":\"$RDOC\",\"userName\":\"relread\",\"emailNotification\":true,\"smsNotification\":false,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua R\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"Portland\",\"state\":\"OR\",\"zipCode\":\"97000000\",\"country\":\"US\"}]}"
+status_is "seed a user for the relational read" 201
+RID=$(jsonq "d['data']['id']")
+
+title "16.1 GET /users-rel/:id → 200 — the FULL aggregate reads back (root+base+sibling+base-child)"
+get "/users-rel/$RID"; status_is "by-id on the relational twin" 200
+eq "ROOT field (userName)"                 "$(jsonq "d['data']['userName']")" "relread"
+eq "SHARED-BASE field (name)"              "$(jsonq "d['data']['name']")" "Rel Read"
+eq "SHARED-BASE field (email)"             "$(jsonq "d['data']['email']")" "relread@example.com"
+eq "SHARED-BASE field (document)"          "$(jsonq "d['data']['document']")" "$RDOC"
+eq "SIBLING field (emailNotification=true)" "$(jsonq "d['data']['emailNotification']")" "True"
+eq "SIBLING field (smsNotification=false)"  "$(jsonq "d['data']['smsNotification']")" "False"
+eq "BASE-CHILD array present (1 address)"   "$(jsonq "len(d['data']['addresses'])")" "1"
+eq "BASE-CHILD field (address city)"        "$(jsonq "d['data']['addresses'][0]['city']")" "Portland"
+
+title "16.2 filter by a SHARED-BASE field — the loader LEFT JOINs persons in"
+get "/users-rel?document.eq=$RDOC"; status_is "document.eq (base natural key)" 200
+eq "document.eq selects exactly the seeded user" "$(jsonq "len(d['data'])")" "1"
+eq "  and it is the seeded id" "$(jsonq "d['data'][0]['id']")" "$RID"
+get "/users-rel?name.eq=Rel%20Read"; status_is "name.eq (base field)" 200
+eq "name.eq selects 1" "$(jsonq "len(d['data'])")" "1"
+get "/users-rel?email.eq=relread@example.com"; status_is "email.eq (base field)" 200
+eq "email.eq selects 1 (JOIN on the base column)" "$(jsonq "len(d['data'])")" "1"
+
+title "16.3 filter by the ROOT role field + sort by a base field (id tiebreak stays unambiguous)"
+get "/users-rel?userName.eq=relread"; status_is "userName.eq (root)" 200
+eq "userName.eq selects 1" "$(jsonq "len(d['data'])")" "1"
+get "/users-rel?document.eq=$RDOC&sort=name"; status_is "sort by a base field is accepted (ORDER BY joined col , id)" 200
+eq "sort=name still selects the seeded user" "$(jsonq "len(d['data'])")" "1"
+
+title "16.4 a no-match base filter → empty page (200, not 404)"
+get "/users-rel?document.eq=00000000000"; status_is "no-match base filter" 200
+eq "no-match → empty data array" "$(jsonq "len(d['data'])")" "0"
+
+title "16.5 unsupported on the twin → 400 RelationalCapabilityNotification"
+get "/users-rel?search=rel"; status_is "?search= → 400" 400; note_has "search rejected" "RelationalCapabilityNotification"
+get "/users-rel?addresses.city.eq=Portland"; status_is "1:N child filter → 400" 400; note_has "child filter rejected" "RelationalCapabilityNotification"
+
+delete "/users/$RID" >/dev/null 2>&1
+
+##############################################################################
+sec "17. Mongo read side is EMPTY by design (no CDC → no Mongo projection)"
+##############################################################################
+# The Mongo-backed views (users/employees/persons) go through d.ViewReader → the
+# Mongo reader, which SQLite never populates (Debezium cannot tail a .db file).
+# This is not a gap to fix — it is the documented contract: SQLite serves WRITES
+# to the SoR and READS via the relational twin above; its Mongo-projected views
+# stay empty. We assert that positively so a future regression that silently
+# starts serving stale/partial Mongo reads on SQLite is caught.
 DOC10="90000000100"
 post /users "{\"name\":\"Ghost\",\"email\":\"ghost@example.com\",\"document\":\"$DOC10\",\"userName\":\"ghost\"}"
 G10=$(jsonq "d['data']['id']")
 eq "the write DID land in the SoR (.db has the row)" "$(db "SELECT count(*) FROM users WHERE id='$G10';")" "1"
-title "16.1 GET /users/:id → 404 (document never projected to Mongo)"
+title "17.1 GET /users/:id → 404 (document never projected to Mongo)"
 get "/users/$G10"; status_is "GET by id on empty view" 404; note_has "RecordNotFound" "RecordNotFoundNotification"
-title "16.2 GET /users → 200 with an empty page (total 0)"
+title "17.2 GET /users → 200 with an empty page (total 0)"
 get "/users"; status_is "GET list on empty view" 200
 eq "empty data array" "$(jsonq "len(d['data'])")" "0"
 eq "pagination total is 0" "$(jsonq "d['pagination']['total']")" "0"
-title "16.3 GET /employees and GET /persons → empty too"
+title "17.3 GET /employees and GET /persons → empty too"
 get "/employees"; status_is "GET /employees" 200; eq "empty employees" "$(jsonq "len(d['data'])")" "0"
 get "/persons"; status_is "GET /persons" 200; eq "empty persons" "$(jsonq "len(d['data'])")" "0"
 delete "/users/$G10" >/dev/null 2>&1
 
 ##############################################################################
-sec "17. Probes + write-side control plane"
+sec "18. Probes + write-side control plane"
 ##############################################################################
 title "17.1 /livez static 200"
 get "/livez"; { [ "$STATUS" = "200" ] && grep -q '"status":"ok"' "$BODY"; } && ok "/livez ok" || bad "/livez not ok ($STATUS)"

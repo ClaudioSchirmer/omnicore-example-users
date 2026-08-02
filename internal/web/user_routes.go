@@ -270,6 +270,51 @@ func MountUsers(
 		fwopenapi.RequirePermission("users:read"))
 }
 
+// MountUsersRel registers the RelationalSource read twin of the User aggregate,
+// served straight from the SoR (read-your-writes, no CDC):
+//
+//	GET /users-rel      list (root + shared-base + sibling filter/sort; SoR)
+//	GET /users-rel/:id   by id (SoR)
+//
+// It reuses the SAME FindUsers DTOs/queries as GET /users, pointed at the
+// relational view. name/email/document are Person SHARED-BASE fields and userName
+// the role field — all served via the loader's 1:1 JOINs; ?search= and an
+// addresses (1:N child) filter/sort return 400. This is the only read path on the
+// SQLite MVP (no Mongo/CDC), and the canonical demonstration of RelationalSource.
+func MountUsersRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap.Deps) {
+	g := app.Group("/users-rel")
+	viewName := relView.Name()
+
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
+		requests.FindUsersByParamsRequest{},
+		fwresponses.AutoFromDoc[requests.FindUsersByParamsResponse],
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
+		listH, listSpec,
+		fwopenapi.Doc{
+			Summary:     "List users from the relational SoR (RelationalSource mirror)",
+			Description: "Read-your-writes twin of GET /users, served directly from the relational backend. Root (`userName`), shared-base (`name`/`email`/`document`) and sibling filters/sorts reach parity — the loader LEFT JOINs the Person base and the user_configurations sibling in. `?search=` and an `addresses` (1:N child) filter/sort return 400 RelationalCapabilityNotification (a root SELECT cannot express them). On the SQLite MVP this is the only read path.",
+			Tags:        []string{"Users"},
+		},
+		fwopenapi.RequirePermission("users:read"))
+
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
+		requests.FindUserByIDRequest{},
+		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
+		byIDH, byIDSpec,
+		fwopenapi.Doc{
+			Summary: "Get a user by id from the relational SoR",
+			Tags:    []string{"Users"},
+		},
+		fwopenapi.RequirePermission("users:read"))
+}
+
 // MountUsersGraphQL registers the User aggregate's GraphQL fields into the
 // service's single GraphQL registry — the GraphQL twin of MountUsers. GraphQL
 // is ONE endpoint (POST /graphql) backed by ONE registry created in bootstrap;

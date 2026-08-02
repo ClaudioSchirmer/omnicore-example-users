@@ -118,6 +118,49 @@ func MountAccounts(
 		fwopenapi.RequirePermission("gadgets:read"))
 }
 
+// MountAccountsRel registers the RelationalSource read twin over the AccountHolder
+// role, served straight from the SoR:
+//
+//	GET /qa/rel/account-holders      list (root + shared-base filter/sort; SoR)
+//	GET /qa/rel/account-holders/:id   by id (SoR)
+//
+// It reuses the account list/by-id DTOs + queries — displayName and accountRef are
+// SHARED-BASE fields the relational reader now serves via the loader's base JOIN
+// (the segment filters the DTO also allowlists are simply not exercised here).
+func MountAccountsRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap.Deps) {
+	g := app.Group("/qa/rel/account-holders")
+	viewName := relView.Name()
+
+	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
+		FindAccountsRequest{},
+		fwresponses.AutoFromDoc[FindAccountsListResponse],
+		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
+		listH, listSpec,
+		fwopenapi.Doc{
+			Summary:     "List account holders from the relational SoR (RelationalSource mirror)",
+			Description: "Reads the AccountHolder role directly from the SoR. Root (`holderName`) AND shared-base (`displayName`, `accountRef`) filters/sorts reach parity — the loader LEFT JOINs the qa_accounts base in. Embed/segment filters return 400 (a root SELECT cannot express them).",
+			Tags:        []string{"QA Relational Views"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
+	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
+		FindAccountByIDRequest{},
+		fwresponses.AutoFromDoc[FindAccountByIDResponse],
+		&handlers.FindByIDQueryHandler[*appqa.FindAccountByIDQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
+		byIDH, byIDSpec,
+		fwopenapi.Doc{
+			Summary: "Get an account holder by id from the relational SoR",
+			Tags:    []string{"QA Relational Views"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+}
+
 // ─── Create DTOs ─────────────────────────────────────────────────────────────
 
 // InsertAccountRequest is the JSON body of POST /qa/accounts.

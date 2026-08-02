@@ -50,3 +50,25 @@ func UserView() *query.ViewDefinition {
 			query.TextIndex("name", "email").DefaultLanguage("english"),
 		)
 }
+
+// UserRelView is the RelationalSource twin of UserView — the SAME User aggregate,
+// but served straight from the relational SoR (read-your-writes, no CDC) instead
+// of the Mongo projection. It is the canonical demonstration of RelationalSource
+// AND the read side of the SQLite MVP (which has no CDC, so a Mongo view never
+// materializes — the relational view is its only read path).
+//
+// Because User is a shared-base role with a sibling, this one view exercises the
+// full 1:1 reach of the relational reader: the root (userName), the Person shared
+// base (name/email/document/phone) and the user_configurations sibling
+// (emailNotification/smsNotification) are all filterable/sortable — the loader
+// LEFT JOINs the base and the sibling in. Only the addresses (1:N base children)
+// are out of reach (→ 400), the same rule the Mongo twin does not share.
+//
+// It reuses the aggregate's existing loader (one loader per aggregate, passed in
+// from the repository) — the boot guard checks it is bound to the users table.
+func UserRelView(loader query.RelationalReader) *query.ViewDefinition {
+	return query.View("users_rel").
+		Version(1).
+		Schema(schemas.UserSchema()).
+		RelationalSource(loader)
+}

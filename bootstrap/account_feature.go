@@ -36,6 +36,7 @@ type AccountFeature struct {
 	catalogRepo     *infraqa.CatalogRepository
 	itemRepo        *infraqa.ItemRepository
 	accountView     *query.ViewDefinition
+	accountRelView  *query.ViewDefinition
 	catalogView     *query.ViewDefinition
 	catalogFullView *query.ComposedViewDefinition
 }
@@ -60,6 +61,10 @@ func NewAccountFeature(d bootstrap.Deps) *AccountFeature {
 	}
 	if declaresUpstreamCollection(d, "upstream_items") {
 		f.accountView = infraqa.AccountView()
+		// The RelationalSource twin over the role reuses the repo's loader (one
+		// loader per aggregate). Gated with the other account views so the account
+		// feature's boot footprint under prd profiles is unchanged.
+		f.accountRelView = infraqa.AccountHolderRelView(f.accountRepo.Loader)
 		f.catalogView = infraqa.CatalogView()
 		f.catalogFullView = infraqa.CatalogFullView()
 	}
@@ -83,7 +88,7 @@ func (f *AccountFeature) Views() []*query.ViewDefinition {
 	if f.accountView == nil {
 		return nil
 	}
-	return []*query.ViewDefinition{f.accountView, f.catalogView}
+	return []*query.ViewDefinition{f.accountView, f.accountRelView, f.catalogView}
 }
 
 // Mount registers the /qa/items + /qa/accounts + /qa/catalogs routes — only when
@@ -94,6 +99,7 @@ func (f *AccountFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	}
 	webqa.MountItems(app, f.itemRepo, d)
 	webqa.MountAccounts(app, f.accountRepo, f.accountView, d)
+	webqa.MountAccountsRel(app, f.accountRelView, d)
 	webqa.MountCatalogs(app, f.catalogRepo, f.catalogView, d)
 	webqa.MountCatalogsFull(app, f.catalogFullView, d)
 }
