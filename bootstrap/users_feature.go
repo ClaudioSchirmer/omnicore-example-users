@@ -30,8 +30,9 @@ import (
 // demos, the /echo/* upstream, /whoami) live in ShowcaseFeature so the
 // canonical "one aggregate, one feature, one Mount" pattern stays clean.
 type UsersFeature struct {
-	repo *appinfra.UserRepository
-	view *query.ViewDefinition
+	repo    *appinfra.UserRepository
+	view    *query.ViewDefinition
+	relView *query.ViewDefinition
 }
 
 // NewUsersFeature builds the feature's singletons exactly once: the
@@ -41,15 +42,23 @@ func NewUsersFeature(d bootstrap.Deps) *UsersFeature {
 	// repo is backend-neutral: it takes the relational engine (Deps.DB)
 	// directly, so swapping the SQL backend is a YAML dialect change with no
 	// edit here.
+	repo := appinfra.NewUserRepository(d.DB)
 	return &UsersFeature{
-		repo: appinfra.NewUserRepository(d.DB),
+		repo: repo,
 		view: appviews.UserView(),
+		// The RelationalSource twin reuses the repo's loader (one loader per
+		// aggregate). It is the SQLite MVP's only read path (no CDC → no Mongo
+		// projection) and the canonical RelationalSource demonstration.
+		relView: appviews.UserRelView(repo.Loader),
 	}
 }
 
-// Views satisfies bootstrap.ReadableFeature.
+// Views satisfies bootstrap.ReadableFeature: the Mongo projection (materialized by
+// the SyncEngine) plus the relational twin (skipped by the SyncEngine/Mongo spec
+// passes — served straight from the SoR; on SQLite the Mongo view never
+// materializes, so the twin is the only read side).
 func (f *UsersFeature) Views() []*query.ViewDefinition {
-	return []*query.ViewDefinition{f.view}
+	return []*query.ViewDefinition{f.view, f.relView}
 }
 
 // Mount satisfies bootstrap.Feature — delegates HTTP registration to the
@@ -58,6 +67,7 @@ func (f *UsersFeature) Views() []*query.ViewDefinition {
 // /whoami routes are mounted by ShowcaseFeature.
 func (f *UsersFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	appweb.MountUsers(app, f.repo, nil, f.view, d)
+	appweb.MountUsersRel(app, f.relView, d)
 }
 
 // MountGraphQL contributes the User aggregate's fields to the service's single

@@ -102,6 +102,20 @@ func AccountView() *query.ViewDefinition {
 		)
 }
 
+// AccountHolderRelView is the RelationalSource twin over the AccountHolder ROLE
+// (a plain query.View, NOT a SharedBaseView — the base is reached by the loader's
+// JOIN, not projected as a role sub-document). It proves the relational reader
+// filters/sorts on SHARED-BASE fields (displayName, accountRef — owned by the
+// qa_accounts base) as well as on the role's own fields: both are 1:1 with the
+// role, so the loader LEFT JOINs the base in. Served straight from the SoR
+// (read-your-writes); the role repository's loader hydrates the base.
+func AccountHolderRelView(loader query.RelationalReader) *query.ViewDefinition {
+	return query.View("qa_account_holders_rel").
+		Version(1).
+		Schema(AccountHolderSchema()).
+		RelationalSource(loader)
+}
+
 // AccountHolderRepository is the shared-base ROLE repository (the marriage the
 // SharedBaseInsertCommandHandler requires): SharedBaseRoleRepository over the
 // role schema, which the handler upserts by natural key.
