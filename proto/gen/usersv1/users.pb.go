@@ -334,7 +334,12 @@ type User struct {
 	// Restricted leaf: projected only for users:admin (the query type's
 	// ToCriteria Restrict) — also the read_mask/sort path the authz suites
 	// probe. optional: absent and empty are distinct.
-	Phone         *string `protobuf:"bytes,6,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	Phone *string `protobuf:"bytes,6,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	// Value-object fields: the enum VOs surface as their underlying scalar
+	// (string/int) on the wire, populated from the projected document through the
+	// pb↔DTO bridge (the DTO carries vos.Ethnicity / vos.UserProfile).
+	Ethnicity     string `protobuf:"bytes,7,opt,name=ethnicity,proto3" json:"ethnicity,omitempty"`
+	UserProfile   int32  `protobuf:"varint,8,opt,name=user_profile,json=userProfile,proto3" json:"user_profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -409,6 +414,20 @@ func (x *User) GetPhone() string {
 		return *x.Phone
 	}
 	return ""
+}
+
+func (x *User) GetEthnicity() string {
+	if x != nil {
+		return x.Ethnicity
+	}
+	return ""
+}
+
+func (x *User) GetUserProfile() int32 {
+	if x != nil {
+		return x.UserProfile
+	}
+	return 0
 }
 
 type ListUsersResponse struct {
@@ -522,6 +541,8 @@ type GetUserResponse struct {
 	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	Document      string                 `protobuf:"bytes,4,opt,name=document,proto3" json:"document,omitempty"`
 	UserName      string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	Ethnicity     string                 `protobuf:"bytes,6,opt,name=ethnicity,proto3" json:"ethnicity,omitempty"`
+	UserProfile   int32                  `protobuf:"varint,7,opt,name=user_profile,json=userProfile,proto3" json:"user_profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -589,6 +610,20 @@ func (x *GetUserResponse) GetUserName() string {
 		return x.UserName
 	}
 	return ""
+}
+
+func (x *GetUserResponse) GetEthnicity() string {
+	if x != nil {
+		return x.Ethnicity
+	}
+	return ""
+}
+
+func (x *GetUserResponse) GetUserProfile() int32 {
+	if x != nil {
+		return x.UserProfile
+	}
+	return 0
 }
 
 type ArchiveUserRequest struct {
@@ -988,14 +1023,16 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\x04page\x18\x01 \x01(\v2\x18.omnicore.v1.PageRequestR\x04page\x12*\n" +
 	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
 	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x12/\n" +
-	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\x9e\x01\n" +
+	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\xdf\x01\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
 	"\bdocument\x18\x04 \x01(\tR\bdocument\x12\x1b\n" +
 	"\tuser_name\x18\x05 \x01(\tR\buserName\x12\x19\n" +
-	"\x05phone\x18\x06 \x01(\tH\x00R\x05phone\x88\x01\x01B\b\n" +
+	"\x05phone\x18\x06 \x01(\tH\x00R\x05phone\x88\x01\x01\x12\x1c\n" +
+	"\tethnicity\x18\a \x01(\tR\tethnicity\x12!\n" +
+	"\fuser_profile\x18\b \x01(\x05R\vuserProfileB\b\n" +
 	"\x06_phone\"m\n" +
 	"\x11ListUsersResponse\x12$\n" +
 	"\x05items\x18\x01 \x03(\v2\x0e.users.v1.UserR\x05items\x122\n" +
@@ -1003,13 +1040,15 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\x0eGetUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12)\n" +
 	"\x10include_archived\x18\x02 \x01(\bR\x0fincludeArchivedB\x05\n" +
-	"\x03_id\"\x84\x01\n" +
+	"\x03_id\"\xc5\x01\n" +
 	"\x0fGetUserResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
 	"\bdocument\x18\x04 \x01(\tR\bdocument\x12\x1b\n" +
-	"\tuser_name\x18\x05 \x01(\tR\buserName\"0\n" +
+	"\tuser_name\x18\x05 \x01(\tR\buserName\x12\x1c\n" +
+	"\tethnicity\x18\x06 \x01(\tR\tethnicity\x12!\n" +
+	"\fuser_profile\x18\a \x01(\x05R\vuserProfile\"0\n" +
 	"\x12ArchiveUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01B\x05\n" +
 	"\x03_id\"\x15\n" +

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -21,14 +22,18 @@ import (
 // web/requests/InsertUserRequest); types mirror the Request 1:1.
 type InsertUserCommand struct {
 	pipeline.CommandWithBodyBase
-	Name              string
-	Email             string
-	Phone             *string
-	Document          string
-	UserName          string
-	EmailNotification *bool
-	SmsNotification   *bool
-	Addresses         []dtos.AddressInput
+	Name                  string
+	Email                 string
+	Phone                 *string
+	Document              string
+	UserName              string
+	Ethnicity             string // enum token (string-backed)
+	UserProfile           int    // enum value (int-backed)
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int // enum value (int-backed), nullable sibling
+	Addresses             []dtos.AddressInput
 }
 
 // ApplyTo mutates the entity the handler supplies. On a COLD insert that entity
@@ -42,13 +47,21 @@ type InsertUserCommand struct {
 // Receives *AppContext so a future authz field on User could be populated from
 // identity-derived claims without touching the handler/wrapper signatures.
 func (c InsertUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
-	u.Name = c.Name
-	u.Email = c.Email
-	u.Phone = c.Phone
-	u.Document = c.Document
-	u.UserName = c.UserName
+	// Value objects — the wire value IS the underlying (string VO/enum → string,
+	// int enum → int), so each is a plain conversion; the nullable ones are a
+	// nil-safe pointer conversion. An out-of-set value (e.g. UserProfile(99)) is
+	// caught by the automatic validation, not here.
+	u.Name = vos.Name(c.Name)
+	u.Email = vos.Email(c.Email)
+	u.Phone = (*vos.Phone)(c.Phone)
+	u.Document = vos.Document(c.Document)
+	u.UserName = vos.Name(c.UserName)
+	u.Ethnicity = vos.Ethnicity(c.Ethnicity)
+	u.UserProfile = vos.UserProfile(c.UserProfile)
 	u.EmailNotification = c.EmailNotification
 	u.SmsNotification = c.SmsNotification
+	u.NotificationEmail = (*vos.Email)(c.NotificationEmail)
+	u.NotificationFrequency = (*vos.NotificationFrequency)(c.NotificationFrequency)
 	// Command speaks domain vocabulary to the root, not the framework's typed
 	// primitives. User.AddAddress runs aggregate-spanning invariants (duplicate
 	// detection against the loaded base children, on a warm upsert) and
@@ -70,14 +83,18 @@ func (c InsertUserCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.Use
 // orchestrator.Insert + SetID.
 func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (InsertUserResult, error) {
 	return InsertUserResult{
-		ID:                *u.GetID(),
-		Name:              u.Name,
-		Email:             u.Email,
-		Phone:             u.Phone,
-		Document:          u.Document,
-		UserName:          u.UserName,
-		EmailNotification: u.EmailNotification,
-		SmsNotification:   u.SmsNotification,
+		ID:                    *u.GetID(),
+		Name:                  u.Name.Value(),
+		Email:                 u.Email.Value(),
+		Phone:                 (*string)(u.Phone),
+		Document:              u.Document.Value(),
+		UserName:              u.UserName.Value(),
+		Ethnicity:             u.Ethnicity.Value(),
+		UserProfile:           u.UserProfile.Value(),
+		EmailNotification:     u.EmailNotification,
+		SmsNotification:       u.SmsNotification,
+		NotificationEmail:     (*string)(u.NotificationEmail),
+		NotificationFrequency: (*int)(u.NotificationFrequency),
 		// Full aggregate mirror: the current addresses with their minted ids
 		// (written back into the aggregate map by the persister). On a WARM
 		// upsert this includes the identity's pre-existing addresses — the
@@ -91,15 +108,19 @@ func (c InsertUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.
 // via InsertUserResponse.FromResult (also pure data mapping). Result stays in
 // application/ (no JSON tags); Response stays in web/ (with JSON tags).
 type InsertUserResult struct {
-	ID                domain.ID
-	Name              string
-	Email             string
-	Phone             *string
-	Document          string
-	UserName          string
-	EmailNotification *bool
-	SmsNotification   *bool
-	Addresses         []AddressResult
+	ID                    domain.ID
+	Name                  string
+	Email                 string
+	Phone                 *string
+	Document              string
+	UserName              string
+	Ethnicity             string
+	UserProfile           int
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int
+	Addresses             []AddressResult
 }
 
 // ─── LIFECYCLE HOOKS — FICTITIOUS EXAMPLE ───────────────────────────────────

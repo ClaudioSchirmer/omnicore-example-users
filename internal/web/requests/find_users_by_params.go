@@ -28,11 +28,13 @@ import (
 // the Query's ToCriteria(ctx), consumed by the handler — ToQuery itself is
 // pure body mapping, no ctx parameter.
 type FindUsersByParamsRequest struct {
-	Name      *string             `query:"name"     filter:"eq,startswith,icontains,istartswith"`
-	Email     *string             `query:"email"    filter:"eq,in,ieq"`
-	Document  *string             `query:"document" filter:"eq,in,startswith"`
-	UserName  *string             `query:"userName" filter:"eq,startswith,icontains"`
-	Addresses AddressFilterParams `query:"addresses"`
+	Name        *string             `query:"name"        filter:"eq,startswith,icontains,istartswith"`
+	Email       *string             `query:"email"       filter:"eq,in,ieq"`
+	Document    *string             `query:"document"    filter:"eq,in,startswith"`
+	Ethnicity   *string             `query:"ethnicity"   filter:"eq,in"`
+	UserName    *string             `query:"userName"    filter:"eq,startswith,icontains"`
+	UserProfile *int                `query:"userProfile" filter:"eq,in"`
+	Addresses   AddressFilterParams `query:"addresses"`
 
 	Limit           *int64  `query:"limit"`
 	After           *string `query:"after"`
@@ -51,10 +53,11 @@ type FindUsersByParamsRequest struct {
 // translates them to the physical Mongo paths (addresses.city /
 // addresses.zip_code) via the view's TableSchema — no view: declaration.
 type AddressFilterParams struct {
-	City    *string `query:"city"    filter:"eq,istartswith,icontains"`
-	State   *string `query:"state"   filter:"eq,in"`
-	Country *string `query:"country" filter:"eq,in"`
-	ZipCode *string `query:"zipCode" filter:"eq,startswith"`
+	City        *string `query:"city"        filter:"eq,istartswith,icontains"`
+	State       *string `query:"state"       filter:"eq,in"`
+	Country     *string `query:"country"     filter:"eq,in"`
+	ZipCode     *string `query:"zipCode"     filter:"eq,startswith"`
+	AddressType *string `query:"addressType" filter:"eq,in"`
 }
 
 func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindUsersByParamsQuery {
@@ -76,15 +79,19 @@ func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *quer
 // Without pointers + omitempty, a stripped `name` would still render as
 // `"name":""` (zero value), defeating the point of the parameter.
 type FindUsersByParamsResponse struct {
-	ID                *string                          `json:"id,omitempty"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name              *string                          `json:"name,omitempty"              example:"Alice Pereira"`
-	Email             *string                          `json:"email,omitempty"             example:"alice@example.com"`
-	Phone             *string                          `json:"phone,omitempty"             example:"14155552671"`
-	Document          *string                          `json:"document,omitempty"          example:"12345678901"`
-	UserName          *string                          `json:"userName,omitempty"          example:"alice"`
-	EmailNotification *bool                            `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                            `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []FindUsersByParamsAddressOutput `json:"addresses,omitempty"`
+	ID                    *string                          `json:"id,omitempty"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name                  *string                          `json:"name,omitempty"              example:"Alice Pereira"`
+	Email                 *string                          `json:"email,omitempty"             example:"alice@example.com"`
+	Phone                 *string                          `json:"phone,omitempty"             example:"14155552671"`
+	Document              *string                          `json:"document,omitempty"              example:"12345678901"`
+	Ethnicity             *string                          `json:"ethnicity,omitempty"             example:"white"`
+	UserName              *string                          `json:"userName,omitempty"              example:"alice"`
+	UserProfile           *int                             `json:"userProfile,omitempty"           example:"1"`
+	EmailNotification     *bool                            `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                            `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string                          `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                             `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []FindUsersByParamsAddressOutput `json:"addresses,omitempty"`
 }
 
 // FindUsersByParamsAddressOutput is the nested wire shape of one Address
@@ -106,4 +113,5 @@ type FindUsersByParamsAddressOutput struct {
 	State        *string `json:"state,omitempty"        example:"CA"`
 	ZipCode      *string `json:"zipCode,omitempty"      example:"95014"`
 	Country      *string `json:"country,omitempty"      example:"US"`
+	AddressType  *string `json:"addressType,omitempty"  example:"residential"`
 }

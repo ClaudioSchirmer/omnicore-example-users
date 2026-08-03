@@ -1,9 +1,8 @@
 package schemas
 
 import (
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
-
-	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
 // AddressSchema is the base-child schema for the addresses table — declared once
@@ -13,7 +12,7 @@ import (
 // field. DeletedAt on the base-child is permitted because the base itself
 // carries DeletedAt (all-or-nothing per base).
 func AddressSchema() *core.TableSchema {
-	return core.NewTableSchema[appdomain.Address]("addresses").
+	return core.NewTableSchema[aggregatevos.Address]("addresses").
 		ID("id").
 		ParentID("person_id").
 		Field("Label", "label").
@@ -25,6 +24,7 @@ func AddressSchema() *core.TableSchema {
 		Field("State", "state").
 		Field("ZipCode", "zip_code").
 		Field("Country", "country").
+		Field("AddressType", "address_type"). // enum value object (string-backed) on a base-child AVO
 		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at")

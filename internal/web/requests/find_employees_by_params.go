@@ -20,6 +20,7 @@ type FindEmployeesByParamsRequest struct {
 	Name           *string `query:"name"      filter:"eq,startswith,icontains,istartswith"`
 	Email          *string `query:"email"     filter:"eq,in,ieq"`
 	Document       *string `query:"document"  filter:"eq,in,startswith"`
+	Ethnicity      *string `query:"ethnicity" filter:"eq,in"`
 	EmployeeNumber *string `query:"employeeNumber" filter:"eq,in,startswith"`
 	Bank           *string `query:"bank"     filter:"eq,in"`
 
@@ -44,6 +45,7 @@ type DependentFilterParams struct {
 	Name               *string `query:"name"       filter:"eq,istartswith,icontains"`
 	Relationship       *string `query:"relationship" filter:"eq,in"`
 	HealthPlanProvider *string `query:"healthPlanProvider"  filter:"eq,in"`
+	HealthPlanType     *string `query:"healthPlanType" filter:"eq,in"`
 }
 
 // JobHistoryFilterParams is the embed-group filter vocabulary for the
@@ -70,6 +72,7 @@ type FindEmployeesByParamsResponse struct {
 	Email          *string `json:"email,omitempty"     example:"alice@example.com"`
 	Phone          *string `json:"phone,omitempty"     example:"14155552671"`
 	Document       *string `json:"document,omitempty"  example:"12345678901"`
+	Ethnicity      *string `json:"ethnicity,omitempty" example:"white"`
 	EmployeeNumber *string `json:"employeeNumber,omitempty" example:"EMP-0042"`
 	Bank           *string `json:"bank,omitempty"     example:"260"`
 	Branch         *string `json:"branch,omitempty"   example:"0001"`
@@ -92,6 +95,7 @@ type FindEmployeesByParamsDependentOutput struct {
 	HealthPlanProvider *string    `json:"healthPlanProvider,omitempty"     example:"Unimed"`
 	HealthPlanCard     *string    `json:"healthPlanCard,omitempty"   example:"UN-889923"`
 	HealthPlanExpiry   *time.Time `json:"healthPlanExpiry,omitempty" example:"2027-12-31T00:00:00Z"`
+	HealthPlanType     *string    `json:"healthPlanType,omitempty"   example:"individual"`
 }
 
 // FindEmployeesByParamsJobHistoryOutput is the nested wire shape of one

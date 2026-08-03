@@ -39,6 +39,7 @@ func TestChangeAddressCustomCommandHandler_HappyPath(t *testing.T) {
 			State:        "CA",
 			ZipCode:      "94110",
 			Country:      "US",
+			AddressType:  "residential",
 		},
 	}
 

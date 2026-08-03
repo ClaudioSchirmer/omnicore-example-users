@@ -1,8 +1,8 @@
 package domain
 
 import (
-	"regexp"
-
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 )
 
@@ -23,9 +23,13 @@ type User struct {
 	// on FieldChange.FieldLabelKey for render-at-read by future audit readers.
 	// Fields without a label tag stay invisible to the label surface — wire
 	// `fieldLabel` and audit `fieldLabelKey` are omitempty.
-	Name  string  `labelKey:"UserNameField"`
-	Email string  `labelKey:"UserEmailField"`
-	Phone *string `labelKey:"UserPhoneField"`
+	Name  vos.Name   `labelKey:"UserNameField"`
+	Email vos.Email  `labelKey:"UserEmailField"`
+	Phone *vos.Phone `labelKey:"UserPhoneField"`
+
+	// Ethnicity — shared Person enum value object (persons.ethnicity); appears
+	// on every role over the identity.
+	Ethnicity vos.Ethnicity `labelKey:"PersonEthnicityField"`
 
 	// Document is the natural key of the shared Person identity (infra maps it
 	// to the persons.document column — see infra/schema.go). It deduplicates
@@ -33,12 +37,15 @@ type User struct {
 	// set: enforced below in IfUpdate and, atomically, by the framework's
 	// SharedBase write path (UUIDv5(document) = the person ID). It replaces
 	// email as the way a user record is located on the manual showcase surface.
-	Document string `labelKey:"UserDocumentField"`
+	Document vos.Document `labelKey:"UserDocumentField"`
 
 	// UserName is the ONLY field private to the user role (infra maps it to the
 	// users.user_name column); Name/Email/Phone/Document above are all shared
 	// Person identity, partitioned away into the persons SharedBase table.
-	UserName string `labelKey:"UserUserNameField"`
+	UserName vos.Name `labelKey:"UserUserNameField"`
+
+	// UserProfile — the User role's access-profile enum (users.user_profile).
+	UserProfile vos.UserProfile `labelKey:"UserProfileField"`
 
 	// EmailNotification / SmsNotification are the user's notification
 	// preferences, persisted to the user_configurations SIBLING table (1:1,
@@ -50,11 +57,16 @@ type User struct {
 	EmailNotification *bool `labelKey:"UserEmailNotificationField"`
 	SmsNotification   *bool `labelKey:"UserSmsNotificationField"`
 
+	// Sibling VO + enum (user_configurations, 1:1): both nullable — the sibling
+	// row materializes conditionally, so they validate only when present.
+	NotificationEmail     *vos.Email                 `labelKey:"UserNotificationEmailField"`
+	NotificationFrequency *vos.NotificationFrequency `labelKey:"UserNotificationFrequencyField"`
+
 	// ─── Runtime-only authz fields ────────────────────────────────────────
 	//
 	// Populated by ArchiveUserCommand.ApplyTo from AppContext.Identity right
-	// before GetArchivable runs BuildRules in ModeUpdate with actionName=
-	// "GetArchivable". The owner-check is encoded as "the JWT's email claim
+	// before GetArchivable runs BuildRules in ModeArchive, where the IfArchive
+	// clause reads them. The owner-check is encoded as "the JWT's email claim
 	// must match this User's persisted email, unless the principal holds
 	// users:admin".
 	//
@@ -70,24 +82,6 @@ type User struct {
 	RequestingPrincipalEmail   string
 	RequestingPrincipalIsAdmin bool
 }
-
-// nameMaxLength is the User's hard cap on the Name field length — a pure
-// domain rule of THIS aggregate, not a configurable per-tenant value. Lives
-// in the domain layer alongside the entity it constrains; the application
-// layer (commands/handlers) never references it.
-//
-// Acts as the runtime value the parameterized-notification mechanism
-// substitutes into the translated message via the
-// NameMaxLengthExceededNotification's `tvar:"maxLength"` field. The framework
-// renders {maxLength} → "100" in the catalog string at the wire boundary.
-//
-// If a future requirement demanded per-tenant variability, the rule would
-// migrate from a constant to a domain.Service lookup consulted inside
-// BuildRules — same notification type, same wire shape, only the source of
-// the value changes. Today the example keeps the rule pure to avoid
-// dragging an external configuration dependency through every consumer of
-// the User aggregate.
-const nameMaxLength = 100
 
 // User needs no domain.Service: identity uniqueness is no longer a domain
 // concern. The shared Person identity is deduplicated by its natural key
@@ -133,7 +127,7 @@ func (u *User) GetAggregateRoot() *domain.AggregateRoot {
 }
 
 func (u *User) AggregateChildren() []domain.AggregateValueObject {
-	return []domain.AggregateValueObject{Address{}}
+	return []domain.AggregateValueObject{aggregatevos.Address{}}
 }
 
 // ─── Domain methods (Phase 20) ───────────────────────────────────────────────
@@ -177,9 +171,9 @@ func (u *User) AggregateChildren() []domain.AggregateValueObject {
 // malformed request and a 422 is the honest answer. For the OTHER approach —
 // silent MERGE, which keeps a warm cross-role POST idempotent when the person
 // already owns the re-sent address — see Employee.AddAddress in employee.go.
-func (u *User) AddAddress(addr Address, svc domain.Service) {
+func (u *User) AddAddress(addr aggregatevos.Address, svc domain.Service) {
 	domain.EnsureInitialized(u)
-	for _, existing := range domain.GetCurrentItemsOf[Address](&u.AggregateRoot) {
+	for _, existing := range domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot) {
 		if existing.IsSameBusinessIdentity(addr) {
 			u.AddNotification("Address", DuplicateAddressNotification{})
 			return
@@ -192,7 +186,7 @@ func (u *User) AddAddress(addr Address, svc domain.Service) {
 // the position in the collection. Useful for edits that do not destroy the
 // identity of the row in the DB — the persister infers the ID from the
 // exported field and emits UPDATE.
-func (u *User) ChangeAddress(original, replacement Address) {
+func (u *User) ChangeAddress(original, replacement aggregatevos.Address) {
 	domain.EnsureInitialized(u)
 	domain.ChangeAggregateChild(u, original, replacement)
 }
@@ -208,9 +202,9 @@ func (u *User) ChangeAddress(original, replacement Address) {
 // field is ignored; this method always pins the replacement's ID to the
 // looked-up slot's ID so the framework's auditor pairs pre/post by GetID()
 // and the persister emits UPDATE (not INSERT) on the addresses row.
-func (u *User) ChangeAddressByID(addressID string, replacement Address) {
+func (u *User) ChangeAddressByID(addressID string, replacement aggregatevos.Address) {
 	domain.EnsureInitialized(u)
-	for _, addr := range domain.GetCurrentItemsOf[Address](&u.AggregateRoot) {
+	for _, addr := range domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot) {
 		if addr.GetID().Value() == addressID {
 			replacement.SetID(domain.NewID(addressID))
 			domain.ChangeAggregateChild(u, addr, replacement)
@@ -222,7 +216,7 @@ func (u *User) ChangeAddressByID(addressID string, replacement Address) {
 
 // RemoveAddress marks an Address as REMOVED. On commit: symmetric cascade
 // archives the row in addresses.
-func (u *User) RemoveAddress(addr Address) {
+func (u *User) RemoveAddress(addr aggregatevos.Address) {
 	domain.EnsureInitialized(u)
 	domain.RemoveAggregateChild(u, addr)
 }
@@ -235,7 +229,7 @@ func (u *User) RemoveAddress(addr Address) {
 // assume the command already sanitized the input (a request shape carrying
 // duplicates is a client error, not User's). If you want a stronger rule,
 // move the duplicate-check loop here.
-func (u *User) ReplaceAddresses(addrs []Address) {
+func (u *User) ReplaceAddresses(addrs []aggregatevos.Address) {
 	domain.EnsureInitialized(u)
 	domain.ReplaceAggregateChildrenOf(u, addrs)
 }
@@ -243,46 +237,11 @@ func (u *User) ReplaceAddresses(addrs []Address) {
 // ─── Validation rules ────────────────────────────────────────────────────────
 
 func (u *User) BuildRules(actionName string, service domain.Service, r *domain.Rules) {
-	r.IfInsertOrUpdate(func() {
-		if u.Name == "" {
-			r.AddNotification("Name", domain.RequiredFieldNotification{})
-		} else if len(u.Name) > nameMaxLength {
-			// Parameterized notification showcase: the limit is a pure
-			// domain constant (nameMaxLength); the rejected length surfaces
-			// inside the translated message via the `tvar:"maxLength"` tag
-			// on NameMaxLengthExceededNotification. Wire value carries the
-			// rejected input itself (the consumer-supplied Name), mirroring
-			// the InvalidEmail/InvalidPhone shape.
-			r.AddNotification("Name", NameMaxLengthExceededNotification{MaxLength: nameMaxLength}, u.Name)
-		}
-
-		// Document is the shared identity's natural key — required and
-		// format-checked, but NOT uniqueness-checked here: the framework's
-		// deterministic id (UUIDv5(document)) makes a duplicate document
-		// collide on the person ID, surfacing the 409 atomically. Email is a
-		// plain shared Person field now (mutable, last-write-wins across roles)
-		// — required + regex, but no longer unique and no longer immutable.
-		if u.Document == "" {
-			r.AddNotification("Document", domain.RequiredFieldNotification{})
-		} else if !documentRegex.MatchString(u.Document) {
-			r.AddNotification("Document", InvalidDocumentNotification{}, u.Document)
-		}
-
-		// UserName is the role's own field — required.
-		if u.UserName == "" {
-			r.AddNotification("UserName", domain.RequiredFieldNotification{})
-		}
-
-		if u.Email == "" {
-			r.AddNotification("Email", domain.RequiredFieldNotification{})
-		} else if !emailRegex.MatchString(u.Email) {
-			r.AddNotification("Email", InvalidEmailNotification{}, u.Email)
-		}
-
-		if u.Phone != nil && *u.Phone != "" && !phoneRegex.MatchString(*u.Phone) {
-			r.AddNotification("Phone", InvalidPhoneNotification{}, u.Phone)
-		}
-	})
+	// Every value-object field (Name, Document, Email, UserName, Ethnicity,
+	// UserProfile, and the nullable Phone / NotificationEmail / NotificationFrequency)
+	// validates AUTOMATICALLY — the framework discovers VO-typed fields and runs
+	// each one's rule; a nil pointer is skipped. No registration here. Document's
+	// FORMAT is part of that; its immutability stays in IfUpdate below.
 
 	// Transition-aware invariant: email is immutable once the user is created.
 	// Showcases the framework's domain.Old[T] helper — the Get* path snapshots
@@ -306,40 +265,28 @@ func (u *User) BuildRules(actionName string, service domain.Service, r *domain.R
 		if old := domain.Old(u); old != nil && old.Document != u.Document {
 			r.AddNotification("Document", DocumentCannotChangeNotification{}, u.Document)
 		}
+	})
 
-		// Layer-2 owner-check on Archive: actionName branches the rule so
-		// PUT/PATCH (GetUpdatable / GetPartialUpdatable) are NOT affected —
-		// only the archive verb. The principal must own the resource (email
-		// claim matches the persisted email) OR carry users:admin. Service
-		// code may extend the rule to Unarchive/Delete the same way; kept on
-		// Archive alone here to keep the showcase narrowly scoped.
-		//
-		// Tolerant of an empty RequestingPrincipalEmail — under
-		// auth.mode=disabled (dev) and inside test fixtures that bypass the
-		// AppContext middleware, no principal is attached and the rule
-		// degrades to "trust" rather than blocking every archive. Production
-		// runs under auth.mode=jwt so the field is always populated.
-		//
-		// The kernel ArchiveNotAllowedNotification already carries
-		// SemanticForbidden → 403 so the rejection lands as the canonical
-		// Forbidden envelope without needing a service-specific
-		// notification.
-		if actionName == "GetArchivable" && u.RequestingPrincipalEmail != "" {
-			if u.Email != u.RequestingPrincipalEmail && !u.RequestingPrincipalIsAdmin {
-				r.AddNotification("ID", domain.ArchiveNotAllowedNotification{})
-			}
+	// Layer-2 owner-check on Archive: the archive verb dispatches its own
+	// IfArchive clause, so PUT/PATCH (IfUpdate) are structurally unaffected —
+	// no actionName string branch. The principal must own the resource (email
+	// claim matches the persisted email) OR carry users:admin. Service code
+	// may add a symmetric IfUnarchive rule the same way; kept on Archive alone
+	// here to keep the showcase narrowly scoped.
+	//
+	// Tolerant of an empty RequestingPrincipalEmail — under auth.mode=disabled
+	// (dev) and inside test fixtures that bypass the AppContext middleware, no
+	// principal is attached and the rule degrades to "trust" rather than
+	// blocking every archive. Production runs under auth.mode=jwt so the field
+	// is always populated.
+	//
+	// The kernel ArchiveNotAllowedNotification already carries
+	// SemanticForbidden → 403 so the rejection lands as the canonical Forbidden
+	// envelope without needing a service-specific notification.
+	r.IfArchive(func() {
+		if u.RequestingPrincipalEmail != "" &&
+			u.Email.Value() != u.RequestingPrincipalEmail && !u.RequestingPrincipalIsAdmin {
+			r.AddNotification("ID", domain.ArchiveNotAllowedNotification{})
 		}
 	})
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-var (
-	emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
-	phoneRegex = regexp.MustCompile(`^\d{10,15}$`)
-	// documentRegex shapes the Person natural key: 3–32 chars of letters,
-	// digits, dot or hyphen (e.g. "12345678901", "AB-1029"). Kept permissive —
-	// the showcase point is "the natural key is validated like any other
-	// field", not a specific national-document format.
-	documentRegex = regexp.MustCompile(`^[A-Za-z0-9.\-]{3,32}$`)
-)

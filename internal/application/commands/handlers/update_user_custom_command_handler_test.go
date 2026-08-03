@@ -22,7 +22,9 @@ func TestUpdateUserCustomCommandHandler_HappyPath(t *testing.T) {
 		Name:        "Jane Smith",
 		Email:       "jane.new@example.com",
 		Phone:       &newPhone,
+		Ethnicity:   "white",
 		UserName:    "jane",
+		UserProfile: 1,
 		Addresses: []dtos.AddressInputCustom{{
 			Street:       "1 Apple Park Way",
 			Number:       "1",
@@ -31,6 +33,7 @@ func TestUpdateUserCustomCommandHandler_HappyPath(t *testing.T) {
 			State:        "CA",
 			ZipCode:      "95014",
 			Country:      "US",
+			AddressType:  "residential",
 		}},
 	}
 

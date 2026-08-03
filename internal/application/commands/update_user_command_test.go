@@ -6,6 +6,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 )
 
 func TestUpdateUserCommand_FromEntity(t *testing.T) {
@@ -27,7 +28,7 @@ func TestUpdateUserCommand_FromEntity(t *testing.T) {
 // post-write set, ids included (AssignAggregateItemID stands in for the
 // persister's write-back of the minted child ID).
 func TestUpdateUserCommand_FromEntity_MirrorsAddressesWithIDs(t *testing.T) {
-	addr := appdomain.Address{
+	addr := aggregatevos.Address{
 		Street: "Elm", Number: "9", Neighborhood: "Center",
 		City: "Austin", State: "TX", ZipCode: "73301", Country: "US",
 	}

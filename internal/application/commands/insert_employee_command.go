@@ -7,6 +7,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ type InsertEmployeeCommand struct {
 	Email          string
 	Phone          *string
 	Document       string
+	Ethnicity      string // enum token (string-backed)
 	EmployeeNumber string
 
 	Bank    *string
@@ -43,10 +45,11 @@ type InsertEmployeeCommand struct {
 // AddAddress dedups against the person's existing addresses; the role-owned
 // children are always fresh on insert.
 func (c InsertEmployeeCommand) ApplyTo(_ *configuration.AppContext, f *appdomain.Employee) error {
-	f.Name = c.Name
-	f.Email = c.Email
-	f.Phone = c.Phone
-	f.Document = c.Document
+	f.Name = vos.Name(c.Name)
+	f.Email = vos.Email(c.Email)
+	f.Phone = (*vos.Phone)(c.Phone)
+	f.Document = vos.Document(c.Document)
+	f.Ethnicity = vos.Ethnicity(c.Ethnicity)
 	f.EmployeeNumber = c.EmployeeNumber
 	f.Bank = c.Bank
 	f.Branch = c.Branch
@@ -72,10 +75,11 @@ func (c InsertEmployeeCommand) ApplyTo(_ *configuration.AppContext, f *appdomain
 func (c InsertEmployeeCommand) FromEntity(_ *configuration.AppContext, f *appdomain.Employee) (InsertEmployeeResult, error) {
 	return InsertEmployeeResult{
 		ID:             *f.GetID(),
-		Name:           f.Name,
-		Email:          f.Email,
-		Phone:          f.Phone,
-		Document:       f.Document,
+		Name:           f.Name.Value(),
+		Email:          f.Email.Value(),
+		Phone:          (*string)(f.Phone),
+		Document:       f.Document.Value(),
+		Ethnicity:      f.Ethnicity.Value(),
 		EmployeeNumber: f.EmployeeNumber,
 		Bank:           f.Bank,
 		Branch:         f.Branch,
@@ -93,6 +97,7 @@ type InsertEmployeeResult struct {
 	Email          string
 	Phone          *string
 	Document       string
+	Ethnicity      string
 	EmployeeNumber string
 	Bank           *string
 	Branch         *string

@@ -19,10 +19,9 @@ type ArchiveUserCustomCommand struct {
 // ApplyTo is the hook for ctx → business translation on the archive verb.
 // Symmetric to the canonical ArchiveUserCommand.ApplyTo. The manual handler
 // calls it AFTER FindByDocument hydrates the aggregate and BEFORE GetArchivable
-// runs BuildRules in ModeUpdate with actionName="GetArchivable". Today the
-// showcase doesn't consume ctx — a future authz invariant would populate a
-// transient field here (e.g., u.SetRequestingOwnerID(...)) for the service's
-// IfUpdate branch on actionName=="GetArchivable" to validate.
+// runs BuildRules in ModeArchive. Today the showcase doesn't consume ctx — a
+// future authz invariant would populate a transient field here (e.g.,
+// u.SetRequestingOwnerID(...)) for the service's IfArchive clause to validate.
 func (*ArchiveUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
 	return nil
 }

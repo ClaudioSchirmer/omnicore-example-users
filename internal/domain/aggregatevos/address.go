@@ -1,8 +1,9 @@
-package domain
+package aggregatevos
 
 import (
 	"regexp"
 
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 )
 
@@ -19,15 +20,18 @@ import (
 // addresses are nullable. Same convention as User.Phone: nil → NULL.
 type Address struct {
 	domain.Managed
-	Label        *string `labelKey:"AddressLabelField"`
-	Street       string  `labelKey:"AddressStreetField"`
-	Number       string  `labelKey:"AddressNumberField"`
-	Complement   *string `labelKey:"AddressComplementField"`
-	Neighborhood string  `labelKey:"AddressNeighborhoodField"`
-	City         string  `labelKey:"AddressCityField"`
-	State        string  `labelKey:"AddressStateField"`
-	ZipCode      string  `labelKey:"AddressZipCodeField"`
-	Country      string  `labelKey:"AddressCountryField"`
+	Label        *string     `labelKey:"AddressLabelField"`
+	Street       string      `labelKey:"AddressStreetField"`
+	Number       string      `labelKey:"AddressNumberField"`
+	Complement   *string     `labelKey:"AddressComplementField"`
+	Neighborhood string      `labelKey:"AddressNeighborhoodField"`
+	City         string      `labelKey:"AddressCityField"`
+	State        string      `labelKey:"AddressStateField"`
+	ZipCode      vos.ZipCode `labelKey:"AddressZipCodeField"`
+	Country      string      `labelKey:"AddressCountryField"`
+
+	// AddressType — the child's classification enum (addresses.address_type).
+	AddressType vos.AddressType `labelKey:"AddressTypeField"`
 }
 
 // IsSameBusinessIdentity is the User's notion of "same address": the same
@@ -89,12 +93,8 @@ func (a Address) BuildRules(actionName string, service domain.Service, r *domain
 		} else if !stateRegex.MatchString(a.State) {
 			r.AddNotification("State", InvalidStateNotification{}, a.State)
 		}
-
-		if a.ZipCode == "" {
-			r.AddNotification("ZipCode", domain.RequiredFieldNotification{})
-		} else if !zipCodeRegex.MatchString(a.ZipCode) {
-			r.AddNotification("ZipCode", InvalidZipCodeNotification{}, a.ZipCode)
-		}
+		// ZipCode + AddressType are value objects — the framework discovers and
+		// validates them off the struct; nothing to wire here.
 	})
 }
 
@@ -103,11 +103,6 @@ func (a Address) BuildRules(actionName string, service domain.Service, r *domain
 // "Baden-Württemberg" partial). Strict country-specific lists belong in a
 // production system, not in this internationalized example.
 var stateRegex = regexp.MustCompile(`^[A-Za-z0-9 .\-]{2,50}$`)
-
-// zipCodeRegex covers postal codes from most ISO countries: US "94103" /
-// "94103-1234", UK "SW1A 1AA", Canada "K1A 0B1", Germany "10115", Brazil
-// "50000000" / "50000-000". Letters, digits, spaces, and hyphens; 3–12 chars.
-var zipCodeRegex = regexp.MustCompile(`^[A-Za-z0-9 \-]{3,12}$`)
 
 // isAlpha2Country: ISO 3166-1 alpha-2 shape — two uppercase letters.
 // Not a real list lookup; sufficient for the sandbox.

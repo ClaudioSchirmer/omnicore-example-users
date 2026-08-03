@@ -151,7 +151,7 @@ sec "1. Aggregate write (User = person + role + addresses + notifications)"
 ##############################################################################
 DOC="90000000001"
 title "1.1 POST /users (2 addresses, notification flags) → 201"
-post /users "{\"name\":\"Sqlite One\",\"email\":\"sqlite1@example.com\",\"phone\":\"14155550001\",\"document\":\"$DOC\",\"userName\":\"sqlite1\",\"emailNotification\":true,\"smsNotification\":false,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua A\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"},{\"label\":\"work\",\"street\":\"Rua B\",\"number\":\"2\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000001\",\"country\":\"BR\"}]}"
+post /users "{\"name\":\"Sqlite One\",\"email\":\"sqlite1@example.com\",\"phone\":\"14155550001\",\"document\":\"$DOC\",\"userName\":\"sqlite1\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":true,\"smsNotification\":false,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua A\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"},{\"label\":\"work\",\"street\":\"Rua B\",\"number\":\"2\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000001\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "POST /users" 201
 UID1=$(jsonq "d['data']['id']")
 
@@ -170,7 +170,7 @@ eq "TIMESTAMP default populated (created_at not null)" "$(nn created_at persons 
 eq "revision token initialized (>=0)" "$([ "$(db "SELECT revision FROM persons WHERE id='$UID1';")" -ge 0 ] && echo ok)" "ok"
 
 title "1.4 nullable columns: omitted phone → NULL (framework never invents a value)"
-post /users "{\"name\":\"No Phone\",\"email\":\"nophone@example.com\",\"document\":\"90000000010\",\"userName\":\"nophone\",\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+post /users "{\"name\":\"No Phone\",\"email\":\"nophone@example.com\",\"document\":\"90000000010\",\"userName\":\"nophone\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "POST /users (no phone)" 201
 UID_NP=$(jsonq "d['data']['id']")
 eq "persons.phone IS NULL (omitted → NULL, not empty string)" "$(nn phone persons "id='$UID_NP'")" "NULL"
@@ -185,28 +185,28 @@ sec "2. POST /users — validation notifications (write-side, pre-persistence)"
 # whole pipeline (bind → validate → envelope) works on this engine. Baseline the
 # persons count so we can prove NOTHING leaked into the .db afterwards.
 LEAK_BEFORE=$(db "SELECT count(*) FROM persons;")
-ADDR='[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"SF","state":"CA","zipCode":"94103","country":"US"}]'
+ADDR='[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"SF","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]'
 title "2.1 InvalidEmailNotification — three shapes → 422"
-post /users "{\"name\":\"T\",\"email\":\"not-an-email\",\"document\":\"90000000901\",\"userName\":\"t1\",\"addresses\":$ADDR}";  status_is "no @" 422; note_has "carries InvalidEmail" "InvalidEmailNotification"
-post /users "{\"name\":\"T\",\"email\":\"jane@example\",\"document\":\"90000000902\",\"userName\":\"t2\",\"addresses\":$ADDR}";  status_is "no TLD" 422
-post /users "{\"name\":\"T\",\"email\":\"@example.com\",\"document\":\"90000000903\",\"userName\":\"t3\",\"addresses\":$ADDR}";  status_is "empty local-part" 422
+post /users "{\"name\":\"T\",\"email\":\"not-an-email\",\"document\":\"90000000901\",\"userName\":\"t1\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":$ADDR}";  status_is "no @" 422; note_has "carries InvalidEmail" "InvalidEmailNotification"
+post /users "{\"name\":\"T\",\"email\":\"jane@example\",\"document\":\"90000000902\",\"userName\":\"t2\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":$ADDR}";  status_is "no TLD" 422
+post /users "{\"name\":\"T\",\"email\":\"@example.com\",\"document\":\"90000000903\",\"userName\":\"t3\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":$ADDR}";  status_is "empty local-part" 422
 title "2.2 InvalidPhoneNotification (too short) → 422"
-post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"phone\":\"12345\",\"document\":\"90000000904\",\"userName\":\"t4\",\"addresses\":$ADDR}"; status_is "phone too short" 422
+post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"phone\":\"12345\",\"document\":\"90000000904\",\"userName\":\"t4\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":$ADDR}"; status_is "phone too short" 422
 title "2.3 Address shape rules → 422 (state / zip / country)"
-post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000905\",\"userName\":\"t5\",\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"@#\",\"zipCode\":\"94103\",\"country\":\"US\"}]}"; status_is "forbidden chars in state" 422
-post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000906\",\"userName\":\"t6\",\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103!\",\"country\":\"US\"}]}"; status_is "forbidden chars in zip" 422
-post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000907\",\"userName\":\"t7\",\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103\",\"country\":\"\"}]}"; status_is "empty country" 422
+post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000905\",\"userName\":\"t5\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"@#\",\"zipCode\":\"94103\",\"country\":\"US\",\"addressType\":\"residential\"}]}"; status_is "forbidden chars in state" 422
+post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000906\",\"userName\":\"t6\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103!\",\"country\":\"US\",\"addressType\":\"residential\"}]}"; status_is "forbidden chars in zip" 422
+post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000907\",\"userName\":\"t7\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103\",\"country\":\"\"}]}"; status_is "empty country" 422
 title "2.4 DuplicateAddressNotification (Country+ZIP+Street+Number repeated) → 422"
-post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000908\",\"userName\":\"t8\",\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103\",\"country\":\"US\"},{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"M\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103\",\"country\":\"US\"}]}"; status_is "duplicate address" 422; note_has "carries DuplicateAddress" "DuplicateAddressNotification"
+post /users "{\"name\":\"T\",\"email\":\"jane@example.com\",\"document\":\"90000000908\",\"userName\":\"t8\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103\",\"country\":\"US\",\"addressType\":\"residential\"},{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"M\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"94103\",\"country\":\"US\",\"addressType\":\"residential\"}]}"; status_is "duplicate address" 422; note_has "carries DuplicateAddress" "DuplicateAddressNotification"
 title "2.5 RequiredFieldNotification (no name) → 422"
-post /users "{\"email\":\"jane@example.com\",\"document\":\"90000000909\",\"userName\":\"t9\",\"addresses\":$ADDR}"; status_is "missing name" 422
+post /users "{\"email\":\"jane@example.com\",\"document\":\"90000000909\",\"userName\":\"t9\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":$ADDR}"; status_is "missing name" 422
 title "2.6 Multiple notifications grouped (invalid email + invalid zip) → 422"
-post /users "{\"name\":\"T\",\"email\":\"x\",\"document\":\"90000000910\",\"userName\":\"t10\",\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"!\",\"country\":\"US\"}]}"; status_is "grouped notifications" 422
+post /users "{\"name\":\"T\",\"email\":\"x\",\"document\":\"90000000910\",\"userName\":\"t10\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"Main\",\"number\":\"1\",\"neighborhood\":\"D\",\"city\":\"SF\",\"state\":\"CA\",\"zipCode\":\"!\",\"country\":\"US\",\"addressType\":\"residential\"}]}"; status_is "grouped notifications" 422
 title "2.7 Invalid JSON (parse error) → 400"
 post /users '{not json'; status_is "malformed body" 400
 title "2.8 NameMaxLengthExceededNotification — 101-char name → 422 + parameterized message"
 NAME_OVER=$(python3 -c "print('A'*101)")
-post /users "{\"name\":\"$NAME_OVER\",\"email\":\"jane@example.com\",\"document\":\"90000000911\",\"userName\":\"t11\",\"addresses\":$ADDR}"
+post /users "{\"name\":\"$NAME_OVER\",\"email\":\"jane@example.com\",\"document\":\"90000000911\",\"userName\":\"t11\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":$ADDR}"
 status_is "over-limit name" 422
 note_has "carries NameMaxLengthExceeded" "NameMaxLengthExceededNotification"
 { grep -q '100' "$BODY" && ! grep -q '{maxLength}' "$BODY"; } && ok "message substitutes the runtime limit (100, no leaked {maxLength})" || bad "parameterized message not substituted"
@@ -218,7 +218,7 @@ sec "3. PUT /users/:id — strict full-body replacement"
 ##############################################################################
 REV_BEFORE=$(db "SELECT revision FROM persons WHERE id='$UID1';")
 title "3.1 PUT full body → 200 + fields replaced in the .db"
-put "/users/$UID1" "{\"name\":\"Sqlite One Edited\",\"email\":\"sqlite1.edit@example.com\",\"phone\":\"14155550999\",\"userName\":\"sqlite1e\",\"emailNotification\":false,\"smsNotification\":true,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua Nova\",\"number\":\"200\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000099\",\"country\":\"BR\"}]}"
+put "/users/$UID1" "{\"name\":\"Sqlite One Edited\",\"email\":\"sqlite1.edit@example.com\",\"phone\":\"14155550999\",\"userName\":\"sqlite1e\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":false,\"smsNotification\":true,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua Nova\",\"number\":\"200\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000099\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "PUT /users" 200
 eq "name replaced (base)" "$(db "SELECT name FROM persons WHERE id='$UID1';")" "Sqlite One Edited"
 eq "email replaced (base)" "$(db "SELECT email FROM persons WHERE id='$UID1';")" "sqlite1.edit@example.com"
@@ -230,17 +230,17 @@ eq "active address count is 1 (the two originals removed)" "$(db "SELECT count(*
 eq "revision advanced by the write" "$([ "$(db "SELECT revision FROM persons WHERE id='$UID1';")" -gt "$REV_BEFORE" ] && echo ok)" "ok"
 
 title "3.2 PUT strict — a missing exported field is rejected with 400"
-put "/users/$UID1" "{\"name\":\"X\",\"email\":\"sqlite1.edit@example.com\",\"userName\":\"sqlite1e\",\"emailNotification\":false,\"smsNotification\":true,\"addresses\":[{\"street\":\"Rua Nova\",\"number\":\"200\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000099\",\"country\":\"BR\"}]}"
+put "/users/$UID1" "{\"name\":\"X\",\"email\":\"sqlite1.edit@example.com\",\"userName\":\"sqlite1e\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":false,\"smsNotification\":true,\"addresses\":[{\"street\":\"Rua Nova\",\"number\":\"200\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000099\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "PUT without phone" 400; note_has "carries RequiredField" "RequiredFieldNotification"
-put "/users/$UID1" "{\"name\":\"X\",\"email\":\"sqlite1.edit@example.com\",\"phone\":\"14155550999\",\"userName\":\"sqlite1e\",\"emailNotification\":false,\"smsNotification\":true}"
+put "/users/$UID1" "{\"name\":\"X\",\"email\":\"sqlite1.edit@example.com\",\"phone\":\"14155550999\",\"userName\":\"sqlite1e\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":false,\"smsNotification\":true}"
 status_is "PUT without addresses" 400
-put "/users/$UID1" "{\"name\":\"X\",\"email\":\"sqlite1.edit@example.com\",\"phone\":\"14155550999\",\"userName\":\"sqlite1e\",\"addresses\":[{\"street\":\"Rua Nova\",\"number\":\"200\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000099\",\"country\":\"BR\"}]}"
+put "/users/$UID1" "{\"name\":\"X\",\"email\":\"sqlite1.edit@example.com\",\"phone\":\"14155550999\",\"userName\":\"sqlite1e\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"Rua Nova\",\"number\":\"200\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000099\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "PUT without notification flags" 400
 title "3.3 PUT — type mismatch, malformed JSON, missing target"
-put "/users/$UID1" "{\"name\":123,\"email\":\"sqlite1.edit@example.com\",\"phone\":\"1\",\"userName\":\"x\",\"emailNotification\":false,\"smsNotification\":false,\"addresses\":$ADDR}"
+put "/users/$UID1" "{\"name\":123,\"email\":\"sqlite1.edit@example.com\",\"phone\":\"1\",\"userName\":\"x\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":false,\"smsNotification\":false,\"addresses\":$ADDR}"
 status_is "PUT type mismatch (name:number)" 400
 put "/users/$UID1" '{not json'; status_is "PUT malformed JSON" 400
-put "/users/00000000-0000-0000-0000-000000000000" "{\"name\":\"X\",\"email\":\"x@x.com\",\"phone\":\"1\",\"userName\":\"x\",\"emailNotification\":false,\"smsNotification\":false,\"addresses\":$ADDR}"
+put "/users/00000000-0000-0000-0000-000000000000" "{\"name\":\"X\",\"email\":\"x@x.com\",\"phone\":\"1\",\"userName\":\"x\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":false,\"smsNotification\":false,\"addresses\":$ADDR}"
 status_is "PUT nonexistent id" 404; note_has "carries RecordNotFound" "RecordNotFoundNotification"
 
 ##############################################################################
@@ -267,7 +267,7 @@ sec "5. Archive / unarchive — aggregate-aware soft delete (base cascade)"
 # A user-only identity (no other role), so archiving the last role converges the
 # shared Person base too — the deterministic cascade to assert.
 DOC5="90000000050"
-post /users "{\"name\":\"Arch Me\",\"email\":\"arch@example.com\",\"document\":\"$DOC5\",\"userName\":\"archme\",\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+post /users "{\"name\":\"Arch Me\",\"email\":\"arch@example.com\",\"document\":\"$DOC5\",\"userName\":\"archme\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 UID5=$(jsonq "d['data']['id']")
 title "5.1 PATCH /:id/archive → role + addresses + base all soft-deleted"
 patch "/users/$UID5/archive"; status_2xx "archive"
@@ -290,9 +290,9 @@ sec "6. SharedBase — Employee role over the SAME Person"
 ##############################################################################
 DOC6="90000000060"
 title "6.1 POST /users then POST /employees on the same document → one shared Person"
-post /users "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"userName\":\"dual\"}"
+post /users "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"userName\":\"dual\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 status_is "POST /users" 201; U6=$(jsonq "d['data']['id']")
-post /employees "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"employeeNumber\":\"EMP-D1\"}"
+post /employees "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"employeeNumber\":\"EMP-D1\",\"ethnicity\":\"white\"}"
 status_is "POST /employees (same document)" 201; E6=$(jsonq "d['data']['id']")
 eq "shared PK across roles (users.id == employees.id == UUIDv5(document))" "$U6" "$E6"
 eq "exactly ONE persons row backs both roles" "$(db "SELECT count(*) FROM persons WHERE document='$DOC6';")" "1"
@@ -301,7 +301,7 @@ eq "employees role row present" "$(db "SELECT count(*) FROM employees WHERE id='
 
 title "6.2 POST full Employee — role sibling + two child collections + child-level sibling"
 DOC6B="90000000061"
-BODY_FULL="{\"name\":\"Alice Pereira\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"document\":\"$DOC6B\",\"employeeNumber\":\"EMP-0002\",\"bank\":\"260\",\"branch\":\"0001\",\"account\":\"1234567-8\",\"pix\":\"alice.emp@example.com\",\"addresses\":[{\"street\":\"1 Loop\",\"number\":\"1\",\"neighborhood\":\"M\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\"}],\"dependents\":[{\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},{\"name\":\"Pedro Silva\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\"}],\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"},{\"jobTitle\":\"Analyst\",\"department\":\"Data\",\"hiredAt\":\"2019-05-01T00:00:00Z\",\"terminatedAt\":\"2021-12-31T00:00:00Z\"}]}"
+BODY_FULL="{\"name\":\"Alice Pereira\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"document\":\"$DOC6B\",\"employeeNumber\":\"EMP-0002\",\"ethnicity\":\"white\",\"bank\":\"260\",\"branch\":\"0001\",\"account\":\"1234567-8\",\"pix\":\"alice.emp@example.com\",\"addresses\":[{\"street\":\"1 Loop\",\"number\":\"1\",\"neighborhood\":\"M\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\",\"addressType\":\"residential\"}],\"dependents\":[{\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},{\"name\":\"Pedro Silva\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\"}],\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"},{\"jobTitle\":\"Analyst\",\"department\":\"Data\",\"hiredAt\":\"2019-05-01T00:00:00Z\",\"terminatedAt\":\"2021-12-31T00:00:00Z\"}]}"
 post /employees "$BODY_FULL"
 status_is "POST full employee" 201; E6B=$(jsonq "d['data']['id']")
 eq "employee role row" "$(db "SELECT count(*) FROM employees WHERE id='$E6B';")" "1"
@@ -316,10 +316,10 @@ eq "two job histories (role child collection)" "$(db "SELECT count(*) FROM emplo
 sec "7. SharedBase conflict — re-adding an ACTIVE role is a 409"
 ##############################################################################
 title "7.1 re-POST /users for a document that already has an active user → 409"
-post /users "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"userName\":\"dual2\"}"
+post /users "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"userName\":\"dual2\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 status_is "duplicate active user" 409; note_has "carries EntityAlreadyAdded" "EntityAlreadyAddedNotification"
 title "7.2 re-POST /employees for a document that already has an active employee → 409"
-post /employees "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"employeeNumber\":\"EMP-D2\"}"
+post /employees "{\"name\":\"Dual Role\",\"email\":\"dual@example.com\",\"document\":\"$DOC6\",\"employeeNumber\":\"EMP-D2\",\"ethnicity\":\"white\"}"
 status_is "duplicate active employee" 409; note_has "carries EntityAlreadyAdded" "EntityAlreadyAddedNotification"
 
 # 7.3 — the ARCHIVED-remnant conflict: an archived role is invisible to the
@@ -333,16 +333,16 @@ status_is "duplicate active employee" 409; note_has "carries EntityAlreadyAdded"
 # address would trip DuplicateAddress 422 first, on the archived person's rows).
 title "7.3 re-POST an ARCHIVED user's document → 409 (constraint-binding layer)"
 DOC7U="90000000070"
-post /users "{\"name\":\"Arc U\",\"email\":\"arcu@example.com\",\"document\":\"$DOC7U\",\"userName\":\"arcu\"}"; A7U=$(jsonq "d['data']['id']")
+post /users "{\"name\":\"Arc U\",\"email\":\"arcu@example.com\",\"document\":\"$DOC7U\",\"userName\":\"arcu\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"; A7U=$(jsonq "d['data']['id']")
 patch "/users/$A7U/archive"; status_2xx "archive the user first"
-post /users "{\"name\":\"Arc U\",\"email\":\"arcu@example.com\",\"document\":\"$DOC7U\",\"userName\":\"arcu2\"}"
+post /users "{\"name\":\"Arc U\",\"email\":\"arcu@example.com\",\"document\":\"$DOC7U\",\"userName\":\"arcu2\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 status_is "re-POST archived user (PK remnant → 409, not 500)" 409; note_has "carries EntityAlreadyAdded" "EntityAlreadyAddedNotification"
 patch "/users/$A7U/unarchive" >/dev/null 2>&1; delete "/users/$A7U" >/dev/null 2>&1
 title "7.4 re-POST an ARCHIVED employee's document → 409 (constraint-binding layer)"
 DOC7E="90000000071"
-post /employees "{\"name\":\"Arc E\",\"email\":\"arce@example.com\",\"document\":\"$DOC7E\",\"employeeNumber\":\"EMP-A7\"}"; A7E=$(jsonq "d['data']['id']")
+post /employees "{\"name\":\"Arc E\",\"email\":\"arce@example.com\",\"document\":\"$DOC7E\",\"employeeNumber\":\"EMP-A7\",\"ethnicity\":\"white\"}"; A7E=$(jsonq "d['data']['id']")
 patch "/employees/$A7E/archive"; status_2xx "archive the employee first"
-post /employees "{\"name\":\"Arc E\",\"email\":\"arce@example.com\",\"document\":\"$DOC7E\",\"employeeNumber\":\"EMP-A8\"}"
+post /employees "{\"name\":\"Arc E\",\"email\":\"arce@example.com\",\"document\":\"$DOC7E\",\"employeeNumber\":\"EMP-A8\",\"ethnicity\":\"white\"}"
 status_is "re-POST archived employee (PK remnant → 409, not 500)" 409; note_has "carries EntityAlreadyAdded" "EntityAlreadyAddedNotification"
 patch "/employees/$A7E/unarchive" >/dev/null 2>&1; delete "/employees/$A7E" >/dev/null 2>&1
 
@@ -376,7 +376,7 @@ eq "bank account sibling gone" "$(db "SELECT count(*) FROM employee_bank_account
 sec "9. Employee archive cascade to role children"
 ##############################################################################
 DOC9="90000000090"
-post /employees "{\"name\":\"Cascade\",\"email\":\"cascade@example.com\",\"document\":\"$DOC9\",\"employeeNumber\":\"EMP-C9\",\"dependents\":[{\"name\":\"Kid\",\"birthDate\":\"2016-01-01T00:00:00Z\",\"relationship\":\"son\"}],\"jobHistories\":[{\"jobTitle\":\"Dev\",\"department\":\"Eng\",\"hiredAt\":\"2020-01-01T00:00:00Z\"}]}"
+post /employees "{\"name\":\"Cascade\",\"email\":\"cascade@example.com\",\"document\":\"$DOC9\",\"employeeNumber\":\"EMP-C9\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"Kid\",\"birthDate\":\"2016-01-01T00:00:00Z\",\"relationship\":\"son\"}],\"jobHistories\":[{\"jobTitle\":\"Dev\",\"department\":\"Eng\",\"hiredAt\":\"2020-01-01T00:00:00Z\"}]}"
 E9=$(jsonq "d['data']['id']")
 title "9.1 archive employee → role children soft-delete alongside the role"
 patch "/employees/$E9/archive"; status_2xx "archive employee"
@@ -396,16 +396,16 @@ sec "10. Manual showcase (/showcase/users-custom, keyed by document)"
 # constraint-binding map (user_custom_repository.go). Identifier is the document.
 DOCM="90000000200"
 title "10.1 POST /showcase/users-custom → 201, lands in the shared tables"
-post /showcase/users-custom "{\"name\":\"Manual\",\"email\":\"manual@example.com\",\"document\":\"$DOCM\",\"userName\":\"manual\",\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+post /showcase/users-custom "{\"name\":\"Manual\",\"email\":\"manual@example.com\",\"document\":\"$DOCM\",\"userName\":\"manual\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "POST manual" 201
 eq "user row written via the manual path (shared users/persons tables)" "$(db "SELECT count(*) FROM users u JOIN persons p ON u.id=p.id WHERE p.document='$DOCM';")" "1"
 title "10.2 re-POST an active document → 409 (manual surface's conflict envelope)"
-post /showcase/users-custom "{\"name\":\"Manual\",\"email\":\"manual@example.com\",\"document\":\"$DOCM\",\"userName\":\"manual2\"}"
+post /showcase/users-custom "{\"name\":\"Manual\",\"email\":\"manual@example.com\",\"document\":\"$DOCM\",\"userName\":\"manual2\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 status_is "duplicate active (manual)" 409; note_has "carries EntityAlreadyAdded" "EntityAlreadyAddedNotification"
 title "10.3 archive (manual) then re-POST the archived document → 409 (3rd binding key)"
 patch "/showcase/users-custom/$DOCM/archive"; status_2xx "archive manual"
 eq "manual archive soft-deleted the user row" "$(nn deleted_at users "id=(SELECT id FROM persons WHERE document='$DOCM')")" "SET"
-post /showcase/users-custom "{\"name\":\"Manual\",\"email\":\"manual@example.com\",\"document\":\"$DOCM\",\"userName\":\"manual3\"}"
+post /showcase/users-custom "{\"name\":\"Manual\",\"email\":\"manual@example.com\",\"document\":\"$DOCM\",\"userName\":\"manual3\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 status_is "re-POST archived (manual, PK remnant → 409)" 409; note_has "carries EntityAlreadyAdded" "EntityAlreadyAddedNotification"
 title "10.4 GET /showcase/users-custom/:document → 404 (reads the empty Mongo view)"
 patch "/showcase/users-custom/$DOCM/unarchive" >/dev/null 2>&1
@@ -418,11 +418,11 @@ eq "manual delete purged the person" "$(db "SELECT count(*) FROM persons WHERE d
 sec "11. PUT address collection — child-id write-back + atomic replacement"
 ##############################################################################
 DOC11="90000000210"
-post /users "{\"name\":\"Addr\",\"email\":\"addr@example.com\",\"phone\":\"14155550001\",\"document\":\"$DOC11\",\"userName\":\"addr\",\"emailNotification\":true,\"smsNotification\":true,\"addresses\":[{\"street\":\"Old St\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+post /users "{\"name\":\"Addr\",\"email\":\"addr@example.com\",\"phone\":\"14155550001\",\"document\":\"$DOC11\",\"userName\":\"addr\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":true,\"smsNotification\":true,\"addresses\":[{\"street\":\"Old St\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 U11=$(jsonq "d['data']['id']")
 AID_POST=$(db "SELECT id FROM addresses WHERE person_id='$U11' AND deleted_at IS NULL;")
 title "11.1 PUT with a new address → 200; the response carries a FRESH child id"
-put "/users/$U11" "{\"name\":\"Addr\",\"email\":\"addr@example.com\",\"phone\":\"14155550001\",\"userName\":\"addr\",\"emailNotification\":true,\"smsNotification\":true,\"addresses\":[{\"street\":\"New St\",\"number\":\"9\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000009\",\"country\":\"BR\"}]}"
+put "/users/$U11" "{\"name\":\"Addr\",\"email\":\"addr@example.com\",\"phone\":\"14155550001\",\"userName\":\"addr\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":true,\"smsNotification\":true,\"addresses\":[{\"street\":\"New St\",\"number\":\"9\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000009\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "PUT replace address" 200
 AID_PUT=$(jsonq "d['data']['addresses'][0]['id']")
 eq "write-back: new address id is a 36-char UUID" "${#AID_PUT}" "36"
@@ -436,13 +436,13 @@ delete "/users/$U11" >/dev/null 2>&1
 sec "12. Notification-flags sibling — set then CLEAR via PUT null"
 ##############################################################################
 DOC12="90000000220"
-post /users "{\"name\":\"Flags\",\"email\":\"flags@example.com\",\"phone\":\"14155550001\",\"document\":\"$DOC12\",\"userName\":\"flags\",\"emailNotification\":true,\"smsNotification\":true,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+post /users "{\"name\":\"Flags\",\"email\":\"flags@example.com\",\"phone\":\"14155550001\",\"document\":\"$DOC12\",\"userName\":\"flags\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":true,\"smsNotification\":true,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 U12=$(jsonq "d['data']['id']")
 title "12.1 flags upserted the sibling row"
 eq "user_configurations row present" "$(db "SELECT count(*) FROM user_configurations WHERE id='$U12';")" "1"
 eq "email_notification stored true" "$(db "SELECT email_notification FROM user_configurations WHERE id='$U12';")" "1"
 title "12.2 PUT with BOTH flags null → the sibling row is CLEARED (removed)"
-put "/users/$U12" "{\"name\":\"Flags\",\"email\":\"flags@example.com\",\"phone\":\"14155550001\",\"userName\":\"flags\",\"emailNotification\":null,\"smsNotification\":null,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+put "/users/$U12" "{\"name\":\"Flags\",\"email\":\"flags@example.com\",\"phone\":\"14155550001\",\"userName\":\"flags\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":null,\"smsNotification\":null,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 status_is "PUT with null flags" 200
 eq "user_configurations row cleared (0 rows)" "$(db "SELECT count(*) FROM user_configurations WHERE id='$U12';")" "0"
 delete "/users/$U12" >/dev/null 2>&1
@@ -451,7 +451,7 @@ delete "/users/$U12" >/dev/null 2>&1
 sec "13. created_at immutability + rebirth of a purged natural key"
 ##############################################################################
 DOC13="90000000230"
-post /users "{\"name\":\"Immutable\",\"email\":\"imm@example.com\",\"document\":\"$DOC13\",\"userName\":\"imm\"}"
+post /users "{\"name\":\"Immutable\",\"email\":\"imm@example.com\",\"document\":\"$DOC13\",\"userName\":\"imm\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 U13=$(jsonq "d['data']['id']")
 CREATED13=$(db "SELECT created_at FROM persons WHERE id='$U13';")
 title "13.1 created_at survives an update (PATCH) untouched"
@@ -460,7 +460,7 @@ eq "persons.created_at unchanged by the update" "$(db "SELECT created_at FROM pe
 title "13.2 rebirth: purge the identity then re-POST the SAME document → 201"
 delete "/users/$U13"; status_2xx "DELETE (purges the last role's base)"
 eq "identity fully purged" "$(db "SELECT count(*) FROM persons WHERE document='$DOC13';")" "0"
-post /users "{\"name\":\"Reborn\",\"email\":\"reborn@example.com\",\"document\":\"$DOC13\",\"userName\":\"reborn\"}"
+post /users "{\"name\":\"Reborn\",\"email\":\"reborn@example.com\",\"document\":\"$DOC13\",\"userName\":\"reborn\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 status_is "re-POST the purged document (PK remnant gone → fresh insert)" 201
 eq "the reborn identity exists again (id is deterministic UUIDv5(document))" "$(db "SELECT count(*) FROM persons WHERE document='$DOC13';")" "1"
 eq "reborn id equals the original (document → same UUIDv5)" "$(jsonq "d['data']['id']")" "$U13"
@@ -470,8 +470,8 @@ delete "/users/$U13" >/dev/null 2>&1
 sec "14. SharedBase refcount — base converges only when the LAST role archives"
 ##############################################################################
 DOC14="90000000240"
-post /users "{\"name\":\"Ref\",\"email\":\"ref@example.com\",\"document\":\"$DOC14\",\"userName\":\"ref\"}"; U14=$(jsonq "d['data']['id']")
-post /employees "{\"name\":\"Ref\",\"email\":\"ref@example.com\",\"document\":\"$DOC14\",\"employeeNumber\":\"EMP-R\"}"; status_is "second role added" 201
+post /users "{\"name\":\"Ref\",\"email\":\"ref@example.com\",\"document\":\"$DOC14\",\"userName\":\"ref\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"; U14=$(jsonq "d['data']['id']")
+post /employees "{\"name\":\"Ref\",\"email\":\"ref@example.com\",\"document\":\"$DOC14\",\"employeeNumber\":\"EMP-R\",\"ethnicity\":\"white\"}"; status_is "second role added" 201
 title "14.1 archive ONE role — the shared base stays ACTIVE (the other role holds it)"
 patch "/users/$U14/archive"; status_2xx "archive the user role"
 eq "user role soft-deleted" "$(nn deleted_at users "id='$U14'")" "SET"
@@ -489,10 +489,10 @@ title "15.1 POST /employees missing employeeNumber → 422"
 post /employees '{"name":"NoNum","email":"nonum@example.com","document":"90000000250"}'
 status_is "missing employeeNumber" 422
 title "15.2 POST /employees invalid email → 422"
-post /employees '{"name":"BadMail","email":"bad","document":"90000000251","employeeNumber":"EMP-B"}'
+post /employees '{"name":"BadMail","email":"bad","document":"90000000251","employeeNumber":"EMP-B","ethnicity":"white"}'
 status_is "invalid employee email" 422
 title "15.3 archiving an ALREADY-archived record → 404 (the active scope no longer sees it)"
-post /users "{\"name\":\"Idem\",\"email\":\"idem@example.com\",\"document\":\"90000000252\",\"userName\":\"idem\"}"; U15=$(jsonq "d['data']['id']")
+post /users "{\"name\":\"Idem\",\"email\":\"idem@example.com\",\"document\":\"90000000252\",\"userName\":\"idem\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"; U15=$(jsonq "d['data']['id']")
 patch "/users/$U15/archive"; status_2xx "first archive"
 patch "/users/$U15/archive"; status_is "re-archive already-archived" 404
 patch "/users/$U15/unarchive" >/dev/null 2>&1; delete "/users/$U15" >/dev/null 2>&1
@@ -509,7 +509,7 @@ sec "16. Relational read side (RelationalSource twin /users-rel) — SQLite's re
 # Self-contained: seeds its own user (UID1 has been mutated/archived by earlier
 # sections) and cleans it up.
 RDOC="90000000200"
-post /users "{\"name\":\"Rel Read\",\"email\":\"relread@example.com\",\"phone\":\"14155550200\",\"document\":\"$RDOC\",\"userName\":\"relread\",\"emailNotification\":true,\"smsNotification\":false,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua R\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"Portland\",\"state\":\"OR\",\"zipCode\":\"97000000\",\"country\":\"US\"}]}"
+post /users "{\"name\":\"Rel Read\",\"email\":\"relread@example.com\",\"phone\":\"14155550200\",\"document\":\"$RDOC\",\"userName\":\"relread\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":true,\"smsNotification\":false,\"addresses\":[{\"label\":\"home\",\"street\":\"Rua R\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"Portland\",\"state\":\"OR\",\"zipCode\":\"97000000\",\"country\":\"US\",\"addressType\":\"residential\"}]}"
 status_is "seed a user for the relational read" 201
 RID=$(jsonq "d['data']['id']")
 
@@ -559,7 +559,7 @@ sec "17. Mongo read side is EMPTY by design (no CDC → no Mongo projection)"
 # stay empty. We assert that positively so a future regression that silently
 # starts serving stale/partial Mongo reads on SQLite is caught.
 DOC10="90000000100"
-post /users "{\"name\":\"Ghost\",\"email\":\"ghost@example.com\",\"document\":\"$DOC10\",\"userName\":\"ghost\"}"
+post /users "{\"name\":\"Ghost\",\"email\":\"ghost@example.com\",\"document\":\"$DOC10\",\"userName\":\"ghost\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 G10=$(jsonq "d['data']['id']")
 eq "the write DID land in the SoR (.db has the row)" "$(db "SELECT count(*) FROM users WHERE id='$G10';")" "1"
 title "17.1 GET /users/:id → 404 (document never projected to Mongo)"

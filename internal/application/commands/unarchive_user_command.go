@@ -14,7 +14,7 @@ type UnarchiveUserCommand struct{ pipeline.CommandByIDBase }
 // ApplyTo is the hook for ctx → business translation on the unarchive verb.
 // Symmetric to ArchiveUserCommand.ApplyTo — runs AFTER the archived
 // aggregate is hydrated and BEFORE GetUnarchivable runs BuildRules in
-// ModeUpdate with actionName="GetUnarchivable". No-op today; future authz
+// ModeUnarchive (the IfUnarchive clause reads them). No-op today; future authz
 // would populate the transient identity field here.
 func (*UnarchiveUserCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
 	return nil

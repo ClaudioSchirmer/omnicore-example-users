@@ -1,6 +1,8 @@
 package domain
 
 import (
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 )
 
@@ -17,10 +19,11 @@ type Employee struct {
 	// ─── Shared Person identity (partitioned into the persons SharedBase) ──
 	// Same fields, labels and semantics as User: Document is the immutable
 	// natural key deriving the deterministic person id (UUIDv5(document)).
-	Name     string  `labelKey:"UserNameField"`
-	Email    string  `labelKey:"UserEmailField"`
-	Phone    *string `labelKey:"UserPhoneField"`
-	Document string  `labelKey:"UserDocumentField"`
+	Name      vos.Name      `labelKey:"UserNameField"`
+	Email     vos.Email     `labelKey:"UserEmailField"`
+	Phone     *vos.Phone    `labelKey:"UserPhoneField"`
+	Document  vos.Document  `labelKey:"UserDocumentField"`
+	Ethnicity vos.Ethnicity `labelKey:"PersonEthnicityField"` // shared Person enum
 
 	// ─── Role-private field (employees table) ────────────────────────────
 	EmployeeNumber string `labelKey:"EmployeeNumberField"`
@@ -38,9 +41,9 @@ type Employee struct {
 	// Addresses is the BASE's native child collection (persons owns it), so it
 	// is the same list the User role sees. Dependents and JobHistories are
 	// role-owned: private to the Employee, invisible to other roles.
-	Addresses    []Address    // base child (shared across roles)
-	Dependents   []Dependent  // role child, carries a sibling (A2b)
-	JobHistories []JobHistory // role child
+	Addresses    []aggregatevos.Address    // base child (shared across roles)
+	Dependents   []aggregatevos.Dependent  // role child, carries a sibling (A2b)
+	JobHistories []aggregatevos.JobHistory // role child
 }
 
 // Employee needs no domain.Service for the same reason User doesn't:
@@ -72,7 +75,7 @@ func (f *Employee) GetAggregateRoot() *domain.AggregateRoot {
 // which of them belong to the base vs the role) is infra's concern, declared
 // in EmployeeSchema()/personBase().
 func (f *Employee) AggregateChildren() []domain.AggregateValueObject {
-	return []domain.AggregateValueObject{Address{}, Dependent{}, JobHistory{}}
+	return []domain.AggregateValueObject{aggregatevos.Address{}, aggregatevos.Dependent{}, aggregatevos.JobHistory{}}
 }
 
 // ─── Domain methods ──────────────────────────────────────────────────────────
@@ -90,9 +93,9 @@ func (f *Employee) AggregateChildren() []domain.AggregateValueObject {
 // is the norm. For the reject approach, see User.AddAddress in user.go — the
 // two methods are the reference pair for the merge-vs-reject choice the
 // manual describes for shared-base children.
-func (f *Employee) AddAddress(addr Address, svc domain.Service) {
+func (f *Employee) AddAddress(addr aggregatevos.Address, svc domain.Service) {
 	domain.EnsureInitialized(f)
-	for _, existing := range domain.GetCurrentItemsOf[Address](&f.AggregateRoot) {
+	for _, existing := range domain.GetCurrentItemsOf[aggregatevos.Address](&f.AggregateRoot) {
 		if existing.IsSameBusinessIdentity(addr) {
 			return
 		}
@@ -101,7 +104,7 @@ func (f *Employee) AddAddress(addr Address, svc domain.Service) {
 }
 
 // ReplaceAddresses is the PUT full-replace path for the shared collection.
-func (f *Employee) ReplaceAddresses(addrs []Address) {
+func (f *Employee) ReplaceAddresses(addrs []aggregatevos.Address) {
 	domain.EnsureInitialized(f)
 	domain.ReplaceAggregateChildrenOf(f, addrs)
 }
@@ -109,25 +112,25 @@ func (f *Employee) ReplaceAddresses(addrs []Address) {
 // AddDependent attaches a role-owned Dependent. No cross-item invariant
 // today — Dependent field validation lives in Dependent.BuildRules and runs
 // at the boundary.
-func (f *Employee) AddDependent(dep Dependent) {
+func (f *Employee) AddDependent(dep aggregatevos.Dependent) {
 	domain.EnsureInitialized(f)
 	domain.AddAggregateChild(f, dep)
 }
 
 // ReplaceDependents is the PUT full-replace path for the dependents.
-func (f *Employee) ReplaceDependents(deps []Dependent) {
+func (f *Employee) ReplaceDependents(deps []aggregatevos.Dependent) {
 	domain.EnsureInitialized(f)
 	domain.ReplaceAggregateChildrenOf(f, deps)
 }
 
 // AddJobHistory appends one job-history entry.
-func (f *Employee) AddJobHistory(h JobHistory) {
+func (f *Employee) AddJobHistory(h aggregatevos.JobHistory) {
 	domain.EnsureInitialized(f)
 	domain.AddAggregateChild(f, h)
 }
 
 // ReplaceJobHistories is the PUT full-replace path for the job history.
-func (f *Employee) ReplaceJobHistories(hs []JobHistory) {
+func (f *Employee) ReplaceJobHistories(hs []aggregatevos.JobHistory) {
 	domain.EnsureInitialized(f)
 	domain.ReplaceAggregateChildrenOf(f, hs)
 }
@@ -136,31 +139,9 @@ func (f *Employee) ReplaceJobHistories(hs []JobHistory) {
 
 func (f *Employee) BuildRules(actionName string, service domain.Service, r *domain.Rules) {
 	r.IfInsertOrUpdate(func() {
-		// Shared Person fields — same rules as User.BuildRules, because they
-		// land on the same persons row (last-write-wins across roles).
-		if f.Name == "" {
-			r.AddNotification("Name", domain.RequiredFieldNotification{})
-		} else if len(f.Name) > nameMaxLength {
-			r.AddNotification("Name", NameMaxLengthExceededNotification{MaxLength: nameMaxLength}, f.Name)
-		}
-
-		if f.Document == "" {
-			r.AddNotification("Document", domain.RequiredFieldNotification{})
-		} else if !documentRegex.MatchString(f.Document) {
-			r.AddNotification("Document", InvalidDocumentNotification{}, f.Document)
-		}
-
-		if f.Email == "" {
-			r.AddNotification("Email", domain.RequiredFieldNotification{})
-		} else if !emailRegex.MatchString(f.Email) {
-			r.AddNotification("Email", InvalidEmailNotification{}, f.Email)
-		}
-
-		if f.Phone != nil && *f.Phone != "" && !phoneRegex.MatchString(*f.Phone) {
-			r.AddNotification("Phone", InvalidPhoneNotification{}, f.Phone)
-		}
-
-		// Role-private field.
+		// The shared Person value-object fields (Name, Document, Email, Ethnicity,
+		// Phone) validate AUTOMATICALLY — discovered by type, same rules as User,
+		// no registration. Only the role-private non-VO field is checked here.
 		if f.EmployeeNumber == "" {
 			r.AddNotification("EmployeeNumber", domain.RequiredFieldNotification{})
 		}

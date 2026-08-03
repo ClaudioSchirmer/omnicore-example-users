@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // errNotFound is a sentinel the fakeRepo returns from FindByDocument when the
@@ -126,15 +128,17 @@ func newPersistedUser(t testHelper) *appdomain.User {
 	t.Helper()
 	phone := "14155552671"
 	u := &appdomain.User{
-		Name:     "Jane Doe",
-		Email:    "jane@example.com",
-		Phone:    &phone,
-		Document: "10000000001",
-		UserName: "jane",
+		Name:        "Jane Doe",
+		Email:       "jane@example.com",
+		Phone:       (*vos.Phone)(&phone),
+		Document:    "10000000001",
+		Ethnicity:   vos.EthnicityWhite,
+		UserName:    "jane",
+		UserProfile: vos.UserProfileAdmin,
 	}
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		domain.WithID(appdomain.Address{
+		domain.WithID(aggregatevos.Address{
 			Street:       "1 Infinite Loop",
 			Number:       "1",
 			Neighborhood: "Mariani",
@@ -142,6 +146,7 @@ func newPersistedUser(t testHelper) *appdomain.User {
 			State:        "CA",
 			ZipCode:      "95014",
 			Country:      "US",
+			AddressType:  vos.AddressTypeResidential,
 		}, domain.NewID(uuid.NewString())),
 	})
 	return u

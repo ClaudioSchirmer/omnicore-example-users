@@ -9,6 +9,8 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── Canonical commands ────────────────────────────────────────────────────
@@ -38,7 +40,7 @@ func TestInsertUserCommand_ApplyTo_CopiesFieldsAndAddresses(t *testing.T) {
 	if u.EmailNotification == nil || !*u.EmailNotification {
 		t.Errorf("EmailNotification = %v", u.EmailNotification)
 	}
-	addrs := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	addrs := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(addrs) != 1 || addrs[0].Street != "St 1" {
 		t.Errorf("addresses not propagated: %+v", addrs)
 	}
@@ -50,7 +52,7 @@ func TestUpdateUserCommand_ApplyTo_ReplacesRootAndAddresses(t *testing.T) {
 	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		domain.WithID(appdomain.Address{Street: "Old", Number: "1", Neighborhood: "N",
+		domain.WithID(aggregatevos.Address{Street: "Old", Number: "1", Neighborhood: "N",
 			City: "C", State: "ST", ZipCode: "0", Country: "BR"}, domain.NewID("a1")),
 	})
 
@@ -68,7 +70,7 @@ func TestUpdateUserCommand_ApplyTo_ReplacesRootAndAddresses(t *testing.T) {
 	if u.Name != "New" || u.Email != "new@x.com" || *u.Phone != "555" {
 		t.Errorf("root fields not replaced: %+v", u)
 	}
-	current := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	current := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(current) != 1 || current[0].Street != "S2" {
 		t.Errorf("address collection not replaced, got %+v", current)
 	}
@@ -80,7 +82,7 @@ func TestPatchUserCommand_ApplyPartiallyTo_OnlyMutatesNonNil(t *testing.T) {
 	old := "Old"
 	oldEmail := "old@x"
 	oldPhone := "111"
-	u := &appdomain.User{Name: old, Email: oldEmail, Phone: &oldPhone}
+	u := &appdomain.User{Name: vos.Name(old), Email: vos.Email(oldEmail), Phone: (*vos.Phone)(&oldPhone)}
 	u.SetID(domain.NewRandomID())
 
 	// Only Name set — Email/Phone preserved.
@@ -190,7 +192,7 @@ func TestInsertUserCustomCommand_ApplyToAndFromEntity(t *testing.T) {
 	if u.Name != "Alice" || u.Email != "a@x.com" || u.Document != "10000000001" || u.UserName != "alice" {
 		t.Errorf("custom ApplyTo root = %+v", u)
 	}
-	if got := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot); len(got) != 1 {
+	if got := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot); len(got) != 1 {
 		t.Errorf("custom ApplyTo addresses = %v", got)
 	}
 
@@ -225,7 +227,7 @@ func TestUpdateUserCustomCommand_ApplyToReplacesFields(t *testing.T) {
 	if u.Email != "new@x" {
 		t.Errorf("Email must be replaced on the custom surface, got %q", u.Email)
 	}
-	current := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	current := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(current) != 1 {
 		t.Errorf("addresses not replaced: %+v", current)
 	}
@@ -243,7 +245,7 @@ func TestUpdateUserCustomCommand_FromEntity(t *testing.T) {
 func TestPatchUserCustomCommand_ApplyPartiallyTo(t *testing.T) {
 	name0 := "Old"
 	email0 := "kept@x"
-	u := &appdomain.User{Name: name0, Email: email0}
+	u := &appdomain.User{Name: vos.Name(name0), Email: vos.Email(email0)}
 	u.SetID(domain.NewID(uuid.NewString()))
 
 	newName := "New"
@@ -283,7 +285,7 @@ func TestChangeAddressCustomCommand_ApplyAndFromEntity(t *testing.T) {
 	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		domain.WithID(appdomain.Address{Street: "Old", Number: "1", Neighborhood: "N",
+		domain.WithID(aggregatevos.Address{Street: "Old", Number: "1", Neighborhood: "N",
 			City: "C", State: "ST", ZipCode: "0", Country: "BR"}, domain.NewID("addr-1")),
 	})
 
@@ -297,7 +299,7 @@ func TestChangeAddressCustomCommand_ApplyAndFromEntity(t *testing.T) {
 	}
 	// Apply mutates the loaded aggregate.
 	cmd.ApplyTo(nil, u)
-	current := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	current := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(current) == 0 || current[0].Street != "New" {
 		t.Errorf("ChangeAddress did not replace, got %+v", current)
 	}

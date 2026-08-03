@@ -127,32 +127,32 @@ sec "1. POST /users — validation notifications"
 
 show "1.1 InvalidEmailNotification (no @)" POST /users '{
   "name":"Test","email":"not-an-email","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.2 InvalidEmailNotification (no TLD)" POST /users '{
   "name":"Test","email":"jane@example","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.3 InvalidEmailNotification (empty local-part)" POST /users '{
   "name":"Test","email":"@example.com","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.4 InvalidPhoneNotification (phone too short)" POST /users '{
   "name":"Test","email":"jane@example.com","phone":"12345",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.5 InvalidStateNotification (forbidden chars in state — shape regex)" POST /users '{
   "name":"Test","email":"jane@example.com","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"@#","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"@#","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.6 InvalidZipCodeNotification (forbidden chars in zip — shape regex)" POST /users '{
   "name":"Test","email":"jane@example.com","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103!","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103!","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.7 InvalidCountryNotification (empty country)" POST /users '{
@@ -163,19 +163,19 @@ show "1.7 InvalidCountryNotification (empty country)" POST /users '{
 show "1.8 DuplicateAddressNotification (Phase 20: Country+ZIP+Street+Number repeated)" POST /users '{
   "name":"Test","email":"jane@example.com","phone":"14155552671",
   "addresses":[
-    {"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"},
-    {"label":"work","street":"Main","number":"1","neighborhood":"Mission","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}
+    {"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"},
+    {"label":"work","street":"Main","number":"1","neighborhood":"Mission","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}
   ]
 }' 422
 
 show "1.9 RequiredFieldNotification (no name)" POST /users '{
   "email":"jane@example.com","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.10 Multiple notifications grouped (invalid email + invalid zip)" POST /users '{
   "name":"Test","email":"x","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"!","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"!","country":"US","addressType":"residential"}]
 }' 422
 
 show "1.11 Invalid JSON (parse error → 400)" POST /users '{not json' 400
@@ -193,7 +193,7 @@ show "1.11 Invalid JSON (parse error → 400)" POST /users '{not json' 400
 NAME_OVER_LIMIT=$(printf 'A%.0s' $(seq 1 101))
 BODY_NAME_OVER='{
   "name":"'"$NAME_OVER_LIMIT"'","email":"jane@example.com","phone":"14155552671",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }'
 
 show "1.12 NameMaxLengthExceededNotification — 101-char name rejected (status only)" POST /users "$BODY_NAME_OVER" 422
@@ -240,10 +240,10 @@ sec "2. POST /users — happy path (multi-country)"
 title "2.1 Create Jane (US) — expected 201"
 BODY_A='{
   "name":"Jane Doe","email":"jane@example.com","phone":"14155552671",
-  "document":"10000000001","userName":"jane","emailNotification":true,"smsNotification":false,
+  "document":"10000000001","userName":"jane","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":false,
   "addresses":[{
     "label":"home","street":"1 Infinite Loop","number":"1","complement":"apt 201",
-    "neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"
+    "neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US","addressType":"residential"
   }]
 }'
 echo "REQUEST : POST /users"
@@ -281,10 +281,10 @@ fi
 title "2.2 Create Bob (UK) — will be used in conflict tests"
 BODY_B='{
   "name":"Bob Smith","email":"bob@example.com","phone":"442079460000",
-  "document":"10000000002","userName":"bob",
+  "document":"10000000002","userName":"bob","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
   "addresses":[{
     "label":"home","street":"10 Downing","number":"10",
-    "neighborhood":"Westminster","city":"London","state":"England","zipCode":"SW1A 2AA","country":"GB"
+    "neighborhood":"Westminster","city":"London","state":"England","zipCode":"SW1A 2AA","country":"GB","addressType":"residential"
   }]
 }'
 echo "BODY    :"
@@ -303,10 +303,10 @@ if [ "$ST_B" = "201" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
 title "2.3 Create Anna (DE) without phone (nullable)"
 BODY_C='{
   "name":"Anna Müller","email":"anna@example.com",
-  "document":"10000000003","userName":"anna",
+  "document":"10000000003","userName":"anna","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
   "addresses":[{
     "label":"home","street":"Unter den Linden","number":"1",
-    "neighborhood":"Mitte","city":"Berlin","state":"Berlin","zipCode":"10117","country":"DE"
+    "neighborhood":"Mitte","city":"Berlin","state":"Berlin","zipCode":"10117","country":"DE","addressType":"residential"
   }]
 }'
 echo "BODY    :"
@@ -331,8 +331,8 @@ sec "3. POST /users — SharedBase conflict (409) + archived-revive via document
 # freely reused). Retry Bob's document (10000000002) with different other fields.
 show "3.1 EntityAlreadyAddedNotification (retry Bob's document 10000000002, active user exists)" POST /users '{
   "name":"Other","email":"other@example.com","phone":"442079461111",
-  "document":"10000000002","userName":"other",
-  "addresses":[{"label":"home","street":"Other","number":"2","neighborhood":"X","city":"London","state":"England","zipCode":"SW1A 1AA","country":"GB"}]
+  "document":"10000000002","userName":"other","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Other","number":"2","neighborhood":"X","city":"London","state":"England","zipCode":"SW1A 1AA","country":"GB","addressType":"residential"}]
 }' 409
 
 # 3.2 demonstrates that an ARCHIVED role is NOT revived by POST: DeletedAt is
@@ -347,8 +347,8 @@ ARCH_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" -X PATCH "$BASE/users/$USE
 echo "Archive USER_C status: $ARCH_STATUS"
 show "3.2 POST with the document of archived USER_C — invisible to the probe; PK remnant vetoes → 409" POST /users '{
   "name":"Anna II","email":"anna.ii@example.com","phone":"493012345678",
-  "document":"10000000003","userName":"anna",
-  "addresses":[{"label":"home","street":"Kurfürstendamm","number":"1","neighborhood":"Charlottenburg","city":"Berlin","state":"Berlin","zipCode":"10719","country":"DE"}]
+  "document":"10000000003","userName":"anna","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Kurfürstendamm","number":"1","neighborhood":"Charlottenburg","city":"Berlin","state":"Berlin","zipCode":"10719","country":"DE","addressType":"residential"}]
 }' 409
 
 show "3.2b PATCH /users/USER_C/unarchive — the explicit way back for an archived role" PATCH "/users/$USER_C/unarchive" "" 204
@@ -356,8 +356,8 @@ show "3.2b PATCH /users/USER_C/unarchive — the explicit way back for an archiv
 # rejected POST applied nothing. Create a separate Anna III (new document) for
 # the later DELETE case.
 USER_C2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
-  -d '{"name":"Anna III","email":"anna3@example.com","phone":"493012340000","document":"10000000033","userName":"anna3",
-       "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"Y","city":"Berlin","state":"Berlin","zipCode":"10115","country":"DE"}]}' \
+  -d '{"name":"Anna III","email":"anna3@example.com","phone":"493012340000","document":"10000000033","userName":"anna3","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+       "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"Y","city":"Berlin","state":"Berlin","zipCode":"10115","country":"DE","addressType":"residential"}]}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 echo "USER_C2 (Anna III, new for DELETE in 8.x) = $USER_C2"
 
@@ -601,10 +601,10 @@ title "5.1 PUT happy (all fields) — response mirrors the REPLACED addresses wi
 # write-back on the update path) — and it must differ from the POST-time id.
 BODY_51='{
   "name":"Jane Doe (updated)","email":"jane.updated@example.com","phone":"14155553333",
-  "userName":"jane","emailNotification":true,"smsNotification":true,
+  "userName":"jane","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":true,
   "addresses":[{
     "label":"home","street":"New Address","number":"200",
-    "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"
+    "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US","addressType":"residential"
   }]
 }'
 echo "REQUEST : PUT /users/$USER_A"
@@ -640,10 +640,10 @@ title "5.1b PUT re-sending the SAME address identity with a CHANGED non-identity
 # tracked value. Regression guard for the aggregate-child reactivation contract.
 BODY_51B='{
   "name":"Jane Doe (updated)","email":"jane.updated@example.com","phone":"14155553333",
-  "userName":"jane","emailNotification":true,"smsNotification":true,
+  "userName":"jane","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":true,
   "addresses":[{
     "label":"office","street":"New Address","number":"200",
-    "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"
+    "neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94110","country":"US","addressType":"residential"
   }]
 }'
 RESP_51B=$(curl -sS -w "\n__STATUS__%{http_code}" -X PUT "$BASE/users/$USER_A" \
@@ -665,7 +665,7 @@ fi
 
 show "5.2 PUT without phone (Phase 21: RequiredFieldNotification semantic Schema → 400)" PUT "/users/$USER_A" '{
   "name":"Jane","email":"jane@example.com",
-  "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 400
 
 show "5.3 PUT without addresses (Phase 21: RequiredFieldNotification semantic Schema → 400)" PUT "/users/$USER_A" '{
@@ -673,13 +673,13 @@ show "5.3 PUT without addresses (Phase 21: RequiredFieldNotification semantic Sc
 }' 400
 
 show "5.4 PUT /users/<nonexistent> (RecordNotFound)" PUT /users/00000000-0000-0000-0000-000000000000 '{
-  "name":"X","email":"x@x.com","phone":"14155553333","userName":"x","emailNotification":false,"smsNotification":false,
-  "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"SF","state":"CA","zipCode":"94103","country":"US"}]
+  "name":"X","email":"x@x.com","phone":"14155553333","userName":"x","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":false,"smsNotification":false,
+  "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"SF","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 404
 
 show "5.5 PUT with type mismatch (Phase 21: SchemaViolationNotification → 400)" PUT "/users/$USER_A" '{
   "name":123,"email":"jane@example.com","phone":"14155553333",
-  "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"SF","state":"CA","zipCode":"94103","country":"US"}]
+  "addresses":[{"label":"home","street":"X","number":"1","neighborhood":"X","city":"SF","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' 400
 
 show "5.6 PUT with malformed JSON (Phase 21: SchemaViolationNotification → 400)" PUT "/users/$USER_A" '{not json' 400
@@ -809,7 +809,7 @@ sec "9.7 Golden record — 100% field-by-field read coverage (REST/JSON · Graph
 # synchronized on each surface and that no field is silently dropped.
 GDIR="$(dirname "$0")"
 GOLD_DOC="10000000500"
-GOLD_BODY='{"name":"Golden Record","email":"golden@example.com","phone":"15551234567","document":"'"$GOLD_DOC"'","userName":"golden","emailNotification":true,"smsNotification":false,"addresses":[{"label":"home","street":"1 Golden Way","number":"10","complement":"Suite 5","neighborhood":"Downtown","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"},{"street":"2 Silver Rd","number":"20","neighborhood":"Uptown","city":"Gotham","state":"NJ","zipCode":"07001","country":"US"}]}'
+GOLD_BODY='{"name":"Golden Record","email":"golden@example.com","phone":"15551234567","document":"'"$GOLD_DOC"'","userName":"golden","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":false,"addresses":[{"label":"home","street":"1 Golden Way","number":"10","complement":"Suite 5","neighborhood":"Downtown","city":"Metropolis","state":"NY","zipCode":"10001","country":"US","addressType":"residential"},{"street":"2 Silver Rd","number":"20","neighborhood":"Uptown","city":"Gotham","state":"NJ","zipCode":"07001","country":"US","addressType":"residential"}]}'
 
 title "9.7.0 POST golden record (all fields + 2 addresses)"
 GOLD_ID=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" --data "$GOLD_BODY" \
@@ -929,19 +929,19 @@ sec "11. /showcase/users-custom/* — manual write showcase (document as identif
 
 show "11.1 POST /showcase/users-custom (create Mike, US)" POST /showcase/users-custom/ '{
   "name":"Mike Manual","email":"mike@example.com","phone":"14155556666",
-  "document":"10000000011","userName":"mike",
-  "addresses":[{"label":"home","street":"1 Manual Way","number":"42","neighborhood":"Showcase","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}]
+  "document":"10000000011","userName":"mike","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"1 Manual Way","number":"42","neighborhood":"Showcase","city":"Cupertino","state":"CA","zipCode":"95014","country":"US","addressType":"residential"}]
 }' 201
 
 show "11.2 POST same document — Conflict (active user already exists for this person)" POST /showcase/users-custom/ '{
   "name":"Mike Twin","email":"mike.twin@example.com","phone":"14155557777",
-  "document":"10000000011","userName":"miketwin",
-  "addresses":[{"label":"twin","street":"2 Twin Ln","number":"1","neighborhood":"Twin","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}]
+  "document":"10000000011","userName":"miketwin","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"twin","street":"2 Twin Ln","number":"1","neighborhood":"Twin","city":"Cupertino","state":"CA","zipCode":"95014","country":"US","addressType":"residential"}]
 }' 409
 
 show "11.3 PUT /showcase/users-custom/10000000011 (full replace — no Document in body; email IS editable)" PUT /showcase/users-custom/10000000011 '{
-  "name":"Mike Updated","email":"mike.updated@example.com","phone":"14155558888","userName":"mike",
-  "addresses":[{"label":"office","street":"1 Apple Park Way","number":"1","neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}]
+  "name":"Mike Updated","email":"mike.updated@example.com","phone":"14155558888","userName":"mike","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"office","street":"1 Apple Park Way","number":"1","neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US","addressType":"residential"}]
 }' 200
 
 show "11.4 PATCH /showcase/users-custom/10000000011 (name only)" PATCH /showcase/users-custom/10000000011 '{"name":"Mike Patched"}' 200
@@ -951,11 +951,11 @@ show "11.6 PATCH /showcase/users-custom/10000000011/unarchive (FindArchivedByDoc
 show "11.7 DELETE /showcase/users-custom/10000000011 (hard delete — 204 No Content)" DELETE /showcase/users-custom/10000000011 "" 204
 
 show "11.8 PUT on ghost document — RecordNotFound (404)" PUT /showcase/users-custom/99999999999 '{
-  "name":"X","email":"x@x.com","userName":"x","phone":"14155550000","addresses":[]
+  "name":"X","email":"x@x.com","userName":"x","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"phone":"14155550000","addresses":[]
 }' 404
 
 show "11.9 POST with missing name — RequiredFieldNotification (422 — Domain BuildRules, not Schema)" POST /showcase/users-custom/ '{
-  "email":"nameless@example.com","document":"10000000019","userName":"nameless","addresses":[]
+  "email":"nameless@example.com","document":"10000000019","userName":"nameless","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[]
 }' 422
 
 show "11.10 POST with malformed JSON — Schema violation (400)" POST /showcase/users-custom/ '{not json' 400
@@ -1034,25 +1034,25 @@ else
     PUT "/users/$USER_A/addresses/$ADDRESS_ID" '{
       "label":"office","street":"500 Market St","number":"500","complement":null,
       "neighborhood":"FiDi","city":"San Francisco","state":"CA",
-      "zipCode":"94105","country":"US"
+      "zipCode":"94105","country":"US","addressType":"residential"
     }' 200
 
   show "13.6 PUT /users/USER_A/addresses/ADDRESS_ID missing zipCode (FullBody → 400)" \
     PUT "/users/$USER_A/addresses/$ADDRESS_ID" '{
       "label":"office","street":"500 Market St","number":"500",
-      "neighborhood":"FiDi","city":"San Francisco","state":"CA","country":"US"
+      "neighborhood":"FiDi","city":"San Francisco","state":"CA","country":"US","addressType":"residential"
     }' 400
 
   show "13.7 PUT /users/USER_A/addresses/<unknown> (address id absent → 404 RecordNotFound)" \
     PUT "/users/$USER_A/addresses/00000000-0000-0000-0000-000000000000" '{
       "label":"x","street":"x","number":"1","complement":null,"neighborhood":"x","city":"x",
-      "state":"CA","zipCode":"94103","country":"US"
+      "state":"CA","zipCode":"94103","country":"US","addressType":"residential"
     }' 404
 
   show "13.8 PUT /users/USER_A/addresses/ADDRESS_ID with invalid state regex (BuildRules → 422)" \
     PUT "/users/$USER_A/addresses/$ADDRESS_ID" '{
       "label":"office","street":"x","number":"1","complement":null,"neighborhood":"x","city":"x",
-      "state":"@#","zipCode":"94103","country":"US"
+      "state":"@#","zipCode":"94103","country":"US","addressType":"residential"
     }' 422
 
   # Custom surface — same address id (Jane is keyed by email here, not UUID).
@@ -1082,25 +1082,25 @@ else
     PUT "/showcase/users-custom/10000000001/addresses/$ADDRESS_ID" '{
       "label":"home","street":"1 Custom Way","number":"1",
       "neighborhood":"Downtown","city":"San Francisco","state":"CA",
-      "zipCode":"94103","country":"US"
+      "zipCode":"94103","country":"US","addressType":"residential"
     }' 200
 
   show "13.15 PUT /showcase/.../ghost@example.com/addresses/ADDRESS_ID (User absent → 404)" \
     PUT "/showcase/users-custom/99999999999/addresses/$ADDRESS_ID" '{
       "label":"x","street":"x","number":"1","neighborhood":"x","city":"x",
-      "state":"CA","zipCode":"94103","country":"US"
+      "state":"CA","zipCode":"94103","country":"US","addressType":"residential"
     }' 404
 
   show "13.16 PUT /showcase/.../jane@example.com/addresses/<unknown> (Address absent → 404)" \
     PUT "/showcase/users-custom/10000000001/addresses/00000000-0000-0000-0000-000000000000" '{
       "label":"x","street":"x","number":"1","neighborhood":"x","city":"x",
-      "state":"CA","zipCode":"94103","country":"US"
+      "state":"CA","zipCode":"94103","country":"US","addressType":"residential"
     }' 404
 
   show "13.17 PUT /showcase/.../jane@example.com/addresses/ADDRESS_ID with invalid state (422)" \
     PUT "/showcase/users-custom/10000000001/addresses/$ADDRESS_ID" '{
       "label":"x","street":"x","number":"1","neighborhood":"x","city":"x",
-      "state":"@#","zipCode":"94103","country":"US"
+      "state":"@#","zipCode":"94103","country":"US","addressType":"residential"
     }' 422
 fi
 
@@ -1533,19 +1533,19 @@ else:
 # 18.1 — User.Name has `label:"UserNameField"`. Missing name → 422 with
 # fieldLabel rendered in the actor's locale.
 field_label_check "18.1 POST missing Name → 422 with fieldLabel=Nome (PT-BR)" \
-  "pt-BR" '{"name":"","email":"label-pt@example.com","phone":"14155553333","document":"10000000081","userName":"labelpt","addresses":[]}' \
+  "pt-BR" '{"name":"","email":"label-pt@example.com","phone":"14155553333","document":"10000000081","userName":"labelpt","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[]}' \
   "422" "Nome"
 
 # 18.2 — Same notification, different locale: ENG catalog renders "Name".
 field_label_check "18.2 POST missing Name → 422 with fieldLabel=Name (en-US)" \
-  "en-US" '{"name":"","email":"label-en@example.com","phone":"14155554444","document":"10000000082","userName":"labelen","addresses":[]}' \
+  "en-US" '{"name":"","email":"label-en@example.com","phone":"14155554444","document":"10000000082","userName":"labelen","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[]}' \
   "422" "Name"
 
 # 18.3 — Aggregate child label: Address.ZipCode tag resolves through the
 # scoped Rules; the wire `field` retains the path "addresses[0].zipCode"
 # and `fieldLabel` carries the translated AVO field label.
 title "18.3 POST invalid Address.ZipCode → 422 with field=addresses[0].zipCode + fieldLabel=CEP (PT-BR)"
-ADDR_BODY='{"name":"With Address","email":"label-addr@example.com","phone":"14155555555","document":"10000000083","userName":"labeladdr","addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Centro","city":"Cidade","state":"SP","zipCode":"AB","country":"BR"}]}'
+ADDR_BODY='{"name":"With Address","email":"label-addr@example.com","phone":"14155555555","document":"10000000083","userName":"labeladdr","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Centro","city":"Cidade","state":"SP","zipCode":"AB","country":"BR","addressType":"residential"}]}'
 TMP=$(mktemp)
 STATUS=$(curl -sS -o "$TMP" -w "%{http_code}" -X POST "$BASE/users" \
   -H "Content-Type: application/json" -H "Accept-Language: pt-BR" \
@@ -1671,10 +1671,10 @@ rm -f "$TMP"
 ####################################
 title "19.11 Seed export fixtures (Zelda/Yuri Exportprobe) + wait for the Mongo view"
 EXP1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
-  --data '{"name":"Zelda Exportprobe","email":"zelda.exp@example.com","phone":"14155550001","document":"10000000091","userName":"zelda","addresses":[{"label":"home","street":"1 Export St","number":"1","neighborhood":"Probe","city":"Exportville","state":"CA","zipCode":"94000","country":"US"}]}' \
+  --data '{"name":"Zelda Exportprobe","email":"zelda.exp@example.com","phone":"14155550001","document":"10000000091","userName":"zelda","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[{"label":"home","street":"1 Export St","number":"1","neighborhood":"Probe","city":"Exportville","state":"CA","zipCode":"94000","country":"US","addressType":"residential"}]}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
 EXP2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
-  --data '{"name":"Yuri Exportprobe","email":"yuri.exp@example.com","phone":"14155550002","document":"10000000092","userName":"yuri","addresses":[{"label":"home","street":"2 Export Ave","number":"2","neighborhood":"Probe","city":"Exporton","state":"CA","zipCode":"94001","country":"US"}]}' \
+  --data '{"name":"Yuri Exportprobe","email":"yuri.exp@example.com","phone":"14155550002","document":"10000000092","userName":"yuri","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[{"label":"home","street":"2 Export Ave","number":"2","neighborhood":"Probe","city":"Exporton","state":"CA","zipCode":"94001","country":"US","addressType":"residential"}]}' \
   | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])')
 echo "EXP1=$EXP1 (Zelda)  EXP2=$EXP2 (Yuri)"
 if wait_for_view "$EXP1" "200" 15 && wait_for_view "$EXP2" "200" 15; then
@@ -1847,8 +1847,8 @@ sec "22. Language selection — default + the five remaining catalogs"
 # Accept-Language is sent). Assertion = notificationKey + the exact catalog
 # string, so a broken prefix-match or a catalog regression is visible.
 BODY_LANG_22='{
-  "name":"Lang Probe","email":"not-an-email","phone":"14155552671","document":"39000002200","userName":"langprobe",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+  "name":"Lang Probe","email":"not-an-email","phone":"14155552671","document":"39000002200","userName":"langprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }'
 
 title "22.1 No Accept-Language header → English default ('Invalid email.')"
@@ -1894,16 +1894,16 @@ assert_body "23.1 POST /users with 2-char document → 422 InvalidDocumentNotifi
   422 '"notificationKey":"InvalidDocumentNotification"' \
   POST "/users" '{
     "name":"Doc Probe","email":"doc.probe.qa23@example.com","phone":"14155552671",
-    "document":"ab","userName":"docprobe",
-    "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+    "document":"ab","userName":"docprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+    "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
   }' -H "Accept-Language: en-US"
 
 assert_body "23.2 POST /users with symbol-bearing document → 422 InvalidDocumentNotification" \
   422 '"notificationKey":"InvalidDocumentNotification"' \
   POST "/users" '{
     "name":"Doc Probe","email":"doc.probe.qa23@example.com","phone":"14155552671",
-    "document":"12345!78901","userName":"docprobe",
-    "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]
+    "document":"12345!78901","userName":"docprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+    "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
   }' -H "Accept-Language: en-US"
 
 ####################################
@@ -1945,18 +1945,18 @@ except Exception:
 title "24.0 Seed fixtures: one search probe + two sort twins"
 RESP_S1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Zearchprobe Unique","email":"zearch.qa24@example.com","phone":"14155552671",
-  "document":"39000002401","userName":"zearch1",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+  "document":"39000002401","userName":"zearch1","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]}')
 SRCH1=$(echo "$RESP_S1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 RESP_T1=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Sortprobe Twin","email":"sortprobe.a.qa24@example.com","phone":"14155552671",
-  "document":"39000002402","userName":"sortpa",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+  "document":"39000002402","userName":"sortpa","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]}')
 TWIN1=$(echo "$RESP_T1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 RESP_T2=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Sortprobe Twin","email":"sortprobe.b.qa24@example.com","phone":"14155552671",
-  "document":"39000002403","userName":"sortpb",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+  "document":"39000002403","userName":"sortpb","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]}')
 TWIN2=$(echo "$RESP_T2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 if [ -n "$SRCH1" ] && [ -n "$TWIN1" ] && [ -n "$TWIN2" ] \
    && wait_for_view "$SRCH1" 200 20 && wait_for_view "$TWIN1" 200 20 && wait_for_view "$TWIN2" 200 20; then
@@ -2022,8 +2022,8 @@ sec "25. Regex metacharacters in filter values are literal (QuoteMeta)"
 title "25.0 Seed metacharacter fixture"
 RESP_M=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Meta A.B x*y [q] End","email":"meta.qa25@example.com","phone":"14155552671",
-  "document":"39000002501","userName":"metaprobe",
-  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"}]}')
+  "document":"39000002501","userName":"metaprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Main","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]}')
 META1=$(echo "$RESP_M" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 if [ -n "$META1" ] && wait_for_view "$META1" 200 20; then
   printf '\033[1;32mPASS\033[0m (fixture %s materialized)\n' "$META1"; PASS=$((PASS+1))
@@ -2062,12 +2062,12 @@ D26="39000002601"
 title "26.0 Seed: user + employee over the same document ($D26)"
 RESP_U26=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Cross Subres","email":"cross.subres.qa26@example.com","phone":"14155552671",
-  "document":"'"$D26"'","userName":"crosssub",
-  "addresses":[{"label":"home","street":"Original Street","number":"1","neighborhood":"Downtown","city":"Origin City","state":"CA","zipCode":"94103","country":"US"}]}')
+  "document":"'"$D26"'","userName":"crosssub","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
+  "addresses":[{"label":"home","street":"Original Street","number":"1","neighborhood":"Downtown","city":"Origin City","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]}')
 UID26=$(echo "$RESP_U26" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 ST_E26=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$BASE/employees" -H "Content-Type: application/json" --data '{
   "name":"Cross Subres","email":"cross.subres.qa26@example.com",
-  "document":"'"$D26"'","employeeNumber":"EMP-QA26"}')
+  "document":"'"$D26"'","employeeNumber":"EMP-QA26","ethnicity":"white"}')
 if [ -n "$UID26" ] && [ "$ST_E26" = "201" ] && wait_for_view "$UID26" 200 20; then
   printf '\033[1;32mPASS\033[0m (both roles created, id=%s)\n' "$UID26"; PASS=$((PASS+1))
 else
@@ -2092,7 +2092,7 @@ echo "ADDR26=$ADDR26"
 ST_PUT26=$(curl -sS -o /dev/null -w "%{http_code}" -X PUT "$BASE/users/$UID26/addresses/$ADDR26" \
   -H "Content-Type: application/json" --data '{
     "label":"home","street":"Fanout Street","number":"42","complement":null,
-    "neighborhood":"FiDi","city":"Fanout City","state":"CA","zipCode":"94199","country":"US"}')
+    "neighborhood":"FiDi","city":"Fanout City","state":"CA","zipCode":"94199","country":"US","addressType":"residential"}')
 if [ "$ST_PUT26" = "200" ]; then
   printf '\033[1;32mPASS\033[0m (subresource PUT accepted)\n'; PASS=$((PASS+1))
 else
@@ -2161,10 +2161,10 @@ title "27.1 POST with two addresses → users INSERTED +1, persons UPDATED +0 (v
 UI_B=$(outbox_count users INSERTED); PU_B=$(outbox_count persons UPDATED)
 RESP_27=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" --data '{
   "name":"Outbox Probe","email":"outbox.qa27@example.com","phone":"14155552671",
-  "document":"'"$D27"'","userName":"outboxp",
+  "document":"'"$D27"'","userName":"outboxp","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,
   "addresses":[
-    {"label":"home","street":"First","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"},
-    {"label":"work","street":"Second","number":"2","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94105","country":"US"}
+    {"label":"home","street":"First","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"},
+    {"label":"work","street":"Second","number":"2","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94105","country":"US","addressType":"residential"}
   ]}')
 UID27=$(echo "$RESP_27" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("data",{}).get("id",""))' 2>/dev/null || echo "")
 UI_A=$(outbox_count users INSERTED); PU_A=$(outbox_count persons UPDATED)
@@ -2183,11 +2183,11 @@ title "27.3 PUT replacing both addresses with three → users UPDATED +1, person
 UU_B=$(outbox_count users UPDATED); PU_B=$(outbox_count persons UPDATED)
 curl -sS -o /dev/null -X PUT "$BASE/users/$UID27" -H "Content-Type: application/json" --data '{
   "name":"Outbox Probe Renamed","email":"outbox.qa27@example.com","phone":"14155552671",
-  "userName":"outboxp","emailNotification":false,"smsNotification":false,
+  "userName":"outboxp","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":false,"smsNotification":false,
   "addresses":[
-    {"label":"a","street":"Third","number":"3","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"},
-    {"label":"b","street":"Fourth","number":"4","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94111","country":"US"},
-    {"label":"c","street":"Fifth","number":"5","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94112","country":"US"}
+    {"label":"a","street":"Third","number":"3","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94110","country":"US","addressType":"residential"},
+    {"label":"b","street":"Fourth","number":"4","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94111","country":"US","addressType":"residential"},
+    {"label":"c","street":"Fifth","number":"5","neighborhood":"N","city":"San Francisco","state":"CA","zipCode":"94112","country":"US","addressType":"residential"}
   ]}'
 UU_A=$(outbox_count users UPDATED); PU_A=$(outbox_count persons UPDATED)
 assert_outbox_delta "users UPDATED" "$UU_B" "$UU_A" 1
@@ -2229,7 +2229,7 @@ sec "28 Sibling CLEAR via PUT — user_configurations row removed by null flags"
 # never was.
 DOC28="10000000280"
 show "28.1 POST user with both flags set (sibling materializes)" POST "/users/" \
-  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","document":"'"$DOC28"'","userName":"sibclear","emailNotification":true,"smsNotification":true,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"}]}' 201
+  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","document":"'"$DOC28"'","userName":"sibclear","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":true,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US","addressType":"residential"}]}' 201
 UID28=$(qa_db_query "SELECT $(qa_uuid_select id) FROM persons WHERE document='$DOC28';" | tr -d '[:space:]')
 SIB28_B=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
 if [ "$SIB28_B" = "1" ]; then
@@ -2238,7 +2238,7 @@ else
   printf '\033[1;31mFAIL\033[0m 28.2 sibling row after POST: %s, want 1\n' "$SIB28_B"; FAIL=$((FAIL+1))
 fi
 show "28.3 PUT with BOTH flags null — clears the sibling row" PUT "/users/$UID28" \
-  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","userName":"sibclear","emailNotification":null,"smsNotification":null,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US"}]}' 200
+  '{"name":"Sibling Clear","email":"sib.clear@example.com","phone":"15551230028","userName":"sibclear","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":null,"smsNotification":null,"addresses":[{"street":"1 Clear St","number":"1","neighborhood":"Mid","city":"Metropolis","state":"NY","zipCode":"10001","country":"US","addressType":"residential"}]}' 200
 SIB28_A=$(qa_db_query "SELECT count(*) FROM user_configurations WHERE id=$(qa_uuid_lit "$UID28");" | tr -d '[:space:]')
 if [ "$SIB28_A" = "0" ]; then
   printf '\033[1;32mPASS\033[0m 28.4 sibling row REMOVED by the null-flags PUT (0)\n'; PASS=$((PASS+1))

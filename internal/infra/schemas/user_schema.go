@@ -23,10 +23,15 @@ func UserSchema() *core.TableSchema {
 		Revision("revision").
 		SharedBase(PersonBase(), "id").
 		Field("UserName", "user_name").
+		Field("UserProfile", "user_profile"). // enum value object (int-backed) on the role root
 		DeletedAt("deleted_at").
 		CreatedAt("created_at").
 		UpdatedAt("updated_at").
 		Sibling(core.NewSiblingSchema[*appdomain.User]("user_configurations").
 			Field("EmailNotification", "email_notification").
-			Field("SmsNotification", "sms_notification"))
+			Field("SmsNotification", "sms_notification").
+			// Value objects on a ROOT SIBLING: a nullable raw VO (*vos.Email) and a
+			// nullable enum VO (*vos.NotificationFrequency).
+			Field("NotificationEmail", "notification_email").
+			Field("NotificationFrequency", "notification_frequency"))
 }

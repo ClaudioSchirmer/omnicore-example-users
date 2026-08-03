@@ -3,9 +3,9 @@ package domain_test
 import (
 	"testing"
 
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 	"github.com/ClaudioSchirmer/omnicore/domain"
-
-	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
 // validateUserWithAddress hydrates a valid User + 1 Address (which overrides
@@ -16,7 +16,7 @@ import (
 // User needs no domain service, so we pass nil. The root carries valid
 // Person/role fields (validUser) so the only notifications that can surface are
 // the address's own — keeping these assertions scoped to Address.BuildRules.
-func validateUserWithAddress(addr appdomain.Address) []*domain.NotificationContext {
+func validateUserWithAddress(addr aggregatevos.Address) []*domain.NotificationContext {
 	u := validUser()
 	u.AddAddress(addr, nil)
 	_, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
@@ -25,22 +25,22 @@ func validateUserWithAddress(addr appdomain.Address) []*domain.NotificationConte
 
 func TestAddress_BuildRules_HappyPathInternational(t *testing.T) {
 	// Exercise multiple country shapes to prove the rules are country-agnostic.
-	cases := []appdomain.Address{
+	cases := []aggregatevos.Address{
 		{Street: "Main", Number: "100", Neighborhood: "Downtown", City: "San Francisco",
-			State: "CA", ZipCode: "94103", Country: "US"},
+			State: "CA", ZipCode: "94103", Country: "US", AddressType: vos.AddressTypeResidential},
 		{Street: "Main", Number: "100", Neighborhood: "Downtown", City: "San Francisco",
-			State: "California", ZipCode: "94103-1234", Country: "US"},
+			State: "California", ZipCode: "94103-1234", Country: "US", AddressType: vos.AddressTypeResidential},
 		{Street: "10 Downing", Number: "10", Neighborhood: "Westminster", City: "London",
-			State: "England", ZipCode: "SW1A 1AA", Country: "GB"},
+			State: "England", ZipCode: "SW1A 1AA", Country: "GB", AddressType: vos.AddressTypeResidential},
 		{Street: "Sussex Dr", Number: "24", Neighborhood: "Ottawa", City: "Ottawa",
-			State: "ON", ZipCode: "K1A 0B1", Country: "CA"},
+			State: "ON", ZipCode: "K1A 0B1", Country: "CA", AddressType: vos.AddressTypeResidential},
 		{Street: "Unter den Linden", Number: "1", Neighborhood: "Mitte", City: "Berlin",
-			State: "Berlin", ZipCode: "10117", Country: "DE"},
+			State: "Berlin", ZipCode: "10117", Country: "DE", AddressType: vos.AddressTypeResidential},
 		{Street: "Rua das Flores", Number: "100", Neighborhood: "Centro", City: "Recife",
-			State: "PE", ZipCode: "50000-000", Country: "BR"},
+			State: "PE", ZipCode: "50000-000", Country: "BR", AddressType: vos.AddressTypeResidential},
 	}
 	for _, addr := range cases {
-		t.Run(addr.Country+"_"+addr.ZipCode, func(t *testing.T) {
+		t.Run(addr.Country+"_"+addr.ZipCode.Value(), func(t *testing.T) {
 			ctxs := validateUserWithAddress(addr)
 			if len(ctxs) > 0 && hasAnyError(ctxs) {
 				t.Fatalf("expected no errors for %+v; got %s", addr, dumpContexts(ctxs))
@@ -52,16 +52,16 @@ func TestAddress_BuildRules_HappyPathInternational(t *testing.T) {
 func TestAddress_BuildRules_RequiredFields(t *testing.T) {
 	cases := []struct {
 		field    string // resolved wire field expected
-		mutate   func(*appdomain.Address)
+		mutate   func(*aggregatevos.Address)
 		notifKey string
 	}{
-		{"addresses[0].street", func(a *appdomain.Address) { a.Street = "" }, "RequiredFieldNotification"},
-		{"addresses[0].number", func(a *appdomain.Address) { a.Number = "" }, "RequiredFieldNotification"},
-		{"addresses[0].neighborhood", func(a *appdomain.Address) { a.Neighborhood = "" }, "RequiredFieldNotification"},
-		{"addresses[0].city", func(a *appdomain.Address) { a.City = "" }, "RequiredFieldNotification"},
-		{"addresses[0].state", func(a *appdomain.Address) { a.State = "" }, "RequiredFieldNotification"},
-		{"addresses[0].zipCode", func(a *appdomain.Address) { a.ZipCode = "" }, "RequiredFieldNotification"},
-		{"addresses[0].country", func(a *appdomain.Address) { a.Country = "" }, "RequiredFieldNotification"},
+		{"addresses[0].street", func(a *aggregatevos.Address) { a.Street = "" }, "RequiredFieldNotification"},
+		{"addresses[0].number", func(a *aggregatevos.Address) { a.Number = "" }, "RequiredFieldNotification"},
+		{"addresses[0].neighborhood", func(a *aggregatevos.Address) { a.Neighborhood = "" }, "RequiredFieldNotification"},
+		{"addresses[0].city", func(a *aggregatevos.Address) { a.City = "" }, "RequiredFieldNotification"},
+		{"addresses[0].state", func(a *aggregatevos.Address) { a.State = "" }, "RequiredFieldNotification"},
+		{"addresses[0].zipCode", func(a *aggregatevos.Address) { a.ZipCode = "" }, "RequiredFieldNotification"},
+		{"addresses[0].country", func(a *aggregatevos.Address) { a.Country = "" }, "RequiredFieldNotification"},
 	}
 	for _, c := range cases {
 		t.Run(c.field, func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestAddress_BuildRules_ZipCodeInvalid(t *testing.T) {
 	for _, bad := range cases {
 		t.Run(bad, func(t *testing.T) {
 			addr := validAddress()
-			addr.ZipCode = bad
+			addr.ZipCode = vos.ZipCode(bad)
 			ctxs := validateUserWithAddress(addr)
 			if !hasNotification(ctxs, "addresses[0].zipCode", "InvalidZipCodeNotification") {
 				t.Fatalf("expected InvalidZipCodeNotification for zip=%q; got %s", bad, dumpContexts(ctxs))

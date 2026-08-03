@@ -7,27 +7,29 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // Shared fixtures. The generic helpers (ptr, hasNotification, dumpContexts,
 // validAddress, asCarrier) live in user_test.go — same package.
 
-func validDependent() appdomain.Dependent {
+func validDependent() aggregatevos.Dependent {
 	op := "Unimed"
-	card := "UN-889923"
+	card := "889923"
 	val := time.Date(2027, 12, 31, 0, 0, 0, 0, time.UTC)
-	return appdomain.Dependent{
+	return aggregatevos.Dependent{
 		Name:               "Maria Silva",
 		BirthDate:          time.Date(2015, 3, 10, 0, 0, 0, 0, time.UTC),
-		Relationship:       "daughter",
+		Relationship:       vos.RelationshipDaughter,
 		HealthPlanProvider: &op,
-		HealthPlanCard:     &card,
+		HealthPlanCard:     (*vos.HealthPlanCard)(&card),
 		HealthPlanExpiry:   &val,
 	}
 }
 
-func validJobHistory() appdomain.JobHistory {
-	return appdomain.JobHistory{
+func validJobHistory() aggregatevos.JobHistory {
+	return aggregatevos.JobHistory{
 		JobTitle:   "Engineer",
 		Department: "Platform",
 		HiredAt:    time.Date(2022, 1, 10, 0, 0, 0, 0, time.UTC),
@@ -38,8 +40,9 @@ func validEmployee() *appdomain.Employee {
 	return &appdomain.Employee{
 		Name:           "Jane Doe",
 		Email:          "jane@example.com",
-		Phone:          ptr("14155552671"),
+		Phone:          phonePtr("14155552671"),
 		Document:       "10000000001",
+		Ethnicity:      vos.EthnicityWhite,
 		EmployeeNumber: "EMP-0001",
 	}
 }
@@ -127,11 +130,11 @@ func TestEmployee_AggregateChildren_DeclaresAllThreeTypes(t *testing.T) {
 	kinds := map[string]bool{}
 	for _, c := range f.AggregateChildren() {
 		switch c.(type) {
-		case appdomain.Address:
+		case aggregatevos.Address:
 			kinds["Address"] = true
-		case appdomain.Dependent:
+		case aggregatevos.Dependent:
 			kinds["Dependent"] = true
-		case appdomain.JobHistory:
+		case aggregatevos.JobHistory:
 			kinds["JobHistory"] = true
 		}
 	}
@@ -153,7 +156,7 @@ func TestEmployee_AddAddress_SilentlySkipsDuplicateBusinessIdentity(t *testing.T
 	f.AddAddress(a, nil)
 	f.AddAddress(dup, nil)
 
-	items := domain.GetCurrentItemsOf[appdomain.Address](&f.AggregateRoot)
+	items := domain.GetCurrentItemsOf[aggregatevos.Address](&f.AggregateRoot)
 	if len(items) != 1 {
 		t.Fatalf("expected duplicate address to be rejected, got %d items", len(items))
 	}
@@ -164,12 +167,12 @@ func TestEmployee_MultipleChildCollections_Independent(t *testing.T) {
 	f.AddDependent(validDependent())
 	dep2 := validDependent()
 	dep2.Name = "Pedro Silva"
-	dep2.Relationship = "son"
+	dep2.Relationship = vos.RelationshipSon
 	f.AddDependent(dep2)
 	f.AddJobHistory(validJobHistory())
 
-	deps := domain.GetCurrentItemsOf[appdomain.Dependent](&f.AggregateRoot)
-	hists := domain.GetCurrentItemsOf[appdomain.JobHistory](&f.AggregateRoot)
+	deps := domain.GetCurrentItemsOf[aggregatevos.Dependent](&f.AggregateRoot)
+	hists := domain.GetCurrentItemsOf[aggregatevos.JobHistory](&f.AggregateRoot)
 	if len(deps) != 2 || len(hists) != 1 {
 		t.Fatalf("expected 2 dependents + 1 job history, got %d + %d", len(deps), len(hists))
 	}
@@ -179,31 +182,37 @@ func TestEmployee_MultipleChildCollections_Independent(t *testing.T) {
 
 func TestDependent_BuildRules_RequiredFields(t *testing.T) {
 	f := validEmployee()
-	f.AddDependent(appdomain.Dependent{}) // everything missing
+	f.AddDependent(aggregatevos.Dependent{}) // everything missing
 
 	ok, ctxs := domain.IsValid(f, domain.ModeInsert, nil)
 	if ok {
 		t.Fatal("expected validation to fail")
 	}
-	for _, field := range []string{"dependents[0].name", "dependents[0].birthDate", "dependents[0].relationship"} {
+	for _, field := range []string{"dependents[0].name", "dependents[0].birthDate"} {
 		if !hasNotification(ctxs, field, "RequiredFieldNotification") {
 			t.Fatalf("expected RequiredFieldNotification on %s; got %s", field, dumpContexts(ctxs))
 		}
+	}
+	// Relationship is an enum VO: the zero sentinel (unset) is not a member of
+	// its closed set, so it reports UnknownRelationshipNotification rather than
+	// the generic RequiredFieldNotification.
+	if !hasNotification(ctxs, "dependents[0].relationship", "UnknownRelationshipNotification") {
+		t.Fatalf("expected UnknownRelationshipNotification on relationship; got %s", dumpContexts(ctxs))
 	}
 }
 
 func TestDependent_BuildRules_RelationshipOutsideSet(t *testing.T) {
 	f := validEmployee()
 	d := validDependent()
-	d.Relationship = "primo"
+	d.Relationship = vos.Relationship("primo") // a token outside the declared set
 	f.AddDependent(d)
 
 	ok, ctxs := domain.IsValid(f, domain.ModeInsert, nil)
 	if ok {
 		t.Fatal("expected validation to fail")
 	}
-	if !hasNotification(ctxs, "dependents[0].relationship", "InvalidRelationshipNotification") {
-		t.Fatalf("expected InvalidRelationshipNotification; got %s", dumpContexts(ctxs))
+	if !hasNotification(ctxs, "dependents[0].relationship", "UnknownRelationshipNotification") {
+		t.Fatalf("expected UnknownRelationshipNotification; got %s", dumpContexts(ctxs))
 	}
 }
 
@@ -221,7 +230,7 @@ func TestDependent_BuildRules_PlanFieldsOptional(t *testing.T) {
 
 func TestJobHistory_BuildRules_RequiredFields(t *testing.T) {
 	f := validEmployee()
-	f.AddJobHistory(appdomain.JobHistory{})
+	f.AddJobHistory(aggregatevos.JobHistory{})
 
 	ok, ctxs := domain.IsValid(f, domain.ModeInsert, nil)
 	if ok {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -21,6 +23,7 @@ type UpdateEmployeeCommand struct {
 	Name           string
 	Email          string
 	Phone          *string
+	Ethnicity      string // shared Person enum token (string-backed)
 	EmployeeNumber string
 
 	Bank    *string
@@ -36,28 +39,29 @@ type UpdateEmployeeCommand struct {
 // ApplyTo replaces root fields and the full child collections on the loaded
 // entity — domain vocabulary only, no framework primitives.
 func (c UpdateEmployeeCommand) ApplyTo(_ *configuration.AppContext, f *appdomain.Employee) error {
-	f.Name = c.Name
-	f.Email = c.Email
-	f.Phone = c.Phone
+	f.Name = vos.Name(c.Name)
+	f.Email = vos.Email(c.Email)
+	f.Phone = (*vos.Phone)(c.Phone)
+	f.Ethnicity = vos.Ethnicity(c.Ethnicity)
 	f.EmployeeNumber = c.EmployeeNumber
 	f.Bank = c.Bank
 	f.Branch = c.Branch
 	f.Account = c.Account
 	f.Pix = c.Pix
 
-	addrs := make([]appdomain.Address, len(c.Addresses))
+	addrs := make([]aggregatevos.Address, len(c.Addresses))
 	for i, a := range c.Addresses {
 		addrs[i] = a.ToAddress()
 	}
 	f.ReplaceAddresses(addrs)
 
-	deps := make([]appdomain.Dependent, len(c.Dependents))
+	deps := make([]aggregatevos.Dependent, len(c.Dependents))
 	for i, d := range c.Dependents {
 		deps[i] = d.ToDependent()
 	}
 	f.ReplaceDependents(deps)
 
-	hists := make([]appdomain.JobHistory, len(c.JobHistories))
+	hists := make([]aggregatevos.JobHistory, len(c.JobHistories))
 	for i, h := range c.JobHistories {
 		hists[i] = h.ToJobHistory()
 	}
@@ -71,10 +75,11 @@ func (c UpdateEmployeeCommand) ApplyTo(_ *configuration.AppContext, f *appdomain
 func (c UpdateEmployeeCommand) FromEntity(_ *configuration.AppContext, f *appdomain.Employee) (UpdateEmployeeResult, error) {
 	return UpdateEmployeeResult{
 		ID:             *f.GetID(),
-		Name:           f.Name,
-		Email:          f.Email,
-		Phone:          f.Phone,
-		Document:       f.Document,
+		Name:           f.Name.Value(),
+		Email:          f.Email.Value(),
+		Phone:          (*string)(f.Phone),
+		Document:       f.Document.Value(),
+		Ethnicity:      f.Ethnicity.Value(),
 		EmployeeNumber: f.EmployeeNumber,
 		Bank:           f.Bank,
 		Branch:         f.Branch,
@@ -91,6 +96,7 @@ type UpdateEmployeeResult struct {
 	Email          string
 	Phone          *string
 	Document       string
+	Ethnicity      string
 	EmployeeNumber string
 	Bank           *string
 	Branch         *string

@@ -10,6 +10,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 )
 
 // testCtx is the request-scoped AppContext the write binding (repo.Scope) needs;
@@ -29,7 +30,7 @@ func testCtx() *configuration.AppContext {
 
 // insertUser cold/warm-inserts a user for `document` through the SharedBase
 // upsert path on the canonical repository.
-func insertUser(t *testing.T, repo *UserRepository, document, name, email, userName string, addresses ...appdomain.Address) (domain.ID, error) {
+func insertUser(t *testing.T, repo *UserRepository, document, name, email, userName string, addresses ...aggregatevos.Address) (domain.ID, error) {
 	t.Helper()
 	fresh := &appdomain.User{Document: document}
 	loaded, existed, err := repo.LoadForSharedBaseInsert(testCtx(), fresh)
@@ -58,8 +59,8 @@ func insertUser(t *testing.T, repo *UserRepository, document, name, email, userN
 	return repo.Scope(testCtx()).Insert(ins)
 }
 
-func sampleAddress() appdomain.Address {
-	return appdomain.Address{
+func sampleAddress() aggregatevos.Address {
+	return aggregatevos.Address{
 		Street: "Main", Number: "1", Neighborhood: "N",
 		City: "Berlin", State: "BE", ZipCode: "10115", Country: "DE",
 	}
@@ -93,7 +94,7 @@ func TestUserRepository_InsertAndFindByID(t *testing.T) {
 	}
 
 	// Addresses are the person's base-children, hydrated onto the role.
-	addrs := domain.GetCurrentItemsOf[appdomain.Address](&got.AggregateRoot)
+	addrs := domain.GetCurrentItemsOf[aggregatevos.Address](&got.AggregateRoot)
 	if len(addrs) != 1 || addrs[0].Street != "Main" {
 		t.Errorf("expected 1 hydrated address, got %+v", addrs)
 	}

@@ -22,6 +22,7 @@ type UpdateEmployeeRequest struct {
 	Name           string  `json:"name"            example:"Alice Pereira"`
 	Email          string  `json:"email"           example:"alice@example.com"`
 	Phone          *string `json:"phone,omitempty" example:"14155552671"`
+	Ethnicity      string  `json:"ethnicity"       example:"white"`
 	EmployeeNumber string  `json:"employeeNumber"       example:"EMP-0042"`
 
 	Bank    *string `json:"bank,omitempty"   example:"260"`
@@ -52,6 +53,7 @@ func (r UpdateEmployeeRequest) ToCommand() *commands.UpdateEmployeeCommand {
 		Name:           r.Name,
 		Email:          r.Email,
 		Phone:          r.Phone,
+		Ethnicity:      r.Ethnicity,
 		EmployeeNumber: r.EmployeeNumber,
 		Bank:           r.Bank,
 		Branch:         r.Branch,
@@ -73,6 +75,7 @@ type UpdateEmployeeResponse struct {
 	Email          string    `json:"email"             example:"alice@example.com"`
 	Phone          *string   `json:"phone,omitempty"   example:"14155552671"`
 	Document       string    `json:"document"          example:"12345678901"`
+	Ethnicity      string    `json:"ethnicity"         example:"white"`
 	EmployeeNumber string    `json:"employeeNumber"         example:"EMP-0042"`
 	Bank           *string   `json:"bank,omitempty"   example:"260"`
 	Branch         *string   `json:"branch,omitempty" example:"0001"`
@@ -87,6 +90,7 @@ func (UpdateEmployeeResponse) FromResult(r commands.UpdateEmployeeResult) Update
 		Email:          r.Email,
 		Phone:          r.Phone,
 		Document:       r.Document,
+		Ethnicity:      r.Ethnicity,
 		EmployeeNumber: r.EmployeeNumber,
 		Bank:           r.Bank,
 		Branch:         r.Branch,

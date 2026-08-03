@@ -1,8 +1,9 @@
-package domain
+package aggregatevos
 
 import (
 	"time"
 
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 )
 
@@ -16,16 +17,17 @@ import (
 // value; identity for that tracking is IsSameBusinessIdentity — as with Address.
 type Dependent struct {
 	domain.Managed
-	Name         string    `labelKey:"DependentNameField"`
-	BirthDate    time.Time `labelKey:"DependentBirthDateField"`
-	Relationship string    `labelKey:"DependentRelationshipField"`
+	Name         string           `labelKey:"DependentNameField"`
+	BirthDate    time.Time        `labelKey:"DependentBirthDateField"`
+	Relationship vos.Relationship `labelKey:"DependentRelationshipField"`
 
 	// ─── Child-level sibling: health plan (dependent_health_plans, 1:1) ────
 	// nil = no plan row. Same conditional-materialization semantics as the
 	// role's bank-account sibling, one level down the aggregate.
-	HealthPlanProvider *string    `labelKey:"DependentHealthPlanProviderField"`
-	HealthPlanCard     *string    `labelKey:"DependentHealthPlanCardField"`
-	HealthPlanExpiry   *time.Time `labelKey:"DependentHealthPlanExpiryField"`
+	HealthPlanProvider *string             `labelKey:"DependentHealthPlanProviderField"`
+	HealthPlanCard     *vos.HealthPlanCard `labelKey:"DependentHealthPlanCardField"`
+	HealthPlanExpiry   *time.Time          `labelKey:"DependentHealthPlanExpiryField"`
+	HealthPlanType     *vos.HealthPlanType `labelKey:"DependentHealthPlanTypeField"` // child-sibling enum
 }
 
 // IsSameBusinessIdentity is the framework-required identity for change tracking
@@ -33,18 +35,6 @@ type Dependent struct {
 // narrower than its full value, so it delegates to IsSameByBusinessFields.
 func (d Dependent) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
 	return domain.IsSameByBusinessFields(d, other)
-}
-
-// knownRelationships is the closed set the Relationship field accepts — a
-// pure domain rule of this aggregate (lowercase canonical form; the wire
-// sends it verbatim).
-var knownRelationships = map[string]bool{
-	"spouse":   true,
-	"son":      true,
-	"daughter": true,
-	"father":   true,
-	"mother":   true,
-	"other":    true,
 }
 
 // BuildRules fires at the boundary (GetInsertable/GetUpdatable/...) via the
@@ -58,10 +48,8 @@ func (d Dependent) BuildRules(actionName string, service domain.Service, r *doma
 		if d.BirthDate.IsZero() {
 			r.AddNotification("BirthDate", domain.RequiredFieldNotification{})
 		}
-		if d.Relationship == "" {
-			r.AddNotification("Relationship", domain.RequiredFieldNotification{})
-		} else if !knownRelationships[d.Relationship] {
-			r.AddNotification("Relationship", InvalidRelationshipNotification{}, d.Relationship)
-		}
+		// Relationship (enum) and the nullable child-sibling VOs (HealthPlanCard,
+		// HealthPlanType) are value objects — the framework discovers and validates
+		// them off the struct (nil pointers skipped); nothing to wire here.
 	})
 }

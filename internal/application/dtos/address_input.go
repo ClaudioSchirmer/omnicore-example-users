@@ -1,12 +1,15 @@
 package dtos
 
-import appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+import (
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
+)
 
 // AddressInput is the application-layer DTO shared between InsertUser and
-// UpdateUser commands. Phase 21: no JSON tags (wire format lives in
-// web/requests/AddressRequest) and types mirror AddressRequest 1:1 — optional
-// fields carry *string on both sides so that ToCommand is a pure assignment
-// with no hidden normalization at the boundary.
+// UpdateUser commands. No JSON tags (wire format lives in
+// web/requests/AddressRequest); the wire fields carry the value objects'
+// underlying scalars (string for ZipCode, string token for AddressType) —
+// ToAddress converts them to the value-object types.
 type AddressInput struct {
 	Label        *string
 	Street       string
@@ -17,14 +20,14 @@ type AddressInput struct {
 	State        string
 	ZipCode      string
 	Country      string
+	AddressType  string // enum token (string-backed)
 }
 
-// ToAddress materializes an appdomain.Address from the AddressInput. Since
-// AddressInput already speaks application vocabulary (pointer types for
-// nullable), the mapping to domain is a direct copy — domain.Address also
-// declares Label/Complement as *string.
-func (a AddressInput) ToAddress() appdomain.Address {
-	return appdomain.Address{
+// ToAddress materializes an aggregatevos.Address from the AddressInput. ZipCode
+// and AddressType are value objects — a plain conversion, since the wire value
+// is already the underlying scalar.
+func (a AddressInput) ToAddress() aggregatevos.Address {
+	return aggregatevos.Address{
 		Label:        a.Label,
 		Street:       a.Street,
 		Number:       a.Number,
@@ -32,7 +35,8 @@ func (a AddressInput) ToAddress() appdomain.Address {
 		Neighborhood: a.Neighborhood,
 		City:         a.City,
 		State:        a.State,
-		ZipCode:      a.ZipCode,
+		ZipCode:      vos.ZipCode(a.ZipCode),
 		Country:      a.Country,
+		AddressType:  vos.AddressType(a.AddressType),
 	}
 }

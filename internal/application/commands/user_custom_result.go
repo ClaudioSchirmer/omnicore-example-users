@@ -4,6 +4,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 )
 
 // UserCustomResult is the shared application-layer projection returned by every
@@ -24,15 +25,19 @@ import (
 // value-add is the manual orchestration written out, not a divergent response
 // shape per verb.
 type UserCustomResult struct {
-	ID                domain.ID
-	Name              string
-	Email             string
-	Phone             *string
-	Document          string
-	UserName          string
-	EmailNotification *bool
-	SmsNotification   *bool
-	Addresses         []AddressCustomResult
+	ID                    domain.ID
+	Name                  string
+	Email                 string
+	Phone                 *string
+	Document              string
+	Ethnicity             string
+	UserName              string
+	UserProfile           int
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int
+	Addresses             []AddressCustomResult
 }
 
 // AddressCustomResult is the snapshot of one Address row inside UserCustomResult.
@@ -49,6 +54,7 @@ type AddressCustomResult struct {
 	State        string
 	ZipCode      string
 	Country      string
+	AddressType  string
 }
 
 // userCustomResultFromUser packages the User aggregate into the shared
@@ -61,7 +67,7 @@ type AddressCustomResult struct {
 // "Result is pure data" rule is observable at a glance — Cmds own the
 // projection behavior, the Result owns the shape.
 func userCustomResultFromUser(u *appdomain.User) UserCustomResult {
-	addrs := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	addrs := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	out := make([]AddressCustomResult, len(addrs))
 	for i, a := range addrs {
 		out[i] = AddressCustomResult{
@@ -73,19 +79,24 @@ func userCustomResultFromUser(u *appdomain.User) UserCustomResult {
 			Neighborhood: a.Neighborhood,
 			City:         a.City,
 			State:        a.State,
-			ZipCode:      a.ZipCode,
+			ZipCode:      a.ZipCode.Value(),
 			Country:      a.Country,
+			AddressType:  a.AddressType.Value(),
 		}
 	}
 	return UserCustomResult{
-		ID:                *u.GetID(),
-		Name:              u.Name,
-		Email:             u.Email,
-		Phone:             u.Phone,
-		Document:          u.Document,
-		UserName:          u.UserName,
-		EmailNotification: u.EmailNotification,
-		SmsNotification:   u.SmsNotification,
-		Addresses:         out,
+		ID:                    *u.GetID(),
+		Name:                  u.Name.Value(),
+		Email:                 u.Email.Value(),
+		Phone:                 (*string)(u.Phone),
+		Document:              u.Document.Value(),
+		Ethnicity:             u.Ethnicity.Value(),
+		UserName:              u.UserName.Value(),
+		UserProfile:           u.UserProfile.Value(),
+		EmailNotification:     u.EmailNotification,
+		SmsNotification:       u.SmsNotification,
+		NotificationEmail:     (*string)(u.NotificationEmail),
+		NotificationFrequency: (*int)(u.NotificationFrequency),
+		Addresses:             out,
 	}
 }

@@ -440,6 +440,16 @@ if [ -n "$CREATED_USER_ID" ]; then
     show_case "PATCH /users/:id/archive with bob (super admin *:*) → 204 (Layer-2 bypass)" \
       PATCH "/users/$STRANGER_ID/archive" "$TOK_BOB" "" 204
 
+    # Clause-scoping pin: the Layer-2 owner-check lives in the domain's IfArchive
+    # clause ONLY — there is no IfUnarchive owner-check (kept on Archive alone by
+    # design). So alice, who is NOT the owner and NOT an admin, can UNARCHIVE the
+    # stranger bob just archived: Layer-1 (users:archive) passes and no Layer-2
+    # rule fires for the unarchive verb. This proves the archive check does not
+    # bleed onto the symmetric verb — the whole point of giving each transition
+    # its own DSL clause. (Leaves the stranger active; no later op touches it.)
+    show_case "PATCH /users/:id/unarchive with alice (NOT owner) → 204 (no IfUnarchive owner-check)" \
+      PATCH "/users/$STRANGER_ID/unarchive" "$TOK_ALICE" "" 204
+
     # No DELETE on $STRANGER_ID after archive — the framework's FindByID filters
     # archived records, so DELETE would return 404 (RecordNotFound). Section 7
     # covers super-admin DELETE on an active (unarchived) user via the primary

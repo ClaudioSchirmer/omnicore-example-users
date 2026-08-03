@@ -26,15 +26,19 @@ import (
 // at the moment the handler succeeded: root fields populated, address children
 // expanded as AddressCustomResponse.
 type UserCustomResponse struct {
-	ID                domain.ID               `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name              string                  `json:"name"                        example:"Alice Pereira"`
-	Email             string                  `json:"email"                       example:"alice@example.com"`
-	Phone             *string                 `json:"phone,omitempty"             example:"14155552671"`
-	Document          string                  `json:"document"                    example:"12345678901"`
-	UserName          string                  `json:"userName"                    example:"alice"`
-	EmailNotification *bool                   `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                   `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []AddressCustomResponse `json:"addresses"`
+	ID                    domain.ID               `json:"id"                              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name                  string                  `json:"name"                            example:"Alice Pereira"`
+	Email                 string                  `json:"email"                           example:"alice@example.com"`
+	Phone                 *string                 `json:"phone,omitempty"                 example:"14155552671"`
+	Document              string                  `json:"document"                        example:"12345678901"`
+	Ethnicity             string                  `json:"ethnicity"                       example:"white"`
+	UserName              string                  `json:"userName"                        example:"alice"`
+	UserProfile           int                     `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool                   `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                   `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string                 `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                    `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []AddressCustomResponse `json:"addresses"`
 }
 
 // AddressCustomResponse is the wire shape of one Address row inside UserCustomResponse.
@@ -51,6 +55,7 @@ type AddressCustomResponse struct {
 	State        string  `json:"state"                example:"CA"`
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
+	AddressType  string  `json:"addressType"          example:"residential"`
 }
 
 // FromResult is the application Result → wire Response mapper. Pure
@@ -75,17 +80,22 @@ func FromResult(r commands.UserCustomResult) UserCustomResponse {
 			State:        a.State,
 			ZipCode:      a.ZipCode,
 			Country:      a.Country,
+			AddressType:  a.AddressType,
 		}
 	}
 	return UserCustomResponse{
-		ID:                r.ID,
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		Document:          r.Document,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         addrs,
+		ID:                    r.ID,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Document:              r.Document,
+		Ethnicity:             r.Ethnicity,
+		UserName:              r.UserName,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             addrs,
 	}
 }

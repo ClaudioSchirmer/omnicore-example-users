@@ -8,6 +8,8 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // loadedUserWithAddress returns a User in CONSTRUCTOR state (mirrors the
@@ -19,11 +21,11 @@ func loadedUserWithAddress(addressID string) *appdomain.User {
 	u := &appdomain.User{
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
-		Phone: &phone,
+		Phone: (*vos.Phone)(&phone),
 	}
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		domain.WithID(appdomain.Address{
+		domain.WithID(aggregatevos.Address{
 			Street:       "1 Audit Way",
 			Number:       "1",
 			Neighborhood: "Downtown",
@@ -57,7 +59,7 @@ func TestChangeAddressCommand_ApplyTo_MutatesMatchingChild(t *testing.T) {
 	cmd.ApplyTo(nil, u)
 
 	// Status of the slot must flip to CHANGED.
-	changed := domain.GetChangedItemsOf[appdomain.Address](&u.AggregateRoot)
+	changed := domain.GetChangedItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(changed) != 1 {
 		t.Fatalf("expected 1 CHANGED address, got %d", len(changed))
 	}
@@ -87,7 +89,7 @@ func TestChangeAddressCommand_ApplyTo_UnknownAddressIDEmitsNotFound(t *testing.T
 	cmd.ApplyTo(nil, u)
 
 	// No CHANGED status was flipped — the original slot stays untouched.
-	if len(domain.GetChangedItemsOf[appdomain.Address](&u.AggregateRoot)) != 0 {
+	if len(domain.GetChangedItemsOf[aggregatevos.Address](&u.AggregateRoot)) != 0 {
 		t.Errorf("expected zero CHANGED addresses on miss")
 	}
 

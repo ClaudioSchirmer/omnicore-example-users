@@ -65,6 +65,11 @@ message User {
   // ToCriteria Restrict) — also the read_mask/sort path the authz suites
   // probe. optional: absent and empty are distinct.
   optional string phone = 6;
+  // Value-object fields: the enum VOs surface as their underlying scalar
+  // (string/int) on the wire, populated from the projected document through the
+  // pb↔DTO bridge (the DTO carries vos.Ethnicity / vos.UserProfile).
+  string ethnicity = 7;
+  int32 user_profile = 8;
 }
 
 message ListUsersResponse {
@@ -83,6 +88,8 @@ message GetUserResponse {
   string email = 3;
   string document = 4;
   string user_name = 5;
+  string ethnicity = 6;
+  int32 user_profile = 7;
 }
 
 message ArchiveUserRequest {
