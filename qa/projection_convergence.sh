@@ -189,7 +189,7 @@ title "0.1 CDC warm-up — a sentinel user round-trips before any deadline count
 # pod — this suite's own §6.3 in a previous run — delays the first delivery by
 # the session timeout); 150s absorbs it, and only after this do the per-step
 # deadlines start counting.
-req POST /users "{\"name\":\"Warmup\",\"email\":\"warmup.pc@example.com\",\"document\":\"$DP4\",\"userName\":\"pcwarm\"}"
+req POST /users "{\"name\":\"Warmup\",\"email\":\"warmup.pc@example.com\",\"document\":\"$DP4\",\"userName\":\"pcwarm\",\"ethnicity\":\"white\",\"userProfile\":1}"
 WID=$(jsonq "d['data']['id']")
 wdeadline=$(( $(date +%s) + 150 )); hot=fail
 while [ "$(date +%s)" -lt "$wdeadline" ]; do
@@ -204,7 +204,7 @@ req DELETE "/users/$WID"
 sec "1. Registry mirrors the SoR — the push side of the fan-out handshake"
 ##############################################################################
 title "1.1 POST /users mints the identity; the registry record converges to persons.revision"
-req POST /users "{\"name\":\"Reg One\",\"email\":\"reg1.pc@example.com\",\"document\":\"$DP1\",\"userName\":\"regone\"}"
+req POST /users "{\"name\":\"Reg One\",\"email\":\"reg1.pc@example.com\",\"document\":\"$DP1\",\"userName\":\"regone\",\"ethnicity\":\"white\",\"userProfile\":1}"
 expect_status "POST /users" 201
 UID1=$(jsonq "d['data']['id']")
 wait_view "/users?document=$DP1" "len(d['data']) == 1" && ok "users doc materialized" || bad "users doc never materialized"
@@ -225,7 +225,7 @@ wait_ge "$REV2" registry_base_rev "$BID1" && ok "registry caught up to $REV2" ||
 sec "2. EVERY identity-touching verb advances the identity revision (SQL-deterministic)"
 ##############################################################################
 title "2.1 Second role (employee) on the same identity"
-req POST /employees "{\"name\":\"Reg One Renamed\",\"email\":\"reg1.pc@example.com\",\"document\":\"$DP1\",\"employeeNumber\":\"EMP-PC-1\"}"
+req POST /employees "{\"name\":\"Reg One Renamed\",\"email\":\"reg1.pc@example.com\",\"document\":\"$DP1\",\"employeeNumber\":\"EMP-PC-1\",\"ethnicity\":\"white\"}"
 expect_status "POST /employees (same document)" 201
 EID1=$(jsonq "d['data']['id']")
 wait_view "/employees?document=$DP1" "len(d['data']) == 1" && ok "employees doc materialized" || bad "employees doc never materialized"
@@ -295,7 +295,7 @@ title "4.2 REBIRTH: re-create the SAME natural key after the purge — the old t
 # person, re-register the same CPF): the deterministic id returns with its
 # revision restarted at 1 while doc:users tombstones from 4.1 still sit in the
 # registry — only the created_at scope lets the new life materialize.
-req POST /users "{\"name\":\"Reg One Reborn\",\"email\":\"reg1.reborn.pc@example.com\",\"document\":\"$DP1\",\"userName\":\"regreborn\"}"
+req POST /users "{\"name\":\"Reg One Reborn\",\"email\":\"reg1.reborn.pc@example.com\",\"document\":\"$DP1\",\"userName\":\"regreborn\",\"ethnicity\":\"white\",\"userProfile\":1}"
 expect_status "POST /users (same document, reborn identity)" 201
 UID1B=$(jsonq "d['data']['id']")
 [ "$UID1B" = "$UID1" ] && ok "deterministic id returned (same UUIDv5 as the dead life)" || bad "reborn id differs: $UID1B vs $UID1"
@@ -314,10 +314,10 @@ expect_status "cleanup: delete the reborn user" 204
 sec "5. Same-identity burst under syncWorkers=4 — convergence to the SoR"
 ##############################################################################
 title "5.1 Mint the identity with both roles"
-req POST /users "{\"name\":\"Burst P3\",\"email\":\"burst.pc@example.com\",\"document\":\"$DP2\",\"userName\":\"burst\"}"
+req POST /users "{\"name\":\"Burst P3\",\"email\":\"burst.pc@example.com\",\"document\":\"$DP2\",\"userName\":\"burst\",\"ethnicity\":\"white\",\"userProfile\":1}"
 expect_status "POST /users" 201
 UID2=$(jsonq "d['data']['id']")
-req POST /employees "{\"name\":\"Burst P3\",\"email\":\"burst.pc@example.com\",\"document\":\"$DP2\",\"employeeNumber\":\"EMP-PC-2\"}"
+req POST /employees "{\"name\":\"Burst P3\",\"email\":\"burst.pc@example.com\",\"document\":\"$DP2\",\"employeeNumber\":\"EMP-PC-2\",\"ethnicity\":\"white\"}"
 expect_status "POST /employees" 201
 EID2=$(jsonq "d['data']['id']")
 BID2=$(sql_person_id "$DP2")
@@ -409,12 +409,12 @@ title "7.1 5 rounds of INSERT-vs-fan-out races"
 ROUNDS_OK=0
 for r in 1 2 3 4 5; do
   DOC="9309000010$r"
-  req POST /users "{\"name\":\"Race R$r\",\"email\":\"race$r.pc@example.com\",\"document\":\"$DOC\",\"userName\":\"race$r\"}"
+  req POST /users "{\"name\":\"Race R$r\",\"email\":\"race$r.pc@example.com\",\"document\":\"$DOC\",\"userName\":\"race$r\",\"ethnicity\":\"white\",\"userProfile\":1}"
   RUID=$(jsonq "d['data']['id']")
   [ "$STATUS" = "201" ] || { bad "round $r: user POST failed ($STATUS) — $RESP"; continue; }
   # The race: employee INSERT and user base-write fired in parallel.
   curl -sS -o /dev/null -X POST "$BASE/employees" -H "Content-Type: application/json" \
-    --data "{\"name\":\"Race R$r\",\"email\":\"race$r.pc@example.com\",\"document\":\"$DOC\",\"employeeNumber\":\"EMP-PC-R$r\"}" &
+    --data "{\"name\":\"Race R$r\",\"email\":\"race$r.pc@example.com\",\"document\":\"$DOC\",\"employeeNumber\":\"EMP-PC-R$r\",\"ethnicity\":\"white\"}" &
   P1=$!
   curl -sS -o /dev/null -X PATCH "$BASE/users/$RUID" -H "Content-Type: application/json" \
     --data "{\"name\":\"Race R$r Final\"}" &

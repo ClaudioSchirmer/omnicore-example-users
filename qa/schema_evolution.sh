@@ -286,7 +286,7 @@ post_user() {
   curl -sS -X POST "$BASE/users" \
     -H "Content-Type: application/json" \
     -H "Accept-Language: en-US" \
-    --data "{\"name\":\"$name\",\"email\":\"$email\",\"phone\":\"14155552671\",\"document\":\"$document\",\"userName\":\"$document\",\"addresses\":[]}" \
+    --data "{\"name\":\"$name\",\"email\":\"$email\",\"phone\":\"14155552671\",\"document\":\"$document\",\"userName\":\"$document\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}" \
     -o /dev/null -w "%{http_code}"
 }
 
@@ -446,7 +446,7 @@ start_server || exit 1
 # consumed; when its delete propagates, the tail is quiet), then the ghosts the
 # late backlog let through are swept out of Mongo.
 title "Ground the relay backlog (sentinel drain) before counting anything"
-sentinel_body='{"name":"Drain Sentinel","email":"drain.scm@example.test","phone":"14155552671","document":"10000000999","userName":"10000000999","addresses":[]}'
+sentinel_body='{"name":"Drain Sentinel","email":"drain.scm@example.test","phone":"14155552671","document":"10000000999","userName":"10000000999","ethnicity":"white","userProfile":1,"addresses":[]}'
 curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
   --data "$sentinel_body" -o "/tmp/qa-scm-sentinel-${BACKEND}.json" 2>/dev/null
 sentinel_id=$(jq -r '.data.id // .id // empty' "/tmp/qa-scm-sentinel-${BACKEND}.json")

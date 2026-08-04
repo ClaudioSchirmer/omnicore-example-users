@@ -161,7 +161,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" 
 [ "$healthy" = ok ] && ok "server ready" || { bad "server not ready"; tail -n 30 "$SERVER_LOG"; exit 1; }
 
 title "0.2 CDC warm-up — a sentinel round-trips before any deadline counts"
-req POST /users "{\"name\":\"Resilience Warmup\",\"email\":\"warm.pr@example.com\",\"document\":\"$DP3\",\"userName\":\"prwarm\"}"
+req POST /users "{\"name\":\"Resilience Warmup\",\"email\":\"warm.pr@example.com\",\"document\":\"$DP3\",\"userName\":\"prwarm\",\"ethnicity\":\"white\",\"userProfile\":1}"
 WID=$(jsonq "d['data']['id']")
 wdeadline=$(( $(date +%s) + 150 )); hot=fail
 while [ "$(date +%s)" -lt "$wdeadline" ]; do
@@ -176,7 +176,7 @@ req DELETE "/users/$WID"
 sec "1. Failover durability — primary step-down"
 ##############################################################################
 title "1.1 A majority-acked projection exists BEFORE the step-down"
-req POST /users "{\"name\":\"Before Failover\",\"email\":\"before.pr@example.com\",\"document\":\"$DP1\",\"userName\":\"prbefore\"}"
+req POST /users "{\"name\":\"Before Failover\",\"email\":\"before.pr@example.com\",\"document\":\"$DP1\",\"userName\":\"prbefore\",\"ethnicity\":\"white\",\"userProfile\":1}"
 expect_status "POST /users (user A)" 201
 UA=$(jsonq "d['data']['id']")
 wait_status "/users/$UA" 200 "$QA_CDC_DEADLINE" && ok "user A materialized (majority-acked)" || bad "user A never materialized"
@@ -185,7 +185,7 @@ title "1.2 Step the primary down (15s freeze) and write user B during the disrup
 PRIMARY=$(mongo_primary_node)
 docker exec "$PRIMARY" mongosh admin --quiet --eval 'try { rs.stepDown(15) } catch (e) { }' >/dev/null 2>&1 || true
 ok "step-down issued on $PRIMARY"
-req POST /users "{\"name\":\"During Failover\",\"email\":\"during.pr@example.com\",\"document\":\"$DP2\",\"userName\":\"prduring\"}"
+req POST /users "{\"name\":\"During Failover\",\"email\":\"during.pr@example.com\",\"document\":\"$DP2\",\"userName\":\"prduring\",\"ethnicity\":\"white\",\"userProfile\":1}"
 expect_status "POST /users (user B, during election — the SoR write is unaffected)" 201
 UB=$(jsonq "d['data']['id']")
 

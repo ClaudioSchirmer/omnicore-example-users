@@ -100,7 +100,7 @@ title "1.1 POST /users (marks a fresh trace) + capture the audit line's traceId"
 LINES_BEFORE=$(wc -l < "$SERVER_LOG" | tr -d ' ')
 HTTP=$(curl -sS -o /dev/null -w "%{http_code}" -X POST "$BASE/users" \
   -H "Content-Type: application/json" \
-  --data "{\"name\":\"Trace Probe\",\"email\":\"trace.$TRACE_DOC@example.com\",\"phone\":\"14155552671\",\"document\":\"$TRACE_DOC\",\"userName\":\"trace$TRACE_DOC\"}")
+  --data "{\"name\":\"Trace Probe\",\"email\":\"trace.$TRACE_DOC@example.com\",\"phone\":\"14155552671\",\"document\":\"$TRACE_DOC\",\"userName\":\"trace$TRACE_DOC\",\"ethnicity\":\"white\",\"userProfile\":1}")
 [ "$HTTP" = "201" ] && ok "write accepted (201)" || bad "write status $HTTP"
 
 # Grab the traceId off the first audit line emitted after our request.

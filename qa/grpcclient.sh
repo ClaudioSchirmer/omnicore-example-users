@@ -62,7 +62,7 @@ sec "1. Seed a user over the gRPC surface"
 title "1.1 CreateUser (:9090)"
 BODY=$(curl -sS -X POST -H "Content-Type: application/json" \
   "$GRPC_BASE/users.v1.UsersService/CreateUser" \
-  -d '{"name":"GrpcClient Bob","email":"grpcc.bob@example.com","document":"99092000001","userName":"grpcqa_bob"}')
+  -d '{"name":"GrpcClient Bob","email":"grpcc.bob@example.com","document":"99092000001","userName":"grpcqa_bob","ethnicity":"white","userProfile":1}')
 USER_ID=$(echo "$BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 if [ -n "$USER_ID" ]; then ok "user created ($USER_ID)"; else bad "create failed"; echo "$BODY" | head -c 300; exit 1; fi
 
