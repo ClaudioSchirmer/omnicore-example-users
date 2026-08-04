@@ -244,7 +244,7 @@ R2=$(sql_person_rev "$DP1")
 if [ "$R2" -gt "$R1" ] 2>/dev/null; then ok "unarchive advanced the identity revision ($R1 → $R2)"; else bad "unarchive did not advance ($R1 → $R2)"; fi
 
 title "2.4 A role-only PATCH (userName — no shared field) still advances"
-req PATCH "/users/$UID1" '{"userName":"regone2"}'
+req PATCH "/users/$UID1" '{"userName":"regone2","ethnicity":"white","userProfile":1}'
 expect_status "PATCH /users (role-only field)" 200
 R3=$(sql_person_rev "$DP1")
 if [ "$R3" -gt "$R2" ] 2>/dev/null; then ok "role-only update advanced the identity revision ($R2 → $R3)"; else bad "role-only update did not advance ($R2 → $R3)"; fi

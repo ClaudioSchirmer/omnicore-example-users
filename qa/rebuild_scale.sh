@@ -350,7 +350,7 @@ assert_eq "POST /users → 201" "201" "$(post_user "$BOOT_BASE" crud1)"
 # not wait on the eventually-consistent read side (slow on Oracle LogMiner).
 uid=$(qa_db_query "SELECT $QA_SQL_TOP1 $(qa_uuid_select id) FROM users $QA_SQL_LIMIT1" | tr -d '[:space:]')
 if [ -n "$uid" ]; then
-  assert_eq "PATCH /users/:id (edit userName) → 200" "200" "$(curl -sS -X PATCH "$BOOT_BASE/users/$uid" -H 'Content-Type: application/json' --data '{"userName":"crud1-edited"}' -o /dev/null -w '%{http_code}')"
+  assert_eq "PATCH /users/:id (edit userName) → 200" "200" "$(curl -sS -X PATCH "$BOOT_BASE/users/$uid" -H 'Content-Type: application/json' --data '{"userName":"crud1-edited","ethnicity":"white","userProfile":1}' -o /dev/null -w '%{http_code}')"
 else
   FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m no user id in the DB to PATCH\n'
 fi

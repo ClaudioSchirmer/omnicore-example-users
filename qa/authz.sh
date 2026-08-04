@@ -292,7 +292,7 @@ capture_post() {
   "email": "${email}",
   "phone": "14155551234",
   "document": "${document}",
-  "userName": "${document}"
+  "userName": "${document}","ethnicity":"white","userProfile":1
 }
 JSON
   )
@@ -572,7 +572,7 @@ if capture_post "$TOK_BOB" "bob-target@authz.test" "10000000303"; then
 
   show_case "PUT /users/:id with bob (super-admin) → 200" \
     PUT "/users/$BOB_TARGET_ID" "$TOK_BOB" \
-    '{"name":"bob-renamed","email":"bob-target@authz.test","phone":"14155559999","document":"10000000303","userName":"bobrenamed","emailNotification":true,"smsNotification":false,"addresses":[]}' \
+    '{"name":"bob-renamed","email":"bob-target@authz.test","phone":"14155559999","document":"10000000303","userName":"bobrenamed","ethnicity":"white","userProfile":1,"emailNotification":true,"smsNotification":false,"addresses":[]}' \
     200
 
   show_case "PATCH /users/:id with bob → 200" \
