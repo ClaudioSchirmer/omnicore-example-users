@@ -7,7 +7,6 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 
-	qadomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/qafixtures"
 	infraqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/infra/qafixtures"
 	webqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/web/qafixtures"
 
@@ -22,8 +21,7 @@ import (
 // serves. Present only in the `qa` build.
 type ProductFeature struct {
 	repo    *infraqa.ProductRepository
-	stats   *infraqa.ProductStatsAdapter
-	service *qadomain.ProductService
+	service *infraqa.ProductServiceImpl
 }
 
 // NewProductFeature provisions the qa_products table in the constructor for
@@ -34,15 +32,16 @@ func NewProductFeature(d bootstrap.Deps) *ProductFeature {
 		panic("ProductFeature: provisioning qa_products failed: " + err.Error())
 	}
 	repo := infraqa.NewProductRepository(d.DB)
-	stats := infraqa.NewProductStatsAdapter(repo)
 	return &ProductFeature{
 		repo:    repo,
-		stats:   stats,
-		service: &qadomain.ProductService{Stats: stats},
+		service: infraqa.NewProductService(repo),
 	}
 }
 
-// Mount registers the routes with the service + stats reader wired in.
+// Mount registers the routes. ProductServiceImpl is BOTH the domain.Service the
+// insert rule requires (ProductService) and the /stats read port — the Auto
+// handler scopes it to the request ctx via persistence.ScopeService, so
+// ActiveCategoryFacts runs under the request deadline/trace.
 func (f *ProductFeature) Mount(app *fiber.App, d bootstrap.Deps) {
-	webqa.MountProducts(app, f.repo, f.service, f.stats, d)
+	webqa.MountProducts(app, f.repo, f.service, f.service, d)
 }
