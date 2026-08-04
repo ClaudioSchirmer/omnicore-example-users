@@ -81,7 +81,7 @@ grep -q "grpc listening" "$SERVER_LOG" && ok "grpc listener up (:9090)" || { bad
 sec "1. CreateUser — happy path"
 ##############################################################################
 title "1.1 CreateUser → 200 with assigned id"
-rpc CreateUser '{"name":"Grpc Alice","email":"grpc.alice@example.com","document":"99091000001","userName":"grpcqa_alice","phone":"14155550001"}'
+rpc CreateUser '{"name":"Grpc Alice","email":"grpc.alice@example.com","document":"99091000001","userName":"grpcqa_alice","phone":"14155550001","ethnicity":"white","userProfile":1}'
 echo "status=$RPC_STATUS body=${RPC_BODY:0:160}"
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"id":"' && echo "$RPC_BODY" | grep -q '"userName":"grpcqa_alice"'; then
   ok "CreateUser 200 + id + userName"
@@ -94,7 +94,7 @@ USER_ID=$(echo "$RPC_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 sec "2. Validation → invalid_argument with the notification envelope"
 ##############################################################################
 title "2.1 CreateUser with empty name → invalid_argument + RequiredFieldNotification"
-rpc CreateUser '{"name":"","email":"grpc.bad@example.com","document":"99091000002","userName":"grpcqa_bad"}'
+rpc CreateUser '{"name":"","email":"grpc.bad@example.com","document":"99091000002","userName":"grpcqa_bad","ethnicity":"white","userProfile":1}'
 echo "status=$RPC_STATUS body=${RPC_BODY:0:200}"
 if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q '"code":"invalid_argument"' \
    && echo "$RPC_BODY" | grep -q 'RequiredFieldNotification'; then
@@ -114,7 +114,7 @@ fi
 sec "3. Duplicate active user → already_exists (SemanticConflict)"
 ##############################################################################
 title "3.1 Re-CreateUser same document → already_exists"
-rpc CreateUser '{"name":"Grpc Alice","email":"grpc.alice@example.com","document":"99091000001","userName":"grpcqa_alice"}'
+rpc CreateUser '{"name":"Grpc Alice","email":"grpc.alice@example.com","document":"99091000001","userName":"grpcqa_alice","ethnicity":"white","userProfile":1}'
 echo "status=$RPC_STATUS body=${RPC_BODY:0:200}"
 if [ "$RPC_STATUS" = "409" ] && echo "$RPC_BODY" | grep -q '"code":"already_exists"' \
    && echo "$RPC_BODY" | grep -q 'EntityAlreadyAddedNotification'; then
@@ -237,12 +237,12 @@ fi
 sec "6b. UpdateUser — CommandWithBodyID (the PUT sibling)"
 ##############################################################################
 title "6b.1 seed a fresh user"
-rpc CreateUser '{"name":"Grpc Carol","email":"grpc.carol@example.com","document":"99091000003","userName":"grpcqa_carol"}'
+rpc CreateUser '{"name":"Grpc Carol","email":"grpc.carol@example.com","document":"99091000003","userName":"grpcqa_carol","ethnicity":"white","userProfile":1}'
 CAROL_ID=$(echo "$RPC_BODY" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 [ -n "$CAROL_ID" ] && ok "carol created" || { bad "carol create"; echo "$RPC_BODY" | head -c 300; }
 
 title "6b.2 UpdateUser full body → 200 with the new values"
-rpc UpdateUser "{\"id\":\"$CAROL_ID\",\"name\":\"Carol Renamed\",\"email\":\"carol.renamed@example.com\",\"userName\":\"grpcqa_carol\",\"addresses\":[]}"
+rpc UpdateUser "{\"id\":\"$CAROL_ID\",\"name\":\"Carol Renamed\",\"email\":\"carol.renamed@example.com\",\"userName\":\"grpcqa_carol\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}"
 echo "status=$RPC_STATUS body=${RPC_BODY:0:160}"
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"name":"Carol Renamed"'; then
   ok "update applied"
@@ -260,7 +260,7 @@ else
 fi
 
 title "6b.4 UpdateUser unknown id → not_found"
-rpc UpdateUser '{"id":"00000000-0000-0000-0000-000000000000","name":"X","email":"x@example.com","userName":"ghost","addresses":[]}'
+rpc UpdateUser '{"id":"00000000-0000-0000-0000-000000000000","name":"X","email":"x@example.com","userName":"ghost","ethnicity":"white","userProfile":1,"addresses":[]}'
 if [ "$RPC_STATUS" = "404" ] && echo "$RPC_BODY" | grep -q '"code":"not_found"'; then
   ok "unknown id → not_found"
 else
@@ -271,7 +271,7 @@ fi
 sec "6c. Pagination + filter vocabulary over the shared components"
 ##############################################################################
 title "6c.1 seed dave (poll list until both project)"
-rpc CreateUser '{"name":"Grpc Dave","email":"grpc.dave@example.com","document":"99091000004","userName":"grpcqa_dave"}'
+rpc CreateUser '{"name":"Grpc Dave","email":"grpc.dave@example.com","document":"99091000004","userName":"grpcqa_dave","ethnicity":"white","userProfile":1}'
 deadline=$(( $(date +%s) + 15 )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"page":{"onlyTotal":true}}'
