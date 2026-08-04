@@ -2388,13 +2388,28 @@ proj_has "29.6 ?fields=ethnicity projects it"   "fields=ethnicity"
 proj_has "29.6 ?fields=userProfile projects it" "fields=userProfile"
 proj_has "29.6 ?fields=notificationFrequency projects it (user w/ value)" "userName=vonf2&fields=notificationFrequency"
 
+# wait_for_vo — poll the CDC-fed view until a VO field CONVERGES to the wanted
+# value (not just until the doc exists). The slower relays (SQL Server Debezium
+# Connect, Oracle LogMiner) take longer than a fixed sleep to propagate an
+# UPDATE; the payload-complete outbox guarantees the value lands, only later.
+wait_for_vo() { # wait_for_vo <id> <pyexpr> <want> [timeout]
+  local id="$1" expr="$2" want="$3" timeout="${4:-25}"
+  local deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    [ "$(vo_field "$id" "$expr")" = "$want" ] && return 0
+    sleep 0.3
+  done
+  return 1
+}
+
 # ── 29.7 PUT replaces VO fields (update round-trip) ─────────────────────────
 VDOC=$((VDOC+1)); uvid=$(vo_create "$VDOC" "voupd" white 1 residential null null)
 [ -n "$uvid" ] && wait_for_view "$uvid" 200 8 >/dev/null 2>&1
 curl -sS -o /dev/null -X PUT "$BASE/users/$uvid" -H "Content-Type: application/json" -H "Accept-Language: en-US" \
   --data '{"name":"VO Upd","email":"vo.voupd@example.com","phone":"14155550000","userName":"voupd","ethnicity":"asian","userProfile":3,"notificationEmail":null,"notificationFrequency":null,"emailNotification":null,"smsNotification":null,"addresses":[{"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"90001","country":"US","addressType":"commercial"}]}'
-wait_for_view "$uvid" 200 8 >/dev/null 2>&1
-sleep 1
+# Poll until the UPDATE converges (ethnicity flips) — its sibling VO fields ride
+# the same projection write, so they are present once it lands.
+wait_for_vo "$uvid" "d['ethnicity']" asian 25 >/dev/null 2>&1
 vo_pf "29.7 PUT replaced ethnicity → asian" "$(vo_field "$uvid" "d['ethnicity']")" "asian"
 vo_pf "29.7 PUT replaced userProfile → 3" "$(vo_field "$uvid" "d['userProfile']")" "3"
 vo_pf "29.7 PUT replaced addressType → commercial" "$(vo_field "$uvid" "d['addresses'][0]['addressType']")" "commercial"
