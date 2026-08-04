@@ -29,6 +29,7 @@ type ChangeAddressCustomRequest struct {
 	State        string  `json:"state"                example:"CA"`
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
+	AddressType  string  `json:"addressType"          example:"residential"`
 }
 
 // ToCommand converts the Request DTO into the Command. DocumentKey + AddressID
@@ -49,6 +50,7 @@ func (r ChangeAddressCustomRequest) ToCommand() *commands.ChangeAddressCustomCom
 			State:        r.State,
 			ZipCode:      r.ZipCode,
 			Country:      r.Country,
+			AddressType:  r.AddressType,
 		},
 	}
 }

@@ -13,7 +13,7 @@ type ArchiveUserCommand struct{ pipeline.CommandByIDBase }
 
 // ApplyTo is the hook for ctx → business translation on the archive verb.
 // The framework calls it AFTER FindByID hydrates the aggregate and BEFORE
-// GetArchivable runs BuildRules in ModeUpdate with actionName="GetArchivable".
+// GetArchivable runs BuildRules in ModeArchive (the IfArchive clause reads them).
 //
 // Populates two transient fields on the User so the domain's owner-check can
 // run without reaching back into AppContext (DDD layering — the rule lives in

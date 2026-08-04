@@ -5,6 +5,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // PatchUserCustomCommand is the PATCH-shaped command for the manual showcase
@@ -25,13 +26,17 @@ import (
 // the canonical /users/* split.
 type PatchUserCustomCommand struct {
 	pipeline.CommandBase
-	DocumentKey       string
-	Name              *string
-	Email             *string
-	Phone             *string
-	UserName          *string
-	EmailNotification *bool
-	SmsNotification   *bool
+	DocumentKey           string
+	Name                  *string
+	Email                 *string
+	Phone                 *string
+	Ethnicity             *string // enum token (string-backed)
+	UserName              *string
+	UserProfile           *int // enum value (int-backed)
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int // enum value (int-backed)
 }
 
 // ApplyPartiallyTo carries *AppContext alongside the loaded entity — same
@@ -39,22 +44,34 @@ type PatchUserCustomCommand struct {
 // into a `func(T)` closure to feed domain.GetPartialUpdatable.
 func (c *PatchUserCustomCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	if c.Name != nil {
-		u.Name = *c.Name
+		u.Name = vos.Name(*c.Name)
 	}
 	if c.Email != nil {
-		u.Email = *c.Email
+		u.Email = vos.Email(*c.Email)
 	}
 	if c.Phone != nil {
-		u.Phone = c.Phone
+		u.Phone = (*vos.Phone)(c.Phone)
+	}
+	if c.Ethnicity != nil {
+		u.Ethnicity = vos.Ethnicity(*c.Ethnicity)
 	}
 	if c.UserName != nil {
-		u.UserName = *c.UserName
+		u.UserName = vos.Name(*c.UserName)
+	}
+	if c.UserProfile != nil {
+		u.UserProfile = vos.UserProfile(*c.UserProfile)
 	}
 	if c.EmailNotification != nil {
 		u.EmailNotification = c.EmailNotification
 	}
 	if c.SmsNotification != nil {
 		u.SmsNotification = c.SmsNotification
+	}
+	if c.NotificationEmail != nil {
+		u.NotificationEmail = (*vos.Email)(c.NotificationEmail)
+	}
+	if c.NotificationFrequency != nil {
+		u.NotificationFrequency = (*vos.NotificationFrequency)(c.NotificationFrequency)
 	}
 	return nil
 }

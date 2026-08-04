@@ -6,6 +6,8 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // InsertUserCommand.FromEntity is the canonical projection — Result lives as
@@ -16,7 +18,7 @@ import (
 func TestInsertUserCommand_FromEntity(t *testing.T) {
 	id := domain.NewRandomID()
 	phone := "11999"
-	u := &appdomain.User{Name: "Alice", Email: "a@x.com", Phone: &phone}
+	u := &appdomain.User{Name: "Alice", Email: "a@x.com", Phone: (*vos.Phone)(&phone)}
 	u.SetID(id)
 
 	got, _ := InsertUserCommand{}.FromEntity(nil, u)
@@ -48,7 +50,7 @@ func TestInsertUserCommand_FromEntity_NilPhone(t *testing.T) {
 // write-back (post-write, the minted child ID is stamped back into the
 // aggregate map — that is what FromEntity reads).
 func TestInsertUserCommand_FromEntity_MirrorsAddressesWithIDs(t *testing.T) {
-	addr := appdomain.Address{
+	addr := aggregatevos.Address{
 		Street: "Main", Number: "1", Neighborhood: "Downtown",
 		City: "SF", State: "CA", ZipCode: "94103", Country: "US",
 	}

@@ -407,7 +407,7 @@ cdc_warmup() {
   local doc id deadline c t0
   doc="9$(date +%s)"; t0=$(date +%s)
   id=$(curl -sS -X POST "$BASE/users" -H "Content-Type: application/json" \
-    --data "{\"name\":\"QA Warmup Sentinel\",\"email\":\"warmup-$doc@qa.local\",\"phone\":\"14155550100\",\"document\":\"$doc\",\"userName\":\"warmup$doc\",\"emailNotification\":false,\"smsNotification\":false}" \
+    --data "{\"name\":\"QA Warmup Sentinel\",\"email\":\"warmup-$doc@qa.local\",\"phone\":\"14155550100\",\"document\":\"$doc\",\"userName\":\"warmup$doc\",\"ethnicity\":\"white\",\"userProfile\":1,\"emailNotification\":false,\"smsNotification\":false}" \
     | jq -r '.data.id // .data // empty' 2>/dev/null)
   deadline=$(( $(date +%s) + 120 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do

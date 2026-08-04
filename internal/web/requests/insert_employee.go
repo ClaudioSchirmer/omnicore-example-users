@@ -19,6 +19,7 @@ type InsertEmployeeRequest struct {
 	Email          string  `json:"email"           example:"alice@example.com"`
 	Phone          *string `json:"phone,omitempty" example:"14155552671"`
 	Document       string  `json:"document"        example:"12345678901"`
+	Ethnicity      string  `json:"ethnicity"       example:"white"`
 	EmployeeNumber string  `json:"employeeNumber"       example:"EMP-0042"`
 
 	Bank    *string `json:"bank,omitempty"   example:"260"`
@@ -51,6 +52,7 @@ func (r InsertEmployeeRequest) ToCommand() *commands.InsertEmployeeCommand {
 		Email:          r.Email,
 		Phone:          r.Phone,
 		Document:       r.Document,
+		Ethnicity:      r.Ethnicity,
 		EmployeeNumber: r.EmployeeNumber,
 		Bank:           r.Bank,
 		Branch:         r.Branch,
@@ -72,6 +74,7 @@ type InsertEmployeeResponse struct {
 	Email          string    `json:"email"             example:"alice@example.com"`
 	Phone          *string   `json:"phone,omitempty"   example:"14155552671"`
 	Document       string    `json:"document"          example:"12345678901"`
+	Ethnicity      string    `json:"ethnicity"         example:"white"`
 	EmployeeNumber string    `json:"employeeNumber"         example:"EMP-0042"`
 	Bank           *string   `json:"bank,omitempty"   example:"260"`
 	Branch         *string   `json:"branch,omitempty" example:"0001"`
@@ -88,6 +91,7 @@ func (InsertEmployeeResponse) FromResult(r commands.InsertEmployeeResult) Insert
 		Email:          r.Email,
 		Phone:          r.Phone,
 		Document:       r.Document,
+		Ethnicity:      r.Ethnicity,
 		EmployeeNumber: r.EmployeeNumber,
 		Bank:           r.Bank,
 		Branch:         r.Branch,

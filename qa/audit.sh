@@ -295,11 +295,11 @@ VALID=$("$SCRIPTS/mint-token.sh" alice)
 
 INSERT_BODY='{
   "name":"Jane Doe","email":"alice@omnicore.test","phone":"14155552671",
-  "document":"10000000401","userName":"jane","emailNotification":true,"smsNotification":false,
+  "document":"10000000401","userName":"jane","ethnicity":"white","userProfile":1,"notificationEmail":"jane.notify@omnicore.test","notificationFrequency":2,"emailNotification":true,"smsNotification":false,
   "addresses":[{
     "label":"home","street":"1 Audit Way","number":"1",
     "neighborhood":"Downtown","city":"San Francisco","state":"CA",
-    "zipCode":"94103","country":"US"
+    "zipCode":"94103","country":"US","addressType":"residential"
   }]
 }'
 capture_audit POST /users "$INSERT_BODY" "$VALID" 201
@@ -338,6 +338,13 @@ eq(snap.get("Document"), "10000000401",          "snapshot.Document (base natura
 eq(snap.get("UserName"), "jane",                 "snapshot.UserName (role)")
 eq(snap.get("EmailNotification"), True,  "snapshot.EmailNotification (sibling)")
 eq(snap.get("SmsNotification"),   False, "snapshot.SmsNotification (sibling)")
+# Value-object fields must land in the snapshot as their underlying scalar,
+# regardless of which table position they occupy (base enum, role enum,
+# sibling raw + sibling enum) — the write path unwraps the VO to the scalar.
+eq(snap.get("Ethnicity"),             "white",                     "snapshot.Ethnicity (base enum VO → string)")
+eq(snap.get("UserProfile"),           1,                           "snapshot.UserProfile (role enum VO → int)")
+eq(snap.get("NotificationEmail"),     "jane.notify@omnicore.test", "snapshot.NotificationEmail (sibling raw VO → string)")
+eq(snap.get("NotificationFrequency"), 2,                           "snapshot.NotificationFrequency (sibling enum VO → int)")
 expect("changes" not in a, "kind=snapshot must NOT carry changes (got " + repr(a.get("changes")) + ")")
 # base-child: the addresses list — every subfield of every entry, not just street.
 children = a.get("children") or {}
@@ -349,7 +356,7 @@ if addrs:
     s = e.get("snapshot") or {}
     want = {"Label": "home", "Street": "1 Audit Way", "Number": "1",
             "Neighborhood": "Downtown", "City": "San Francisco", "State": "CA",
-            "ZipCode": "94103", "Country": "US"}
+            "ZipCode": "94103", "Country": "US", "AddressType": "residential"}
     for k, v in want.items():
         eq(s.get(k), v, "children.Address[0].snapshot." + k)
     expect(s.get("Complement") is None, "unset Complement must be null/absent, got " + repr(s.get("Complement")))
@@ -400,10 +407,10 @@ sec "3. Full Update — PUT /users/:id (replaces addresses)"
 # dedicated PUT /users/:id/addresses/:addressId endpoint at section 8.
 PUT_BODY='{
   "name":"Jane Doe (patched)","email":"alice@omnicore.test","phone":"14155553333",
-  "userName":"jane","emailNotification":true,"smsNotification":false,
+  "userName":"jane","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":false,
   "addresses":[
-    {"label":"home","street":"2 Updated Ave","number":"2","neighborhood":"SoMa","city":"San Francisco","state":"CA","zipCode":"94110","country":"US"},
-    {"label":"work","street":"3 Office Pl","number":"3","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94104","country":"US"}
+    {"label":"home","street":"2 Updated Ave","number":"2","neighborhood":"SoMa","city":"San Francisco","state":"CA","zipCode":"94110","country":"US","addressType":"residential"},
+    {"label":"work","street":"3 Office Pl","number":"3","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94104","country":"US","addressType":"residential"}
   ]
 }'
 capture_audit PUT "/users/$USER_ID" "$PUT_BODY" "$VALID" 200
@@ -558,10 +565,10 @@ reset_state
 
 INSERT_BODY_8='{
   "name":"Jane Doe","email":"alice@omnicore.test","phone":"14155552671",
-  "document":"10000000401","userName":"jane",
+  "document":"10000000401","userName":"jane","ethnicity":"white","userProfile":1,
   "addresses":[
-    {"label":"home","street":"1 Audit Way","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US"},
-    {"label":"work","street":"2 Office Pl","number":"2","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94104","country":"US"}
+    {"label":"home","street":"1 Audit Way","number":"1","neighborhood":"Downtown","city":"San Francisco","state":"CA","zipCode":"94103","country":"US","addressType":"residential"},
+    {"label":"work","street":"2 Office Pl","number":"2","neighborhood":"FiDi","city":"San Francisco","state":"CA","zipCode":"94104","country":"US","addressType":"commercial"}
   ]
 }'
 capture_audit POST /users "$INSERT_BODY_8" "$VALID" 201
@@ -584,10 +591,10 @@ for e in addrs:
 want = {
     "1 Audit Way": {"Label": "home", "Street": "1 Audit Way", "Number": "1",
                     "Neighborhood": "Downtown", "City": "San Francisco", "State": "CA",
-                    "ZipCode": "94103", "Country": "US"},
+                    "ZipCode": "94103", "Country": "US", "AddressType": "residential"},
     "2 Office Pl": {"Label": "work", "Street": "2 Office Pl", "Number": "2",
                     "Neighborhood": "FiDi", "City": "San Francisco", "State": "CA",
-                    "ZipCode": "94104", "Country": "US"},
+                    "ZipCode": "94104", "Country": "US", "AddressType": "commercial"},
 }
 for street, w in want.items():
     s = by_street.get(street) or {}
@@ -622,7 +629,7 @@ echo "UNTOUCHED_ADDR_ID = $UNTOUCHED_ADDR_ID"
 CHANGE_BODY='{
   "label":"office","street":"100 Market St","number":"100","complement":null,
   "neighborhood":"Downtown","city":"San Francisco","state":"CA",
-  "zipCode":"94105","country":"US"
+  "zipCode":"94105","country":"US","addressType":"residential"
 }'
 capture_audit PUT "/users/$USER_ID/addresses/$TARGET_ADDR_ID" "$CHANGE_BODY" "$VALID" 200
 
@@ -695,7 +702,7 @@ echo "TARGET2_ADDR_ID = $TARGET2_ADDR_ID (same row as TARGET_ADDR_ID after secti
 CHANGE_BODY_CUSTOM='{
   "label":"home","street":"500 Mission St","number":"500","complement":null,
   "neighborhood":"Downtown","city":"San Francisco","state":"CA",
-  "zipCode":"94110","country":"US"
+  "zipCode":"94110","country":"US","addressType":"residential"
 }'
 capture_audit PUT "/showcase/users-custom/10000000401/addresses/$TARGET2_ADDR_ID" \
   "$CHANGE_BODY_CUSTOM" "$VALID" 200
@@ -735,8 +742,8 @@ sec "10. dateTime is RFC3339Nano on every audit line"
 
 reset_state
 capture_audit POST /users '{
-  "name":"Format Probe","email":"fmt@audit.test","phone":"14155550000","document":"10000000402","userName":"fmtprobe",
-  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94100","country":"US"}]
+  "name":"Format Probe","email":"fmt@audit.test","phone":"14155550000","document":"10000000402","userName":"fmtprobe","ethnicity":"white","userProfile":1,
+  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94100","country":"US","addressType":"residential"}]
 }' "$VALID" 201
 FMT_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
 
@@ -757,14 +764,14 @@ sec "11. threadId is unique per request"
 # would break timeline reconstruction.
 
 capture_audit POST /users '{
-  "name":"TID Probe 1","email":"tid1@audit.test","phone":"14155551111","document":"10000000403","userName":"tid1",
-  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94101","country":"US"}]
+  "name":"TID Probe 1","email":"tid1@audit.test","phone":"14155551111","document":"10000000403","userName":"tid1","ethnicity":"white","userProfile":1,
+  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94101","country":"US","addressType":"residential"}]
 }' "$VALID" 201
 TID1=$(printf '%s' "$LAST_AUDIT_JSON" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("threadId",""))')
 
 capture_audit POST /users '{
-  "name":"TID Probe 2","email":"tid2@audit.test","phone":"14155552222","document":"10000000404","userName":"tid2",
-  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94102","country":"US"}]
+  "name":"TID Probe 2","email":"tid2@audit.test","phone":"14155552222","document":"10000000404","userName":"tid2","ethnicity":"white","userProfile":1,
+  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94102","country":"US","addressType":"residential"}]
 }' "$VALID" 201
 TID2=$(printf '%s' "$LAST_AUDIT_JSON" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("threadId",""))')
 
@@ -795,8 +802,8 @@ print(payload.get("sub", ""))
 ' "$BOB_TOKEN")
 
 capture_audit POST /users '{
-  "name":"Bobs Probe","email":"bob-audit@audit.test","phone":"14155553333","document":"10000000405","userName":"bobsprobe",
-  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94103","country":"US"}]
+  "name":"Bobs Probe","email":"bob-audit@audit.test","phone":"14155553333","document":"10000000405","userName":"bobsprobe","ethnicity":"white","userProfile":1,
+  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94103","country":"US","addressType":"residential"}]
 }' "$BOB_TOKEN" 201
 
 assert_audit "12.1 bob writes → audit.actor = bob.sub (not alice)" '
@@ -816,8 +823,8 @@ sec "13. PATCH delta on multiple fields → multiple changes entries"
 # entry per changed column, sorted by field name (per CLAUDE.md audit shape).
 
 capture_audit POST /users '{
-  "name":"Multi Probe","email":"multi@audit.test","phone":"14155554444","document":"10000000406","userName":"multiprobe",
-  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94104","country":"US"}]
+  "name":"Multi Probe","email":"multi@audit.test","phone":"14155554444","document":"10000000406","userName":"multiprobe","ethnicity":"white","userProfile":1,
+  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94104","country":"US","addressType":"residential"}]
 }' "$VALID" 201
 MULTI_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
 
@@ -850,8 +857,8 @@ reset_state
 
 # Custom POST
 capture_audit POST /showcase/users-custom/ '{
-  "name":"Custom Probe","email":"custom@audit.test","phone":"14155556666","document":"10000000407","userName":"customprobe",
-  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94106","country":"US"}]
+  "name":"Custom Probe","email":"custom@audit.test","phone":"14155556666","document":"10000000407","userName":"customprobe","ethnicity":"white","userProfile":1,
+  "addresses":[{"label":null,"street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"94106","country":"US","addressType":"residential"}]
 }' "$VALID" 201
 CUSTOM_USER_ID=$(printf '%s' "$LAST_HTTP_BODY" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data");print(d.get("id","") if isinstance(d, dict) else (d or ""))')
 
@@ -924,7 +931,7 @@ sec "15. Invalid token never reaches the auditor (companion to §7)"
 
 LINES_BEFORE=$(wc -l < "$SERVER_LOG" | tr -d ' ')
 capture_audit POST /users '{
-  "name":"NoAudit","email":"noaudit@x.test","phone":"14155558888","document":"10000000408","userName":"noaudit","addresses":[]
+  "name":"NoAudit","email":"noaudit@x.test","phone":"14155558888","document":"10000000408","userName":"noaudit","ethnicity":"white","userProfile":1,"addresses":[]
 }' "not.a.valid.jwt" 401
 title "15.1 Malformed bearer → 401 + no audit line emitted"
 NEW_AUDIT=$(sed -n "$((LINES_BEFORE+1)),\$p" "$SERVER_LOG" | grep '"msg":"audit"' || true)
@@ -946,7 +953,7 @@ sec "16. Validation rejection (422) also never reaches the auditor"
 LINES_BEFORE=$(wc -l < "$SERVER_LOG" | tr -d ' ')
 # Empty name + missing addresses both trigger 422.
 capture_audit POST /users '{
-  "name":"","email":"422@audit.test","phone":"14155559999","document":"10000000409","userName":"probe422","addresses":[]
+  "name":"","email":"422@audit.test","phone":"14155559999","document":"10000000409","userName":"probe422","ethnicity":"white","userProfile":1,"addresses":[]
 }' "$VALID" 422
 title "16.1 Validation 422 → no audit line emitted (no SQL ran)"
 NEW_AUDIT=$(sed -n "$((LINES_BEFORE+1)),\$p" "$SERVER_LOG" | grep '"msg":"audit"' || true)
@@ -978,10 +985,12 @@ INSERT_BODY_LABEL=$(cat <<'JSON'
   "phone": "14155557777",
   "document": "10000000410",
   "userName": "labeluser",
+  "ethnicity": "white",
+  "userProfile": 1,
   "addresses": [{
     "label": "home", "street": "1 Loop", "number": "1",
     "neighborhood": "Mariani", "city": "Cupertino",
-    "state": "CA", "zipCode": "95014", "country": "US"
+    "state": "CA", "zipCode": "95014", "country": "US", "addressType": "residential"
   }]
 }
 JSON
@@ -1007,6 +1016,25 @@ for c in ch:
            "untagged column " + repr(c.get("field")) + " must omit fieldLabelKey, got " + repr(c.get("fieldLabelKey")))
 '
 
+# 17.1b — Value-object fields carry their OWN catalog keys: a PATCH touching
+# each VO field (base enum, role enum, sibling raw + sibling enum) produces a
+# FieldChange whose fieldLabelKey matches the domain `labelKey:"..."` tag.
+capture_audit PATCH "/users/$LABEL_USER_ID" '{"ethnicity":"black","userProfile":2,"notificationEmail":"new.notify@audit.test","notificationFrequency":3}' "$VALID" 200
+assert_audit "17.1b PATCH value-object fields → each FieldChange.fieldLabelKey matches its labelKey tag" '
+ch = a.get("changes") or []
+want = {
+  "Ethnicity":             "PersonEthnicityField",
+  "UserProfile":           "UserProfileField",
+  "NotificationEmail":     "UserNotificationEmailField",
+  "NotificationFrequency": "UserNotificationFrequencyField",
+}
+for field, key in want.items():
+  hits = [c for c in ch if c.get("field") == field]
+  eq(len(hits), 1, field + " change count")
+  if hits:
+    eq(hits[0].get("fieldLabelKey"), key, field + " fieldLabelKey")
+'
+
 # 17.2 — Child cascade: a PUT against the address subresource produces a
 # child-level FieldChange (op=updated, kind=delta on the child) whose
 # fieldLabelKey is "AddressZipCodeField" — proving the resolver descends
@@ -1021,20 +1049,22 @@ CHANGE_BODY_LABEL=$(cat <<'JSON'
   "label": "home", "street": "1 Loop", "number": "1",
   "complement": null,
   "neighborhood": "Mariani", "city": "Cupertino",
-  "state": "CA", "zipCode": "94025", "country": "US"
+  "state": "CA", "zipCode": "94025", "country": "US", "addressType": "commercial"
 }
 JSON
 )
 capture_audit PUT "/users/$LABEL_USER_ID/addresses/$LABEL_ADDR_ID" "$CHANGE_BODY_LABEL" "$VALID" 200
-assert_audit "17.2 PUT zipCode → children.Address[0].changes[].fieldLabelKey=AddressZipCodeField" '
+assert_audit "17.2 PUT zipCode+addressType → child changes carry AddressZipCodeField + AddressTypeField" '
 addrs = (a.get("children") or {}).get("Address") or []
 eq(len(addrs), 1, "children.Address length")
 if addrs:
   ch = addrs[0].get("changes") or []
-  hits = [c for c in ch if c.get("field") == "ZipCode"]
-  eq(len(hits), 1, "zip_code change count")
-  if hits:
-    eq(hits[0].get("fieldLabelKey"), "AddressZipCodeField", "zip_code fieldLabelKey")
+  want = {"ZipCode": "AddressZipCodeField", "AddressType": "AddressTypeField"}
+  for field, key in want.items():
+    hits = [c for c in ch if c.get("field") == field]
+    eq(len(hits), 1, field + " change count")
+    if hits:
+      eq(hits[0].get("fieldLabelKey"), key, field + " fieldLabelKey")
 '
 
 ##############################################################################
@@ -1114,6 +1144,25 @@ expect(len(zip_hits) >= 1, "expected at least one Address.ZipCode change")
 if zip_hits:
     eq(zip_hits[0].get("fieldLabel"), "ZIP Code", "ZipCode fieldLabel (EN)")
     expect("fieldLabelKey" not in zip_hits[0], "child raw fieldLabelKey must be stripped on read")
+# Value-object fields render their NEW catalog labels on read (EN) — proving
+# the labelKey tags resolve through the seven catalogs, not just the raw key.
+vo_en = {
+    "Ethnicity":             "Ethnicity",
+    "UserProfile":           "Profile",
+    "NotificationEmail":     "Notification email",
+    "NotificationFrequency": "Notification frequency",
+}
+for field, lbl in vo_en.items():
+    hits = [c for c in root_changes() if c.get("field") == field]
+    expect(len(hits) >= 1, "expected a " + field + " change in the timeline")
+    if hits:
+        eq(hits[0].get("fieldLabel"), lbl, field + " fieldLabel (EN)")
+        expect("fieldLabelKey" not in hits[0], field + " raw key must be stripped on read")
+at_hits = [c for c in child_changes("Address") if c.get("field") == "AddressType"]
+expect(len(at_hits) >= 1, "expected an Address.AddressType change")
+if at_hits:
+    eq(at_hits[0].get("fieldLabel"), "Address type", "AddressType fieldLabel (EN)")
+    expect("fieldLabelKey" not in at_hits[0], "child raw fieldLabelKey must be stripped on read")
 '
 
 # PT-BR: the SAME keys render the Portuguese catalog strings — proving the
@@ -1125,6 +1174,13 @@ if name_hits:
 zip_hits = [c for c in child_changes("Address") if c.get("field") == "ZipCode"]
 if zip_hits:
     eq(zip_hits[0].get("fieldLabel"), "CEP", "ZipCode fieldLabel (PT-BR)")
+# The SAME VO keys render the Portuguese labels — locale-driven, not frozen.
+eth_hits = [c for c in root_changes() if c.get("field") == "Ethnicity"]
+if eth_hits:
+    eq(eth_hits[0].get("fieldLabel"), "Etnia", "Ethnicity fieldLabel (PT-BR)")
+at_hits = [c for c in child_changes("Address") if c.get("field") == "AddressType"]
+if at_hits:
+    eq(at_hits[0].get("fieldLabel"), "Tipo de endereço", "AddressType fieldLabel (PT-BR)")
 '
 
 # Cleanup — leave the table in the state §16 expects.

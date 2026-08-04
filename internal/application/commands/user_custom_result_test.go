@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // TestUserCustomResultFromUser_HappyPath proves the shared snapshot mapper
@@ -23,13 +25,13 @@ func TestUserCustomResultFromUser_HappyPath(t *testing.T) {
 	u := &appdomain.User{
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
-		Phone: &phone,
+		Phone: (*vos.Phone)(&phone),
 	}
 	u.SetID(domain.NewID(uuid.NewString()))
 
 	label := "home"
 	u.AggregateConstructor([]domain.AggregateValueObject{
-		domain.WithID(appdomain.Address{
+		domain.WithID(aggregatevos.Address{
 			Label:        &label,
 			Street:       "1 Infinite Loop",
 			Number:       "1",

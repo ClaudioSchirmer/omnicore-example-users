@@ -22,14 +22,18 @@ import (
 // dispatching handler accepts whatever the consumer sent. Missing fields
 // are domain-rejected via BuildRules (422), not wire-rejected (400).
 type UpdateUserCustomRequest struct {
-	Document          string                 `path:"document"`
-	Name              string                 `json:"name"                        example:"Alice Pereira"`
-	Email             string                 `json:"email"                       example:"alice@example.com"`
-	Phone             *string                `json:"phone,omitempty"             example:"14155552671"`
-	UserName          string                 `json:"userName"                    example:"alice"`
-	EmailNotification *bool                  `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                  `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []AddressCustomRequest `json:"addresses"`
+	Document              string                 `path:"document"`
+	Name                  string                 `json:"name"                            example:"Alice Pereira"`
+	Email                 string                 `json:"email"                           example:"alice@example.com"`
+	Phone                 *string                `json:"phone,omitempty"                 example:"14155552671"`
+	Ethnicity             string                 `json:"ethnicity"                       example:"white"`
+	UserName              string                 `json:"userName"                        example:"alice"`
+	UserProfile           int                    `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool                  `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                  `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string                `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                   `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []AddressCustomRequest `json:"addresses"`
 }
 
 // ToCommand converts the Request DTO into the Command. DocumentKey comes from
@@ -43,13 +47,17 @@ func (r UpdateUserCustomRequest) ToCommand() *commands.UpdateUserCustomCommand {
 		addrs[i] = a.ToAddressInput()
 	}
 	return &commands.UpdateUserCustomCommand{
-		DocumentKey:       r.Document,
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         addrs,
+		DocumentKey:           r.Document,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Ethnicity:             r.Ethnicity,
+		UserName:              r.UserName,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             addrs,
 	}
 }

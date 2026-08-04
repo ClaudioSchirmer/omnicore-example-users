@@ -13,14 +13,18 @@ import (
 // to InsertUserCommand (Name/Email mandatory; Phone/Addresses optional).
 // ToCommand is a 1:1 assignment.
 type InsertUserRequest struct {
-	Name              string           `json:"name"                        example:"Alice Pereira"`
-	Email             string           `json:"email"                       example:"alice@example.com"`
-	Phone             *string          `json:"phone,omitempty"             example:"14155552671"`
-	Document          string           `json:"document"                    example:"12345678901"`
-	UserName          string           `json:"userName"                    example:"alice"`
-	EmailNotification *bool            `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool            `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []AddressRequest `json:"addresses,omitempty"`
+	Name                  string           `json:"name"                            example:"Alice Pereira"`
+	Email                 string           `json:"email"                           example:"alice@example.com"`
+	Phone                 *string          `json:"phone,omitempty"                 example:"14155552671"`
+	Document              string           `json:"document"                        example:"12345678901"`
+	UserName              string           `json:"userName"                        example:"alice"`
+	Ethnicity             string           `json:"ethnicity"                       example:"white"`
+	UserProfile           int              `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool            `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool            `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string          `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int             `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []AddressRequest `json:"addresses,omitempty"`
 }
 
 // ToCommand converts the Request DTO into the Command. Boundary
@@ -34,14 +38,18 @@ func (r InsertUserRequest) ToCommand() *commands.InsertUserCommand {
 		addrs[i] = a.ToAddressInput()
 	}
 	return &commands.InsertUserCommand{
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		Document:          r.Document,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         addrs,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Document:              r.Document,
+		UserName:              r.UserName,
+		Ethnicity:             r.Ethnicity,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             addrs,
 	}
 }
 
@@ -53,15 +61,19 @@ func (r InsertUserRequest) ToCommand() *commands.InsertUserCommand {
 // framework dispatches via responseProjection (this struct's FromResult) and
 // wraps the envelope around it.
 type InsertUserResponse struct {
-	ID                domain.ID                   `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name              string                      `json:"name"                        example:"Alice Pereira"`
-	Email             string                      `json:"email"                       example:"alice@example.com"`
-	Phone             *string                     `json:"phone,omitempty"             example:"14155552671"`
-	Document          string                      `json:"document"                    example:"12345678901"`
-	UserName          string                      `json:"userName"                    example:"alice"`
-	EmailNotification *bool                       `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                       `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []InsertUserResponseAddress `json:"addresses"`
+	ID                    domain.ID                   `json:"id"                              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name                  string                      `json:"name"                            example:"Alice Pereira"`
+	Email                 string                      `json:"email"                           example:"alice@example.com"`
+	Phone                 *string                     `json:"phone,omitempty"                 example:"14155552671"`
+	Document              string                      `json:"document"                        example:"12345678901"`
+	UserName              string                      `json:"userName"                        example:"alice"`
+	Ethnicity             string                      `json:"ethnicity"                       example:"white"`
+	UserProfile           int                         `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool                       `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                       `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string                     `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                        `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []InsertUserResponseAddress `json:"addresses"`
 }
 
 // InsertUserResponseAddress is the wire shape of one mirrored address row —
@@ -79,6 +91,7 @@ type InsertUserResponseAddress struct {
 	State        string  `json:"state"                example:"CA"`
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
+	AddressType  string  `json:"addressType"          example:"residential"`
 }
 
 // insertUserResponseAddresses maps the Result's address snapshots to the wire
@@ -97,6 +110,7 @@ func insertUserResponseAddresses(in []commands.AddressResult) []InsertUserRespon
 			State:        a.State,
 			ZipCode:      a.ZipCode,
 			Country:      a.Country,
+			AddressType:  a.AddressType,
 		})
 	}
 	return out
@@ -107,14 +121,18 @@ func insertUserResponseAddresses(in []commands.AddressResult) []InsertUserRespon
 // surface (input shape + output shape + both boundaries) lives in one file.
 func (InsertUserResponse) FromResult(r commands.InsertUserResult) InsertUserResponse {
 	return InsertUserResponse{
-		ID:                r.ID,
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		Document:          r.Document,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         insertUserResponseAddresses(r.Addresses),
+		ID:                    r.ID,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Document:              r.Document,
+		UserName:              r.UserName,
+		Ethnicity:             r.Ethnicity,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             insertUserResponseAddresses(r.Addresses),
 	}
 }

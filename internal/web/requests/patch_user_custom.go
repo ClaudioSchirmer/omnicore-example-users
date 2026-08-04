@@ -11,13 +11,17 @@ import "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/c
 // Email IS patchable here (a plain mutable shared field). Address operations
 // are NOT patchable here; use PUT to replace the collection.
 type PatchUserCustomRequest struct {
-	Document          string  `path:"document"`
-	Name              *string `json:"name,omitempty"              example:"Alice Pereira"`
-	Email             *string `json:"email,omitempty"             example:"alice@example.com"`
-	Phone             *string `json:"phone,omitempty"             example:"14155552671"`
-	UserName          *string `json:"userName,omitempty"          example:"alice"`
-	EmailNotification *bool   `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool   `json:"smsNotification,omitempty"   example:"false"`
+	Document              string  `path:"document"`
+	Name                  *string `json:"name,omitempty"                  example:"Alice Pereira"`
+	Email                 *string `json:"email,omitempty"                 example:"alice@example.com"`
+	Phone                 *string `json:"phone,omitempty"                 example:"14155552671"`
+	Ethnicity             *string `json:"ethnicity,omitempty"             example:"white"`
+	UserName              *string `json:"userName,omitempty"              example:"alice"`
+	UserProfile           *int    `json:"userProfile,omitempty"           example:"1"`
+	EmailNotification     *bool   `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool   `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int    `json:"notificationFrequency,omitempty" example:"2"`
 }
 
 // ToCommand converts the Request DTO into the Command. DocumentKey comes from
@@ -25,12 +29,16 @@ type PatchUserCustomRequest struct {
 // before c.Bind().Body().
 func (r PatchUserCustomRequest) ToCommand() *commands.PatchUserCustomCommand {
 	return &commands.PatchUserCustomCommand{
-		DocumentKey:       r.Document,
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
+		DocumentKey:           r.Document,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Ethnicity:             r.Ethnicity,
+		UserName:              r.UserName,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
 	}
 }

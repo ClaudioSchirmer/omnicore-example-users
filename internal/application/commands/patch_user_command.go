@@ -6,6 +6,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -34,12 +35,16 @@ import (
 // omitting both leaves the sibling untouched.
 type PatchUserCommand struct {
 	pipeline.CommandWithBodyIDBase
-	Name              *string
-	Email             *string
-	Phone             *string
-	UserName          *string
-	EmailNotification *bool
-	SmsNotification   *bool
+	Name                  *string
+	Email                 *string
+	Phone                 *string
+	Ethnicity             *string // enum token (string-backed)
+	UserName              *string
+	UserProfile           *int // enum value (int-backed)
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int // enum value (int-backed)
 }
 
 // ApplyPartiallyTo receives *AppContext alongside the loaded entity. Same ctx
@@ -47,16 +52,22 @@ type PatchUserCommand struct {
 // future authz field on User would be populated here.
 func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appdomain.User) error {
 	if c.Name != nil {
-		u.Name = *c.Name
+		u.Name = vos.Name(*c.Name)
 	}
 	if c.Email != nil {
-		u.Email = *c.Email
+		u.Email = vos.Email(*c.Email)
 	}
 	if c.Phone != nil {
-		u.Phone = c.Phone
+		u.Phone = (*vos.Phone)(c.Phone)
+	}
+	if c.Ethnicity != nil {
+		u.Ethnicity = vos.Ethnicity(*c.Ethnicity)
 	}
 	if c.UserName != nil {
-		u.UserName = *c.UserName
+		u.UserName = vos.Name(*c.UserName)
+	}
+	if c.UserProfile != nil {
+		u.UserProfile = vos.UserProfile(*c.UserProfile)
 	}
 	// The sibling preference flags: a sent flag (non-nil tri-state) is applied
 	// as the *bool the sibling stores; the framework UPSERTs the sibling row.
@@ -65,6 +76,12 @@ func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appd
 	}
 	if c.SmsNotification != nil {
 		u.SmsNotification = c.SmsNotification
+	}
+	if c.NotificationEmail != nil {
+		u.NotificationEmail = (*vos.Email)(c.NotificationEmail)
+	}
+	if c.NotificationFrequency != nil {
+		u.NotificationFrequency = (*vos.NotificationFrequency)(c.NotificationFrequency)
 	}
 	return nil
 }
@@ -76,26 +93,34 @@ func (c *PatchUserCommand) ApplyPartiallyTo(_ *configuration.AppContext, u *appd
 // full) differs on the input side.
 func (c *PatchUserCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (PatchUserResult, error) {
 	return PatchUserResult{
-		ID:                *u.GetID(),
-		Name:              u.Name,
-		Email:             u.Email,
-		Phone:             u.Phone,
-		Document:          u.Document,
-		UserName:          u.UserName,
-		EmailNotification: u.EmailNotification,
-		SmsNotification:   u.SmsNotification,
+		ID:                    *u.GetID(),
+		Name:                  u.Name.Value(),
+		Email:                 u.Email.Value(),
+		Phone:                 (*string)(u.Phone),
+		Document:              u.Document.Value(),
+		Ethnicity:             u.Ethnicity.Value(),
+		UserName:              u.UserName.Value(),
+		UserProfile:           u.UserProfile.Value(),
+		EmailNotification:     u.EmailNotification,
+		SmsNotification:       u.SmsNotification,
+		NotificationEmail:     (*string)(u.NotificationEmail),
+		NotificationFrequency: (*int)(u.NotificationFrequency),
 	}, nil
 }
 
 // PatchUserResult is the application-layer projection. Pure data shape — no
 // methods. Wire layer maps this to JSON via PatchUserResponse.FromResult.
 type PatchUserResult struct {
-	ID                domain.ID
-	Name              string
-	Email             string
-	Phone             *string
-	Document          string
-	UserName          string
-	EmailNotification *bool
-	SmsNotification   *bool
+	ID                    domain.ID
+	Name                  string
+	Email                 string
+	Phone                 *string
+	Document              string
+	Ethnicity             string
+	UserName              string
+	UserProfile           int
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int
 }

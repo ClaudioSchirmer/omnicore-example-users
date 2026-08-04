@@ -6,6 +6,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // InsertUserCustomCommand is the application-layer vocabulary for the "create
@@ -24,14 +25,18 @@ import (
 // web/requests/InsertUserCustomRequest; types mirror the Request 1:1.
 type InsertUserCustomCommand struct {
 	pipeline.CommandBase
-	Name              string
-	Email             string
-	Phone             *string
-	Document          string
-	UserName          string
-	EmailNotification *bool
-	SmsNotification   *bool
-	Addresses         []dtos.AddressInputCustom
+	Name                  string
+	Email                 string
+	Phone                 *string
+	Document              string
+	Ethnicity             string // enum token (string-backed)
+	UserName              string
+	UserProfile           int // enum value (int-backed)
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int // enum value (int-backed), nullable
+	Addresses             []dtos.AddressInputCustom
 }
 
 // ApplyTo mutates the entity the manual handler supplies — fresh on a cold
@@ -41,13 +46,17 @@ type InsertUserCustomCommand struct {
 // natural key). Receives *AppContext for the same identity-translation seam as
 // the canonical command.
 func (c InsertUserCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
-	u.Name = c.Name
-	u.Email = c.Email
-	u.Phone = c.Phone
-	u.Document = c.Document
-	u.UserName = c.UserName
+	u.Name = vos.Name(c.Name)
+	u.Email = vos.Email(c.Email)
+	u.Phone = (*vos.Phone)(c.Phone)
+	u.Document = vos.Document(c.Document)
+	u.Ethnicity = vos.Ethnicity(c.Ethnicity)
+	u.UserName = vos.Name(c.UserName)
+	u.UserProfile = vos.UserProfile(c.UserProfile)
 	u.EmailNotification = c.EmailNotification
 	u.SmsNotification = c.SmsNotification
+	u.NotificationEmail = (*vos.Email)(c.NotificationEmail)
+	u.NotificationFrequency = (*vos.NotificationFrequency)(c.NotificationFrequency)
 	for _, a := range c.Addresses {
 		u.AddAddress(a.ToAddress(), nil)
 	}

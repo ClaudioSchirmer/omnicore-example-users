@@ -9,6 +9,8 @@ import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // TestInsertUserCustomCommandHandler_HappyPath proves the manual SharedBase
@@ -21,10 +23,12 @@ func TestInsertUserCustomCommandHandler_HappyPath(t *testing.T) {
 	h := &InsertUserCustomCommandHandler{Repo: repo, Service: fakeService{}}
 
 	cmd := &commands.InsertUserCustomCommand{
-		Name:     "Jane Doe",
-		Email:    "jane@example.com",
-		Document: "10000000001",
-		UserName: "jane",
+		Name:        "Jane Doe",
+		Email:       "jane@example.com",
+		Document:    "10000000001",
+		Ethnicity:   "white",
+		UserName:    "jane",
+		UserProfile: 1,
 		Addresses: []dtos.AddressInputCustom{{
 			Street:       "1 Infinite Loop",
 			Number:       "1",
@@ -33,6 +37,7 @@ func TestInsertUserCustomCommandHandler_HappyPath(t *testing.T) {
 			State:        "CA",
 			ZipCode:      "95014",
 			Country:      "US",
+			AddressType:  "residential",
 		}},
 	}
 
@@ -69,26 +74,30 @@ func TestInsertUserCustomCommandHandler_WarmUpsert(t *testing.T) {
 	// only at the write layer. An id here would (correctly) trip
 	// UnableToInsertWithIDNotification.
 	existing := &appdomain.User{
-		Name:     "Jane Doe",
-		Email:    "jane@example.com",
-		Document: "10000000001",
-		UserName: "jane",
+		Name:        "Jane Doe",
+		Email:       "jane@example.com",
+		Document:    "10000000001",
+		Ethnicity:   vos.EthnicityWhite,
+		UserName:    "jane",
+		UserProfile: vos.UserProfileAdmin,
 	}
 	existing.AggregateConstructor([]domain.AggregateValueObject{
-		domain.WithID(appdomain.Address{
+		domain.WithID(aggregatevos.Address{
 			Street: "1 Infinite Loop", Number: "1",
 			Neighborhood: "Mariani", City: "Cupertino", State: "CA",
-			ZipCode: "95014", Country: "US",
+			ZipCode: "95014", Country: "US", AddressType: vos.AddressTypeResidential,
 		}, domain.NewID(uuid.NewString())),
 	})
 	repo := &fakeRepo{foundUser: existing}
 	h := &InsertUserCustomCommandHandler{Repo: repo, Service: fakeService{}}
 
 	cmd := &commands.InsertUserCustomCommand{
-		Name:     "Jane Renamed",
-		Email:    "jane.new@example.com",
-		Document: "10000000001",
-		UserName: "jane2",
+		Name:        "Jane Renamed",
+		Email:       "jane.new@example.com",
+		Document:    "10000000001",
+		Ethnicity:   "white",
+		UserName:    "jane2",
+		UserProfile: 1,
 	}
 
 	result, err := h.Handle(testCtx(), cmd)

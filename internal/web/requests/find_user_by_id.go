@@ -2,6 +2,7 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -42,15 +43,23 @@ func (r FindUserByIDRequest) ToQuery() *queries.FindUserByIDQuery {
 // nested address shape stays per-endpoint to keep the by-id and list
 // surfaces independent if either evolves.
 type FindUserByIDResponse struct {
-	ID                string                      `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name              string                      `json:"name"                        example:"Alice Pereira"`
-	Email             string                      `json:"email"                       example:"alice@example.com"`
-	Phone             *string                     `json:"phone,omitempty"             example:"14155552671"`
-	Document          string                      `json:"document"                    example:"12345678901"`
-	UserName          string                      `json:"userName"                    example:"alice"`
-	EmailNotification *bool                       `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                       `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []FindUserByIDAddressOutput `json:"addresses"`
+	ID       string  `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name     string  `json:"name"                        example:"Alice Pereira"`
+	Email    string  `json:"email"                       example:"alice@example.com"`
+	Phone    *string `json:"phone,omitempty"             example:"14155552671"`
+	Document string  `json:"document"                    example:"12345678901"`
+	// Value-object-typed response fields — proving a read DTO may carry the VO
+	// type (not just a raw scalar): they populate from the projected document via
+	// AutoFromDoc, an out-of-set enum converges to Unknown, and OpenAPI/GraphQL
+	// describe them by their underlying scalar.
+	Ethnicity             vos.Ethnicity               `json:"ethnicity"                       example:"white"`
+	UserName              string                      `json:"userName"                        example:"alice"`
+	UserProfile           vos.UserProfile             `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool                       `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                       `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *vos.Email                  `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *vos.NotificationFrequency  `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []FindUserByIDAddressOutput `json:"addresses"`
 }
 
 // FindUserByIDAddressOutput is the nested wire shape of one Address inside
@@ -59,14 +68,15 @@ type FindUserByIDResponse struct {
 // AutoFromDoc keys by the Go field name and the json: tag is only the outgoing
 // wire name — no view: source-key override.
 type FindUserByIDAddressOutput struct {
-	ID           string  `json:"id"                   example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
-	Label        *string `json:"label,omitempty"      example:"home"`
-	Street       string  `json:"street"               example:"1 Infinite Loop"`
-	Number       string  `json:"number"               example:"1"`
-	Complement   *string `json:"complement,omitempty" example:"Apt 4B"`
-	Neighborhood string  `json:"neighborhood"         example:"Mariani"`
-	City         string  `json:"city"                 example:"Cupertino"`
-	State        string  `json:"state"                example:"CA"`
-	ZipCode      string  `json:"zipCode"              example:"95014"`
-	Country      string  `json:"country"              example:"US"`
+	ID           string          `json:"id"                   example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
+	Label        *string         `json:"label,omitempty"      example:"home"`
+	Street       string          `json:"street"               example:"1 Infinite Loop"`
+	Number       string          `json:"number"               example:"1"`
+	Complement   *string         `json:"complement,omitempty" example:"Apt 4B"`
+	Neighborhood string          `json:"neighborhood"         example:"Mariani"`
+	City         string          `json:"city"                 example:"Cupertino"`
+	State        string          `json:"state"                example:"CA"`
+	ZipCode      string          `json:"zipCode"              example:"95014"`
+	Country      string          `json:"country"              example:"US"`
+	AddressType  vos.AddressType `json:"addressType"          example:"residential"`
 }

@@ -6,6 +6,8 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // UpdateUserCustomCommand is the PUT-shaped command consumed by the manual
@@ -27,14 +29,18 @@ import (
 // collection — same PUT semantic as the canonical UpdateUserCommand.
 type UpdateUserCustomCommand struct {
 	pipeline.CommandBase
-	DocumentKey       string
-	Name              string
-	Email             string
-	Phone             *string
-	UserName          string
-	EmailNotification *bool
-	SmsNotification   *bool
-	Addresses         []dtos.AddressInputCustom
+	DocumentKey           string
+	Name                  string
+	Email                 string
+	Phone                 *string
+	Ethnicity             string // enum token (string-backed)
+	UserName              string
+	UserProfile           int // enum value (int-backed)
+	EmailNotification     *bool
+	SmsNotification       *bool
+	NotificationEmail     *string
+	NotificationFrequency *int // enum value (int-backed), nullable
+	Addresses             []dtos.AddressInputCustom
 }
 
 // ApplyTo carries *AppContext alongside the loaded entity — same shape as the
@@ -42,14 +48,18 @@ type UpdateUserCustomCommand struct {
 // closure to feed domain.GetUpdatable; consumers that need ctx → business
 // translation populate it here.
 func (c *UpdateUserCustomCommand) ApplyTo(_ *configuration.AppContext, u *appdomain.User) error {
-	u.Name = c.Name
-	u.Email = c.Email
-	u.Phone = c.Phone
-	u.UserName = c.UserName
+	u.Name = vos.Name(c.Name)
+	u.Email = vos.Email(c.Email)
+	u.Phone = (*vos.Phone)(c.Phone)
+	u.Ethnicity = vos.Ethnicity(c.Ethnicity)
+	u.UserName = vos.Name(c.UserName)
+	u.UserProfile = vos.UserProfile(c.UserProfile)
 	u.EmailNotification = c.EmailNotification
 	u.SmsNotification = c.SmsNotification
+	u.NotificationEmail = (*vos.Email)(c.NotificationEmail)
+	u.NotificationFrequency = (*vos.NotificationFrequency)(c.NotificationFrequency)
 
-	addrs := make([]appdomain.Address, len(c.Addresses))
+	addrs := make([]aggregatevos.Address, len(c.Addresses))
 	for i, a := range c.Addresses {
 		addrs[i] = a.ToAddress()
 	}

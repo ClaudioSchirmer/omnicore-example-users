@@ -63,6 +63,7 @@ func PersonBase() *core.TableSchema {
 		Field("Name", "name").
 		Field("Email", "email").
 		Field("Phone", "phone").
+		Field("Ethnicity", "ethnicity"). // enum value object (string-backed) on the shared base
 		NaturalID("document").
 		DeletedAt("deleted_at").
 		CreatedAt("created_at").

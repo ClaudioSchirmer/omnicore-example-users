@@ -6,6 +6,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -26,6 +27,7 @@ type PatchEmployeeCommand struct {
 	Name           *string
 	Email          *string
 	Phone          *string
+	Ethnicity      *string // enum token (string-backed)
 	EmployeeNumber *string
 
 	Bank    *string
@@ -37,13 +39,16 @@ type PatchEmployeeCommand struct {
 // ApplyPartiallyTo applies only the fields present in the body.
 func (c *PatchEmployeeCommand) ApplyPartiallyTo(_ *configuration.AppContext, f *appdomain.Employee) error {
 	if c.Name != nil {
-		f.Name = *c.Name
+		f.Name = vos.Name(*c.Name)
 	}
 	if c.Email != nil {
-		f.Email = *c.Email
+		f.Email = vos.Email(*c.Email)
 	}
 	if c.Phone != nil {
-		f.Phone = c.Phone
+		f.Phone = (*vos.Phone)(c.Phone)
+	}
+	if c.Ethnicity != nil {
+		f.Ethnicity = vos.Ethnicity(*c.Ethnicity)
 	}
 	if c.EmployeeNumber != nil {
 		f.EmployeeNumber = *c.EmployeeNumber
@@ -69,10 +74,11 @@ func (c *PatchEmployeeCommand) ApplyPartiallyTo(_ *configuration.AppContext, f *
 func (c *PatchEmployeeCommand) FromEntity(_ *configuration.AppContext, f *appdomain.Employee) (PatchEmployeeResult, error) {
 	return PatchEmployeeResult{
 		ID:             *f.GetID(),
-		Name:           f.Name,
-		Email:          f.Email,
-		Phone:          f.Phone,
-		Document:       f.Document,
+		Name:           f.Name.Value(),
+		Email:          f.Email.Value(),
+		Phone:          (*string)(f.Phone),
+		Document:       f.Document.Value(),
+		Ethnicity:      f.Ethnicity.Value(),
 		EmployeeNumber: f.EmployeeNumber,
 		Bank:           f.Bank,
 		Branch:         f.Branch,
@@ -88,6 +94,7 @@ type PatchEmployeeResult struct {
 	Email          string
 	Phone          *string
 	Document       string
+	Ethnicity      string
 	EmployeeNumber string
 	Bank           *string
 	Branch         *string

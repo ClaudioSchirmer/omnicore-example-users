@@ -73,7 +73,7 @@ PATCH_CMD_SRC="$REPO_ROOT/internal/application/commands/patch_user_command.go"
 # wire request + application DTO + the employees view Version. The persons
 # SharedBaseView already rides the same bump (it embeds employee.jobHistories).
 EMPLOYEE_VIEW_SRC="$REPO_ROOT/internal/infra/views/employee_view.go"
-JOBHIST_ENTITY_SRC="$REPO_ROOT/internal/domain/job_history.go"
+JOBHIST_ENTITY_SRC="$REPO_ROOT/internal/domain/aggregatevos/job_history.go"
 JOBHIST_SCHEMA_SRC="$REPO_ROOT/internal/infra/schemas/job_history_schema.go"
 JOBHIST_REQ_SRC="$REPO_ROOT/internal/web/requests/job_history.go"
 JOBHIST_DTO_SRC="$REPO_ROOT/internal/application/dtos/job_history_input.go"
@@ -260,7 +260,7 @@ start_pod(){
 }
 wait_ready(){ local base="$1"; local t="${2:-30}"; local d=$(( $(date +%s)+t )); while [ "$(date +%s)" -lt "$d" ]; do curl -sf -o /dev/null "$base/readyz" && return 0; sleep 0.5; done; return 1; }
 post_user(){ curl -sS -X POST "$1/users" -H 'Content-Type: application/json' -H 'Accept-Language: en-US' \
-  --data "{\"name\":\"$2\",\"email\":\"$2@t.co\",\"document\":\"$2\",\"userName\":\"$2\",\"addresses\":[]}" -o /dev/null -w '%{http_code}'; }
+  --data "{\"name\":\"$2\",\"email\":\"$2@t.co\",\"document\":\"$2\",\"userName\":\"$2\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}" -o /dev/null -w '%{http_code}'; }
 api_total(){ curl -sS "$1/users?onlyTotal=true" 2>/dev/null | jq -r '.pagination.total // .total // (.data|length) // "?"'; }
 # poll GET total until it reaches `want` (CDC is eventually consistent + cold on
 # first boot) — echoes the last observed total, returns non-zero on timeout.
@@ -275,7 +275,7 @@ patch_add_nickname(){
   #    or the V2 pods abort at boot with DriftForgotToBump on the un-bumped view).
   perl -pi -e 's/\bVersion\(\d+\)/Version(2)/g' "$VIEW_SRC" "$PERSON_VIEW_SRC" "$EMPLOYEE_VIEW_SRC"
   # 2) entity: exported Nickname field (required before the schema .Field, or it panics)
-  perl -0pi -e 's/(UserName\s+string[^\n]*\n)/$1\tNickname                    *string\n/' "$ENTITY_SRC"
+  perl -0pi -e 's/(UserName\s+vos\.Name[^\n]*\n)/$1\tNickname                    *string\n/' "$ENTITY_SRC"
   # 3) schema: map the column so ToGoDoc keeps it and the DTO renders it
   perl -0pi -e 's/(Field\("UserName", "user_name"\)\.\n)/$1\t\tField("Nickname", "nickname").\n/' "$SCHEMA_SRC"
   # 4) read DTOs: surface it on GET /users/:id and GET /users
@@ -287,7 +287,7 @@ patch_add_nickname(){
   perl -0pi -e 's/(UserName\s+\*string\s+`json:"userName,omitempty"[^\n]*\n)/$1\tNickname          *string `json:"nickname,omitempty"`\n/' "$PATCH_REQ_SRC"
   perl -0pi -e 's/(UserName:\s+r\.UserName,\n)/$1\t\tNickname:          r.Nickname,\n/'                                                       "$PATCH_REQ_SRC"
   perl -0pi -e 's/(\tUserName\s+\*string\n)/$1\tNickname          *string\n/'                                                                "$PATCH_CMD_SRC"
-  perl -0pi -e 's/(if c\.UserName != nil \{\n\t\tu\.UserName = \*c\.UserName\n\t\}\n)/$1\tif c.Nickname != nil {\n\t\tu.Nickname = c.Nickname\n\t}\n/' "$PATCH_CMD_SRC"
+  perl -0pi -e 's/(if c\.UserName != nil \{\n\t\tu\.UserName = vos\.Name\(\*c\.UserName\)\n\t\}\n)/$1\tif c.Nickname != nil {\n\t\tu.Nickname = c.Nickname\n\t}\n/' "$PATCH_CMD_SRC"
   # 6) OWN-CHILD column (Phase 3.5's second grain): JobHistory.Notes threaded
   #    entity → child schema → wire request → application DTO. The wire carries
   #    no child ids (collection replace), which is fine — the mixed-binary
@@ -350,7 +350,7 @@ assert_eq "POST /users → 201" "201" "$(post_user "$BOOT_BASE" crud1)"
 # not wait on the eventually-consistent read side (slow on Oracle LogMiner).
 uid=$(qa_db_query "SELECT $QA_SQL_TOP1 $(qa_uuid_select id) FROM users $QA_SQL_LIMIT1" | tr -d '[:space:]')
 if [ -n "$uid" ]; then
-  assert_eq "PATCH /users/:id (edit userName) → 200" "200" "$(curl -sS -X PATCH "$BOOT_BASE/users/$uid" -H 'Content-Type: application/json' --data '{"userName":"crud1-edited"}' -o /dev/null -w '%{http_code}')"
+  assert_eq "PATCH /users/:id (edit userName) → 200" "200" "$(curl -sS -X PATCH "$BOOT_BASE/users/$uid" -H 'Content-Type: application/json' --data '{"userName":"crud1-edited","ethnicity":"white","userProfile":1}' -o /dev/null -w '%{http_code}')"
 else
   FAIL=$((FAIL+1)); printf '  \033[1;31m✘\033[0m no user id in the DB to PATCH\n'
 fi
@@ -507,7 +507,7 @@ title "value proof: a non-null nickname written via the endpoint round-trips thr
 # no-loss count above is untouched; Phase-3 count checks are `>=` so +1 is fine.
 NICK_DOC="rsnick${BACKEND}"
 uid_nick=$(curl -sS -X POST "$A_BASE/users" -H 'Content-Type: application/json' \
-  --data "{\"name\":\"nick\",\"email\":\"${NICK_DOC}@t.co\",\"document\":\"${NICK_DOC}\",\"userName\":\"${NICK_DOC}\",\"addresses\":[]}" \
+  --data "{\"name\":\"nick\",\"email\":\"${NICK_DOC}@t.co\",\"document\":\"${NICK_DOC}\",\"userName\":\"${NICK_DOC}\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}" \
   | jq -r '.data.id // empty')
 assert_true "POST /users minted a row to carry the nickname" "$([ -n "$uid_nick" ] && echo true)"
 assert_eq "PATCH /users/:id set nickname → 200" "200" \
@@ -550,7 +550,7 @@ else
 fi
 MIX_DOC="rsmix${BACKEND}"
 uid_mx=$(curl -sS -X POST "$A_BASE/users" -H 'Content-Type: application/json' \
-  --data "{\"name\":\"mix\",\"email\":\"${MIX_DOC}@t.co\",\"document\":\"${MIX_DOC}\",\"userName\":\"${MIX_DOC}\",\"addresses\":[]}" \
+  --data "{\"name\":\"mix\",\"email\":\"${MIX_DOC}@t.co\",\"document\":\"${MIX_DOC}\",\"userName\":\"${MIX_DOC}\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}" \
   | jq -r '.data.id // empty')
 assert_true "POST /users (relay frozen) minted the mixed-window row" "$([ -n "$uid_mx" ] && echo true)"
 assert_eq "PATCH /users/:id set nickname → 200 (relay frozen)" "200" \
@@ -561,7 +561,7 @@ assert_eq "PATCH /users/:id set nickname → 200 (relay frozen)" "200" \
 # the value) are the only carrier of the child column.
 EMPX_DOC="rsmxe${BACKEND}"
 emp_mx=$(curl -sS -X POST "$A_BASE/employees" -H 'Content-Type: application/json' \
-  --data "{\"name\":\"mixemp\",\"email\":\"${EMPX_DOC}@t.co\",\"document\":\"${EMPX_DOC}\",\"employeeNumber\":\"EMPX-${BACKEND}\",\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}]}" \
+  --data "{\"name\":\"mixemp\",\"email\":\"${EMPX_DOC}@t.co\",\"document\":\"${EMPX_DOC}\",\"employeeNumber\":\"EMPX-${BACKEND}\",\"ethnicity\":\"white\",\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}]}" \
   | jq -r '.data.id // empty')
 assert_true "POST /employees (relay frozen) minted the own-child row" "$([ -n "$emp_mx" ] && echo true)"
 # PUT is the ONLY child-carrying employee write (PATCH has no children) and it
@@ -571,7 +571,7 @@ assert_true "POST /employees (relay frozen) minted the own-child row" "$([ -n "$
 # and a non-200 echoes the response envelope for diagnosis.
 EMPPUT_BODY="/tmp/qa-rs-empput-${BACKEND}.json"
 cat > "$EMPPUT_BODY" <<EOF
-{"name":"mixemp","email":"${EMPX_DOC}@t.co","phone":null,"employeeNumber":"EMPX-${BACKEND}","bank":null,"branch":null,"account":null,"pix":null,"addresses":[],"dependents":[],"jobHistories":[{"jobTitle":"Engineer","department":"Platform","hiredAt":"2022-01-10T00:00:00Z","terminatedAt":null,"notes":"rs-child-value"}]}
+{"name":"mixemp","email":"${EMPX_DOC}@t.co","phone":null,"employeeNumber":"EMPX-${BACKEND}","ethnicity":"white","bank":null,"branch":null,"account":null,"pix":null,"addresses":[],"dependents":[],"jobHistories":[{"jobTitle":"Engineer","department":"Platform","hiredAt":"2022-01-10T00:00:00Z","terminatedAt":null,"notes":"rs-child-value"}]}
 EOF
 empput_resp="/tmp/qa-rs-empput-resp-${BACKEND}.json"
 empput_code=$(curl -sS -X PUT "$A_BASE/employees/$emp_mx" -H 'Content-Type: application/json' \

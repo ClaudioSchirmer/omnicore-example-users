@@ -16,8 +16,9 @@ type DependentRequest struct {
 	Relationship string    `json:"relationship" example:"daughter"`
 
 	HealthPlanProvider *string    `json:"healthPlanProvider,omitempty"     example:"Unimed"`
-	HealthPlanCard     *string    `json:"healthPlanCard,omitempty"   example:"UN-889923"`
+	HealthPlanCard     *string    `json:"healthPlanCard,omitempty"   example:"889923"`
 	HealthPlanExpiry   *time.Time `json:"healthPlanExpiry,omitempty" example:"2027-12-31T00:00:00Z"`
+	HealthPlanType     *string    `json:"healthPlanType,omitempty"   example:"family"`
 }
 
 // ToDependentInput converts the wire DTO into the application DTO — pure
@@ -30,5 +31,6 @@ func (d DependentRequest) ToDependentInput() dtos.DependentInput {
 		HealthPlanProvider: d.HealthPlanProvider,
 		HealthPlanCard:     d.HealthPlanCard,
 		HealthPlanExpiry:   d.HealthPlanExpiry,
+		HealthPlanType:     d.HealthPlanType,
 	}
 }

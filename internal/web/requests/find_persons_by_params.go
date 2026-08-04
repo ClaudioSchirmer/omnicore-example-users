@@ -20,9 +20,10 @@ import (
 // from the role Go types — that is the contract that makes the wire path
 // land on the right sub-document.
 type FindPersonsByParamsRequest struct {
-	Name     *string `query:"name"     filter:"eq,startswith,icontains,istartswith"`
-	Email    *string `query:"email"    filter:"eq,in,ieq"`
-	Document *string `query:"document" filter:"eq,in,startswith"`
+	Name      *string `query:"name"      filter:"eq,startswith,icontains,istartswith"`
+	Email     *string `query:"email"     filter:"eq,in,ieq"`
+	Document  *string `query:"document"  filter:"eq,in,startswith"`
+	Ethnicity *string `query:"ethnicity" filter:"eq,in"`
 
 	Addresses AddressFilterParams        `query:"addresses"`
 	User      PersonUserFilterParams     `query:"user"`
@@ -42,6 +43,7 @@ type FindPersonsByParamsRequest struct {
 // role segment — role-private fields plus the notification sibling leaf.
 type PersonUserFilterParams struct {
 	UserName          *string `query:"userName"          filter:"eq,in,istartswith"`
+	UserProfile       *int    `query:"userProfile"       filter:"eq,in"`
 	EmailNotification *bool   `query:"emailNotification" filter:"eq"`
 }
 
@@ -71,11 +73,12 @@ func (r FindPersonsByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *qu
 // omitted on default reads and carries its deletedAt under
 // ?includeArchived=true.
 type FindPersonsByParamsResponse struct {
-	ID       *string `json:"id,omitempty"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name     *string `json:"name,omitempty"     example:"Alice Pereira"`
-	Email    *string `json:"email,omitempty"    example:"alice@example.com"`
-	Phone    *string `json:"phone,omitempty"    example:"14155552671"`
-	Document *string `json:"document,omitempty" example:"12345678901"`
+	ID        *string `json:"id,omitempty"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name      *string `json:"name,omitempty"     example:"Alice Pereira"`
+	Email     *string `json:"email,omitempty"    example:"alice@example.com"`
+	Phone     *string `json:"phone,omitempty"     example:"14155552671"`
+	Document  *string `json:"document,omitempty"  example:"12345678901"`
+	Ethnicity *string `json:"ethnicity,omitempty" example:"white"`
 
 	Addresses []FindUsersByParamsAddressOutput `json:"addresses,omitempty"`
 	User      *PersonUserOutput                `json:"user,omitempty"`
@@ -85,11 +88,14 @@ type FindPersonsByParamsResponse struct {
 // PersonUserOutput is the User role segment on the wire: role-private fields
 // plus the notification sibling flat, mirroring the composed sub-document.
 type PersonUserOutput struct {
-	ID                *string    `json:"id,omitempty"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	UserName          *string    `json:"userName,omitempty"          example:"alice"`
-	EmailNotification *bool      `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool      `json:"smsNotification,omitempty"   example:"false"`
-	DeletedAt         *time.Time `json:"deletedAt,omitempty"         example:"2026-07-01T12:00:00Z"`
+	ID                    *string    `json:"id,omitempty"                    example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	UserName              *string    `json:"userName,omitempty"              example:"alice"`
+	UserProfile           *int       `json:"userProfile,omitempty"           example:"1"`
+	EmailNotification     *bool      `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool      `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string    `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int       `json:"notificationFrequency,omitempty" example:"2"`
+	DeletedAt             *time.Time `json:"deletedAt,omitempty"             example:"2026-07-01T12:00:00Z"`
 }
 
 // PersonEmployeeOutput is the Employee role segment on the wire: role fields,

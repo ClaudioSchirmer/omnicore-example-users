@@ -8,6 +8,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 )
 
 func fptr(s string) *string { return &s }
@@ -50,14 +51,14 @@ func TestInsertEmployeeCommand_ApplyTo_CopiesAllFacets(t *testing.T) {
 	if f.Bank == nil || *f.Bank != "260" || f.Pix == nil || *f.Pix != "jane@example.com" {
 		t.Fatalf("bank sibling fields not applied: %+v", f)
 	}
-	if len(domain.GetCurrentItemsOf[appdomain.Address](&f.AggregateRoot)) != 1 {
+	if len(domain.GetCurrentItemsOf[aggregatevos.Address](&f.AggregateRoot)) != 1 {
 		t.Fatal("address child not attached")
 	}
-	deps := domain.GetCurrentItemsOf[appdomain.Dependent](&f.AggregateRoot)
+	deps := domain.GetCurrentItemsOf[aggregatevos.Dependent](&f.AggregateRoot)
 	if len(deps) != 1 || deps[0].HealthPlanProvider == nil || *deps[0].HealthPlanProvider != "Unimed" {
 		t.Fatalf("dependent (with plan sibling) not attached: %+v", deps)
 	}
-	if len(domain.GetCurrentItemsOf[appdomain.JobHistory](&f.AggregateRoot)) != 1 {
+	if len(domain.GetCurrentItemsOf[aggregatevos.JobHistory](&f.AggregateRoot)) != 1 {
 		t.Fatal("job-history child not attached")
 	}
 }
@@ -85,7 +86,7 @@ func TestUpdateEmployeeCommand_ApplyTo_ReplacesCollections(t *testing.T) {
 	f := &appdomain.Employee{
 		Name: "Old", Email: "old@e.com", Document: "10000000001", EmployeeNumber: "OLD",
 	}
-	f.AddDependent(appdomain.Dependent{Name: "ToBeReplaced",
+	f.AddDependent(aggregatevos.Dependent{Name: "ToBeReplaced",
 		BirthDate: time.Now(), Relationship: "son"})
 
 	cmd := UpdateEmployeeCommand{
@@ -98,7 +99,7 @@ func TestUpdateEmployeeCommand_ApplyTo_ReplacesCollections(t *testing.T) {
 	if err := cmd.ApplyTo(nil, f); err != nil {
 		t.Fatalf("ApplyTo returned error: %v", err)
 	}
-	deps := domain.GetCurrentItemsOf[appdomain.Dependent](&f.AggregateRoot)
+	deps := domain.GetCurrentItemsOf[aggregatevos.Dependent](&f.AggregateRoot)
 	if len(deps) != 2 {
 		t.Fatalf("expected replaced collection of 2, got %d", len(deps))
 	}

@@ -18,9 +18,9 @@ type UnarchiveUserCustomCommand struct {
 // ApplyTo is the hook for ctx → business translation on the unarchive verb.
 // Symmetric to ArchiveUserCustomCommand.ApplyTo — the manual handler calls
 // it AFTER FindArchivedByDocument hydrates the archived aggregate and BEFORE
-// GetUnarchivable runs BuildRules in ModeUpdate with
-// actionName="GetUnarchivable". No-op today; future authz would populate
-// the transient identity field here.
+// GetUnarchivable runs BuildRules in ModeUnarchive (the IfUnarchive clause
+// reads them). No-op today; future authz would populate the transient
+// identity field here.
 func (*UnarchiveUserCustomCommand) ApplyTo(_ *configuration.AppContext, _ *appdomain.User) error {
 	return nil
 }

@@ -102,10 +102,11 @@ for k in range(n):
         "phone": "14155552671",
         "document": f"perf-{nonce}-{i}",          # unique natural key, regex-valid
         "userName": f"perf_{nonce}_{i}",
+        "ethnicity": "white", "userProfile": 1,
         "emailNotification": True, "smsNotification": False,
         "addresses": [{"label": "home", "street": "1 Infinite Loop", "number": "1",
                        "neighborhood": "Mariani", "city": "Cupertino", "state": "CA",
-                       "zipCode": "95014", "country": "US"}],
+                       "zipCode": "95014", "country": "US","addressType":"residential"}],
     }
     b = base64.b64encode(json.dumps(body).encode()).decode()
     print(json.dumps({"method": "POST", "url": url, "body": b,

@@ -4,16 +4,16 @@ go 1.26.3
 
 require (
 	connectrpc.com/connect v1.20.0
-	github.com/ClaudioSchirmer/omnicore v0.41.0
+	github.com/ClaudioSchirmer/omnicore v0.43.0
 	github.com/gofiber/fiber/v3 v3.3.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.10.0
 	google.golang.org/protobuf v1.36.11
 )
 
 require (
 	connectrpc.com/grpcreflect v1.3.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
+	github.com/Azure/go-autorest v14.2.0+incompatible // indirect
 	github.com/Azure/go-autorest/autorest/adal v0.9.16 // indirect
 	github.com/Azure/go-autorest/autorest/date v0.3.0 // indirect
 	github.com/Azure/go-autorest/logger v0.2.1 // indirect
@@ -41,6 +41,7 @@ require (
 	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgx/v5 v5.10.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
@@ -58,6 +59,7 @@ require (
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/segmentio/kafka-go v0.4.51 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/sijms/go-ora/v2 v2.9.0 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

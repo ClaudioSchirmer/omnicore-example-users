@@ -32,6 +32,7 @@ type ChangeAddressRequest struct {
 	State        string  `json:"state"                example:"CA"`
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
+	AddressType  string  `json:"addressType"          example:"residential"`
 }
 
 // ToCommand converts the Request DTO into the Command. Boundary
@@ -52,6 +53,7 @@ func (r ChangeAddressRequest) ToCommand() *commands.ChangeAddressCommand {
 			State:        r.State,
 			ZipCode:      r.ZipCode,
 			Country:      r.Country,
+			AddressType:  r.AddressType,
 		},
 	}
 }

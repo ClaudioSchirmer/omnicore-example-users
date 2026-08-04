@@ -14,14 +14,18 @@ import (
 // manual showcase keeps every layer above domain/ as a parallel copy,
 // matching the Update/Patch/Archive/Unarchive/Delete custom twins.
 type InsertUserCustomRequest struct {
-	Name              string                 `json:"name"                        example:"Alice Pereira"`
-	Email             string                 `json:"email"                       example:"alice@example.com"`
-	Phone             *string                `json:"phone,omitempty"             example:"14155552671"`
-	Document          string                 `json:"document"                    example:"12345678901"`
-	UserName          string                 `json:"userName"                    example:"alice"`
-	EmailNotification *bool                  `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                  `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []AddressCustomRequest `json:"addresses,omitempty"`
+	Name                  string                 `json:"name"                            example:"Alice Pereira"`
+	Email                 string                 `json:"email"                           example:"alice@example.com"`
+	Phone                 *string                `json:"phone,omitempty"                 example:"14155552671"`
+	Document              string                 `json:"document"                        example:"12345678901"`
+	Ethnicity             string                 `json:"ethnicity"                       example:"white"`
+	UserName              string                 `json:"userName"                        example:"alice"`
+	UserProfile           int                    `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool                  `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                  `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string                `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                   `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []AddressCustomRequest `json:"addresses,omitempty"`
 }
 
 // ToCommand converts the Request DTO into the Command. Boundary
@@ -35,14 +39,18 @@ func (r InsertUserCustomRequest) ToCommand() *commands.InsertUserCustomCommand {
 		addrs[i] = a.ToAddressInput()
 	}
 	return &commands.InsertUserCustomCommand{
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		Document:          r.Document,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         addrs,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Document:              r.Document,
+		Ethnicity:             r.Ethnicity,
+		UserName:              r.UserName,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             addrs,
 	}
 }
 

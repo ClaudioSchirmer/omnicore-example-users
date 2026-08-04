@@ -28,11 +28,12 @@ func (r FindPersonByIDRequest) ToQuery() *queries.FindPersonByIDQuery {
 // per nested type). Role fields are pointers so an absent role (null segment)
 // disappears from the wire.
 type FindPersonByIDResponse struct {
-	ID       string  `json:"id"                 example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name     string  `json:"name"               example:"Alice Pereira"`
-	Email    string  `json:"email"              example:"alice@example.com"`
-	Phone    *string `json:"phone,omitempty"    example:"14155552671"`
-	Document string  `json:"document"           example:"12345678901"`
+	ID        string  `json:"id"                 example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name      string  `json:"name"               example:"Alice Pereira"`
+	Email     string  `json:"email"              example:"alice@example.com"`
+	Phone     *string `json:"phone,omitempty"    example:"14155552671"`
+	Document  string  `json:"document"           example:"12345678901"`
+	Ethnicity string  `json:"ethnicity"          example:"white"`
 
 	Addresses []FindUserByIDAddressOutput `json:"addresses"`
 	User      *PersonUserOutput           `json:"user,omitempty"`

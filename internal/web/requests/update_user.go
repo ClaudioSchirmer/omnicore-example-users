@@ -19,13 +19,17 @@ import (
 // sibling by sending them null (a full replace with both null removes the
 // user_configurations row).
 type UpdateUserRequest struct {
-	Name              string           `json:"name"                        example:"Alice Pereira"`
-	Email             string           `json:"email"                       example:"alice@example.com"`
-	Phone             *string          `json:"phone,omitempty"             example:"14155552671"`
-	UserName          string           `json:"userName"                    example:"alice"`
-	EmailNotification *bool            `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool            `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []AddressRequest `json:"addresses"`
+	Name                  string           `json:"name"                            example:"Alice Pereira"`
+	Email                 string           `json:"email"                           example:"alice@example.com"`
+	Phone                 *string          `json:"phone,omitempty"                 example:"14155552671"`
+	Ethnicity             string           `json:"ethnicity"                       example:"white"`
+	UserName              string           `json:"userName"                        example:"alice"`
+	UserProfile           int              `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool            `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool            `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string          `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int             `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []AddressRequest `json:"addresses"`
 }
 
 // ToCommand converts the Request DTO into the Command. Boundary
@@ -37,13 +41,17 @@ func (r UpdateUserRequest) ToCommand() *commands.UpdateUserCommand {
 		addrs[i] = a.ToAddressInput()
 	}
 	return &commands.UpdateUserCommand{
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         addrs,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Ethnicity:             r.Ethnicity,
+		UserName:              r.UserName,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             addrs,
 	}
 }
 
@@ -53,27 +61,35 @@ func (r UpdateUserRequest) ToCommand() *commands.UpdateUserCommand {
 // the post-update root snapshot + the FULL aggregate mirror (the replaced
 // address collection, with the ids the persister minted).
 type UpdateUserResponse struct {
-	ID                domain.ID                   `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name              string                      `json:"name"                        example:"Alice Pereira"`
-	Email             string                      `json:"email"                       example:"alice@example.com"`
-	Phone             *string                     `json:"phone,omitempty"             example:"14155552671"`
-	Document          string                      `json:"document"                    example:"12345678901"`
-	UserName          string                      `json:"userName"                    example:"alice"`
-	EmailNotification *bool                       `json:"emailNotification,omitempty" example:"true"`
-	SmsNotification   *bool                       `json:"smsNotification,omitempty"   example:"false"`
-	Addresses         []InsertUserResponseAddress `json:"addresses"`
+	ID                    domain.ID                   `json:"id"                              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name                  string                      `json:"name"                            example:"Alice Pereira"`
+	Email                 string                      `json:"email"                           example:"alice@example.com"`
+	Phone                 *string                     `json:"phone,omitempty"                 example:"14155552671"`
+	Document              string                      `json:"document"                        example:"12345678901"`
+	Ethnicity             string                      `json:"ethnicity"                       example:"white"`
+	UserName              string                      `json:"userName"                        example:"alice"`
+	UserProfile           int                         `json:"userProfile"                     example:"1"`
+	EmailNotification     *bool                       `json:"emailNotification,omitempty"     example:"true"`
+	SmsNotification       *bool                       `json:"smsNotification,omitempty"       example:"false"`
+	NotificationEmail     *string                     `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                        `json:"notificationFrequency,omitempty" example:"2"`
+	Addresses             []InsertUserResponseAddress `json:"addresses"`
 }
 
 func (UpdateUserResponse) FromResult(r commands.UpdateUserResult) UpdateUserResponse {
 	return UpdateUserResponse{
-		ID:                r.ID,
-		Name:              r.Name,
-		Email:             r.Email,
-		Phone:             r.Phone,
-		Document:          r.Document,
-		UserName:          r.UserName,
-		EmailNotification: r.EmailNotification,
-		SmsNotification:   r.SmsNotification,
-		Addresses:         insertUserResponseAddresses(r.Addresses),
+		ID:                    r.ID,
+		Name:                  r.Name,
+		Email:                 r.Email,
+		Phone:                 r.Phone,
+		Document:              r.Document,
+		Ethnicity:             r.Ethnicity,
+		UserName:              r.UserName,
+		UserProfile:           r.UserProfile,
+		EmailNotification:     r.EmailNotification,
+		SmsNotification:       r.SmsNotification,
+		NotificationEmail:     r.NotificationEmail,
+		NotificationFrequency: r.NotificationFrequency,
+		Addresses:             insertUserResponseAddresses(r.Addresses),
 	}
 }

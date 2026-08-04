@@ -53,4 +53,5 @@ type FindAddressByIDResponse struct {
 	State        string  `json:"state"                example:"CA"`
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
+	AddressType  string  `json:"addressType"          example:"residential"`
 }

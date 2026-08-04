@@ -3,7 +3,7 @@ package dtos
 import (
 	"time"
 
-	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 )
 
 // JobHistoryInput is the application-layer DTO shared between the Insert
@@ -17,9 +17,9 @@ type JobHistoryInput struct {
 	TerminatedAt *time.Time
 }
 
-// ToJobHistory materializes an appdomain.JobHistory — a direct copy.
-func (h JobHistoryInput) ToJobHistory() appdomain.JobHistory {
-	return appdomain.JobHistory{
+// ToJobHistory materializes an aggregatevos.JobHistory — a direct copy.
+func (h JobHistoryInput) ToJobHistory() aggregatevos.JobHistory {
+	return aggregatevos.JobHistory{
 		JobTitle:     h.JobTitle,
 		Department:   h.Department,
 		HiredAt:      h.HiredAt,

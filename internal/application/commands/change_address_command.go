@@ -7,6 +7,7 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ func (c *ChangeAddressCommand) ApplyTo(_ *configuration.AppContext, u *appdomain
 // cmd-side identifier, no transient field needed on the entity.
 func (c *ChangeAddressCommand) FromEntity(_ *configuration.AppContext, u *appdomain.User) (ChangeAddressResult, error) {
 	out := ChangeAddressResult{UserID: *u.GetID()}
-	for _, addr := range domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot) {
+	for _, addr := range domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot) {
 		if addr.GetID().Value() == c.AddressID {
 			out.Address = toAddressResult(addr)
 			break
@@ -81,10 +82,11 @@ type AddressResult struct {
 	State        string
 	ZipCode      string
 	Country      string
+	AddressType  string
 }
 
 // toAddressResult maps one domain Address to its application-layer snapshot.
-func toAddressResult(a appdomain.Address) AddressResult {
+func toAddressResult(a aggregatevos.Address) AddressResult {
 	return AddressResult{
 		ID:           a.GetID().Value(),
 		Label:        a.Label,
@@ -94,8 +96,9 @@ func toAddressResult(a appdomain.Address) AddressResult {
 		Neighborhood: a.Neighborhood,
 		City:         a.City,
 		State:        a.State,
-		ZipCode:      a.ZipCode,
+		ZipCode:      a.ZipCode.Value(),
 		Country:      a.Country,
+		AddressType:  a.AddressType.Value(),
 	}
 }
 
@@ -105,7 +108,7 @@ func toAddressResult(a appdomain.Address) AddressResult {
 // Used by the insert/update FromEntity mirrors (the entity has the final
 // word: the response reflects the post-write aggregate, never the input).
 func currentAddressResults(u *appdomain.User) []AddressResult {
-	items := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	items := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	out := make([]AddressResult, 0, len(items))
 	for _, a := range items {
 		out = append(out, toAddressResult(a))

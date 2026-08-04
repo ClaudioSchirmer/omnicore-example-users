@@ -93,7 +93,7 @@ qa_mongo_reset
 ok "domain tables + view collections reset"
 
 title "0.1 CDC warm-up probe"
-req POST /users '{"name":"Cdc Probe","email":"probe@example.com","document":"70000000000","userName":"cdcprobe"}'
+req POST /users '{"name":"Cdc Probe","email":"probe@example.com","document":"70000000000","userName":"cdcprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null}'
 if [ "$STATUS" = "201" ]; then
   if wait_person "document=70000000000&onlyTotal=true" "d['pagination']['total'] == 1" 60; then
     ok "CDC pipeline warm (probe person materialized)"
@@ -108,7 +108,7 @@ fi
 ####################################
 sec "1. User-only person: root + addresses + user segment, NO employee key"
 ####################################
-req POST /users "{\"name\":\"Ana Souza\",\"email\":\"ana@example.com\",\"document\":\"$D1\",\"userName\":\"ana\",\"emailNotification\":true,\"addresses\":[{\"street\":\"Rua A\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+req POST /users "{\"name\":\"Ana Souza\",\"email\":\"ana@example.com\",\"document\":\"$D1\",\"userName\":\"ana\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":true,\"addresses\":[{\"street\":\"Rua A\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 expect_status "1.1 POST /users (first role)" 201
 USER_ID=$(jsonq "d['data']['id']")
 
@@ -132,7 +132,7 @@ expect_status "1.11 undeclared by-id query key → 400" 400
 ####################################
 sec "2. Second role on the same document: two segments, one identity"
 ####################################
-req POST /employees "{\"name\":\"Ana Souza\",\"email\":\"ana@example.com\",\"document\":\"$D1\",\"employeeNumber\":\"EMP-1\",\"bank\":\"260\",\"branch\":\"0001\",\"account\":\"12345-6\",\"dependents\":[{\"name\":\"Rita\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-1\"}],\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}],\"addresses\":[{\"street\":\"Rua A\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\"}]}"
+req POST /employees "{\"name\":\"Ana Souza\",\"email\":\"ana@example.com\",\"document\":\"$D1\",\"employeeNumber\":\"EMP-1\",\"ethnicity\":\"white\",\"bank\":\"260\",\"branch\":\"0001\",\"account\":\"12345-6\",\"dependents\":[{\"name\":\"Rita\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\"}],\"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}],\"addresses\":[{\"street\":\"Rua A\",\"number\":\"1\",\"neighborhood\":\"Centro\",\"city\":\"POA\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"residential\"}]}"
 expect_status "2.1 POST /employees (same document)" 201
 
 wait_person "document=$D1" "'employee' in d['data'][0] and d['data'][0]['employee'].get('employeeNumber') == 'EMP-1'" && \
@@ -161,12 +161,12 @@ wait_person "document=$D1" "d['data'][0]['name'] == 'Ana M. Souza'" && \
   ok "3.4 person root converged from the user write" || bad "3.4 root name did not converge"
 
 title "3.5 base children edited through a role reflect at the person ROOT"
-req PUT "/users/$USER_ID" '{"name":"Ana M. Souza","email":"ana@example.com","phone":null,"userName":"ana","emailNotification":true,"smsNotification":null,"addresses":[{"street":"Rua A","number":"1","label":null,"complement":null,"neighborhood":"Centro","city":"POA","state":"RS","zipCode":"90000000","country":"BR"},{"street":"Av B","number":"2","label":null,"complement":null,"neighborhood":"Norte","city":"POA","state":"RS","zipCode":"91000000","country":"BR"}]}'
+req PUT "/users/$USER_ID" '{"name":"Ana M. Souza","email":"ana@example.com","phone":null,"userName":"ana","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":null,"addresses":[{"street":"Rua A","number":"1","label":null,"complement":null,"neighborhood":"Centro","city":"POA","state":"RS","zipCode":"90000000","country":"BR","addressType":"residential"},{"street":"Av B","number":"2","label":null,"complement":null,"neighborhood":"Norte","city":"POA","state":"RS","zipCode":"91000000","country":"BR","addressType":"residential"}]}'
 expect_status "3.5 PUT /users adds a second address" 200
 wait_person "document=$D1" "len(d['data'][0]['addresses']) == 2" && \
   ok "3.6 person root gained the address added through the USER role" || bad "3.6 addresses did not converge to 2"
 
-req PUT "/employees/$USER_ID" '{"name":"Ana M. Souza","email":"ana@example.com","phone":null,"employeeNumber":"EMP-1","bank":"260","branch":"0001","account":"12345-6","pix":null,"dependents":[{"name":"Rita","birthDate":"2015-03-10T00:00:00Z","relationship":"daughter","healthPlanProvider":"Unimed","healthPlanCard":"UN-1","healthPlanExpiry":null}],"jobHistories":[{"jobTitle":"Engineer","department":"Platform","hiredAt":"2022-01-10T00:00:00Z","terminatedAt":null}],"addresses":[{"street":"Rua A","number":"1","label":null,"complement":null,"neighborhood":"Centro","city":"POA","state":"RS","zipCode":"90000000","country":"BR"}]}'
+req PUT "/employees/$USER_ID" '{"name":"Ana M. Souza","email":"ana@example.com","phone":null,"employeeNumber":"EMP-1","ethnicity":"white","bank":"260","branch":"0001","account":"12345-6","pix":null,"dependents":[{"name":"Rita","birthDate":"2015-03-10T00:00:00Z","relationship":"daughter","healthPlanProvider":"Unimed","healthPlanCard":"889923","healthPlanExpiry":null}],"jobHistories":[{"jobTitle":"Engineer","department":"Platform","hiredAt":"2022-01-10T00:00:00Z","terminatedAt":null}],"addresses":[{"street":"Rua A","number":"1","label":null,"complement":null,"neighborhood":"Centro","city":"POA","state":"RS","zipCode":"90000000","country":"BR","addressType":"residential"}]}'
 expect_status "3.7 PUT /employees trims addresses back to one" 200
 wait_person "document=$D1" "len(d['data'][0]['addresses']) == 1" && \
   ok "3.8 person root lost the address removed through the EMPLOYEE role" || bad "3.8 addresses did not converge back to 1"
@@ -180,7 +180,7 @@ wait_person "document=$D1" "d['data'][0]['user'].get('emailNotification') == Fal
 ####################################
 sec "4. Role-path filters — the FULL declared vocabulary + the exact allowlist"
 ####################################
-req POST /users "{\"name\":\"Beto Lima\",\"email\":\"beto@example.com\",\"document\":\"$D2\",\"userName\":\"beto\"}"
+req POST /users "{\"name\":\"Beto Lima\",\"email\":\"beto@example.com\",\"document\":\"$D2\",\"userName\":\"beto\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "4.0 second person (user-only)" 201
 wait_person "document=$D2&onlyTotal=true" "d['pagination']['total'] == 1" || bad "4.0 second person never materialized"
 
@@ -260,7 +260,7 @@ expect_status "4.6.4 undeclared operator on a role-child path → 400" 400
 ####################################
 sec "5. Sort + sparse render + KEYSET CURSOR pagination"
 ####################################
-req POST /users "{\"name\":\"Caio Prado\",\"email\":\"caio@example.com\",\"document\":\"70000000003\",\"userName\":\"caio\"}"
+req POST /users "{\"name\":\"Caio Prado\",\"email\":\"caio@example.com\",\"document\":\"70000000003\",\"userName\":\"caio\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "5.0 third person (for pagination)" 201
 wait_person "onlyTotal=true" "d['pagination']['total'] == 3" || bad "5.0 third person never materialized"
 
@@ -388,7 +388,7 @@ sec "12. Base managed columns: persons.updated_at moves on a role-driven change"
 # exposes these columns, and before this behavior persons.updated_at stayed
 # frozen at creation while the row's data changed through a role.
 D3="70000000012"
-req POST /users '{"name":"Carla Souza","email":"carla.basecols@example.com","phone":"14155550123","document":"'"$D3"'","userName":"carlabc","addresses":[{"label":"home","street":"Main","number":"9","neighborhood":"Centro","city":"Sao Paulo","state":"SP","zipCode":"01000-000","country":"BR"}]}'
+req POST /users '{"name":"Carla Souza","email":"carla.basecols@example.com","phone":"14155550123","document":"'"$D3"'","userName":"carlabc","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"addresses":[{"label":"home","street":"Main","number":"9","neighborhood":"Centro","city":"Sao Paulo","state":"SP","zipCode":"01000-000","country":"BR","addressType":"residential"}]}'
 expect_status "12.1 create user (identity D3 born — created_at stamped)" 201
 USER3=$(jsonq "d['data']['id']")
 sleep 2  # DATETIME has second resolution — make updated_at distinguishable
@@ -400,6 +400,66 @@ if [ "$STAMP" = "1" ]; then
 else
   bad "12.3 persons.updated_at did not move (base managed-columns stamping broken) — got '$STAMP'"
 fi
+
+####################################
+sec "VO coverage on the person view — ethnicity (base), userProfile (user role), healthPlanType (employee dependent)"
+####################################
+# The SharedBaseView surfaces the base's VO (ethnicity) flat, the user role's VO
+# (userProfile) under user.*, and the employee dependent's VO under
+# employee.dependents.* — each queryable by its role path.
+vpf() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got $2 want $3)"; fi; }
+PVDOC=45000000000
+puser() { # puser <doc> <userName> <ethnicity> <userProfile> ; sets RESP; echoes id (=person id)
+  req POST /users "{\"name\":\"PV $2\",\"email\":\"pv.$2@example.com\",\"document\":\"$1\",\"userName\":\"$2\",\"ethnicity\":\"$3\",\"userProfile\":$4,\"notificationEmail\":null,\"notificationFrequency\":null}"
+  jsonq "d['data']['id']"
+}
+
+# ── ethnicity (base) in/out + filter per member ────────────────────────────
+for e in white black asian mixed indigenous not_declared; do
+  PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pve$e" "$e" 1)
+  [ -n "$pid" ] || { bad "person create ethnicity=$e (no id; status=$STATUS)"; continue; }
+  wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
+  req GET "/persons/$pid"
+  vpf "person ethnicity in/out ($e)" "$(jsonq "d['data'].get('ethnicity')")" "$e"
+  req GET "/persons?ethnicity=$e&onlyTotal=true"
+  vpf "person filter ?ethnicity=$e ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/persons?ethnicity=martian&onlyTotal=true"
+vpf "person filter ethnicity=martian → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── userProfile (user role segment) in/out + filter per member ─────────────
+for p in 1 2 3 4 5 6; do
+  PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pvp$p" white "$p")
+  [ -n "$pid" ] || { bad "person create userProfile=$p (no id; status=$STATUS)"; continue; }
+  wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
+  req GET "/persons/$pid"
+  vpf "person user.userProfile in/out ($p)" "$(jsonq "(d['data'].get('user') or {}).get('userProfile')")" "$p"
+  req GET "/persons?user.userProfile=$p&onlyTotal=true"
+  vpf "person filter ?user.userProfile=$p ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/persons?user.userProfile=99&onlyTotal=true"
+vpf "person filter user.userProfile=99 → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── healthPlanType via the employee dependent role path ────────────────────
+PVDOC=$((PVDOC+1)); D_HP="$PVDOC"
+req POST /users "{\"name\":\"PV HP\",\"email\":\"pv.hp@example.com\",\"document\":\"$D_HP\",\"userName\":\"pvhp\",\"ethnicity\":\"asian\",\"userProfile\":2,\"notificationEmail\":null,\"notificationFrequency\":null}"
+PHPID=$(jsonq "d['data']['id']")
+req POST /employees "{\"name\":\"PV HP\",\"email\":\"pv.hp@example.com\",\"document\":\"$D_HP\",\"employeeNumber\":\"PV-HP\",\"ethnicity\":\"asian\",\"dependents\":[{\"name\":\"Dep\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanType\":\"family\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\"}]}"
+expect_status "person: employee role added for HP" 201
+wait_person "id=$PHPID" "(d['data'][0].get('employee') if d['data'] else None) is not None" 15 >/dev/null 2>&1
+req GET "/persons/$PHPID"
+vpf "person employee.dependents[0].healthPlanType in/out" "$(jsonq "((d['data'].get('employee') or {}).get('dependents') or [{}])[0].get('healthPlanType')")" "family"
+vpf "person employee.dependents[0].relationship in/out" "$(jsonq "((d['data'].get('employee') or {}).get('dependents') or [{}])[0].get('relationship')")" "daughter"
+req GET "/persons?employee.dependents.healthPlanType=family&onlyTotal=true"
+vpf "person filter ?employee.dependents.healthPlanType=family ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+req GET "/persons?employee.dependents.relationship=daughter&onlyTotal=true"
+vpf "person filter ?employee.dependents.relationship=daughter ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+
+# ── ?fields= into the person view (root + role) ────────────────────────────
+req GET "/persons?fields=ethnicity&limit=1"
+vpf "person ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" True
+req GET "/persons?fields=user.userProfile&limit=1"
+vpf "person ?fields=user.userProfile projects it" "$(jsonq "'userProfile' in ((d['data'][0].get('user') or {}) if d['data'] else {})")" True
 
 ####################################
 hr

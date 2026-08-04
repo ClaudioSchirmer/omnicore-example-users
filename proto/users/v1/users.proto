@@ -29,6 +29,13 @@ message CreateUserRequest {
   optional string user_name = 5;
   optional bool email_notification = 6;
   optional bool sms_notification = 7;
+  // Value-object fields (enum VOs surface as their underlying scalar on the
+  // wire — the DTO carries vos.Ethnicity / vos.UserProfile; the raw-VO
+  // notification_email and enum notification_frequency ride the sibling facet).
+  optional string ethnicity = 8;
+  optional int32 user_profile = 9;
+  optional string notification_email = 10;
+  optional int32 notification_frequency = 11;
 }
 
 message CreateUserResponse {
@@ -38,6 +45,10 @@ message CreateUserResponse {
   optional string phone = 4;
   string document = 5;
   string user_name = 6;
+  string ethnicity = 7;
+  int32 user_profile = 8;
+  optional string notification_email = 9;
+  optional int32 notification_frequency = 10;
 }
 
 // UserFilters is the view's typed filter surface — each declared field is
@@ -65,6 +76,13 @@ message User {
   // ToCriteria Restrict) — also the read_mask/sort path the authz suites
   // probe. optional: absent and empty are distinct.
   optional string phone = 6;
+  // Value-object fields: the enum VOs surface as their underlying scalar
+  // (string/int) on the wire, populated from the projected document through the
+  // pb↔DTO bridge (the DTO carries vos.Ethnicity / vos.UserProfile).
+  string ethnicity = 7;
+  int32 user_profile = 8;
+  optional string notification_email = 9;
+  optional int32 notification_frequency = 10;
 }
 
 message ListUsersResponse {
@@ -83,6 +101,10 @@ message GetUserResponse {
   string email = 3;
   string document = 4;
   string user_name = 5;
+  string ethnicity = 6;
+  int32 user_profile = 7;
+  optional string notification_email = 8;
+  optional int32 notification_frequency = 9;
 }
 
 message ArchiveUserRequest {
@@ -102,6 +124,7 @@ message AddressInput {
   optional string city = 6;
   optional string state = 7;
   optional string zip_code = 8;
+  optional string address_type = 9;
 }
 
 // UpdateUserRequest is the WithBodyID sibling of PUT /users/:id — the id
@@ -116,6 +139,10 @@ message UpdateUserRequest {
   optional bool email_notification = 6;
   optional bool sms_notification = 7;
   repeated AddressInput addresses = 8;
+  optional string ethnicity = 9;
+  optional int32 user_profile = 10;
+  optional string notification_email = 11;
+  optional int32 notification_frequency = 12;
 }
 
 message UpdateUserResponse {
@@ -124,4 +151,8 @@ message UpdateUserResponse {
   string email = 3;
   optional string phone = 4;
   string user_name = 5;
+  string ethnicity = 6;
+  int32 user_profile = 7;
+  optional string notification_email = 8;
+  optional int32 notification_frequency = 9;
 }

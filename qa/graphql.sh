@@ -143,9 +143,11 @@ gql "mutation { createUser(input: {
         phone: \"14155552671\",
         document: \"10000000050\",
         userName: \"gqltester\",
+        ethnicity: \"white\",
+        userProfile: 1,
         addresses: [{ label: \"home\", street: \"1 Infinite Loop\", number: \"1\",
                       neighborhood: \"Mariani\", city: \"Cupertino\", state: \"CA\",
-                      zipCode: \"95014\", country: \"US\" }]
+                      zipCode: \"95014\", country: \"US\", addressType: \"residential\" }]
      }) { id name email document userName } }" >/dev/null
 assert_jq "createUser returns the email" '.data.createUser.email' "${EMAIL}"
 assert_jq "createUser returns the document (natural key)" '.data.createUser.document' "10000000050"
@@ -200,11 +202,15 @@ if [ -n "${USER_ID}" ] && [ "${USER_ID}" != "null" ]; then
             email: \"gql.updated@example.com\",
             phone: \"14155550000\",
             userName: \"gqltester\",
+            ethnicity: \"white\",
+            userProfile: 1,
+            notificationEmail: \"gql.notify@example.com\",
+            notificationFrequency: 2,
             emailNotification: true,
             smsNotification: false,
             addresses: [{ label: \"work\", street: \"2 Loop\", number: \"2\",
                           neighborhood: \"Centro\", city: \"Cupertino\", state: \"CA\",
-                          zipCode: \"95015\", country: \"US\" }]
+                          zipCode: \"95015\", country: \"US\", addressType: \"residential\" }]
          }) { id name email } }" >/dev/null
     assert_jq "updateUser applies the new name" '.data.updateUser.name' "GraphQL Updated"
     assert_jq "updateUser applies the new (mutable) email" '.data.updateUser.email' "gql.updated@example.com"
@@ -235,9 +241,10 @@ fi
 gql "mutation { createUser(input: {
         name: \"Bad Email\", email: \"not-an-email\", phone: \"14155552671\",
         document: \"10000000051\", userName: \"bademail\",
+        ethnicity: \"white\", userProfile: 1,
         addresses: [{ label: \"home\", street: \"1 Loop\", number: \"1\",
                       neighborhood: \"X\", city: \"Y\", state: \"CA\",
-                      zipCode: \"95014\", country: \"US\" }]
+                      zipCode: \"95014\", country: \"US\", addressType: \"residential\" }]
      }) { id } }" >/dev/null
 assert_jq "invalid email → semantic Validation" '.errors[0].extensions.semantic' "Validation"
 assert_jq "invalid email → notificationKey InvalidEmailNotification" \
@@ -335,9 +342,10 @@ seed_gop() {
     gql "mutation { createUser(input: {
             name: \"${name}\", email: \"${email}\", phone: \"14155552671\",
             document: \"${doc}\", userName: \"${uname}\",
+            ethnicity: \"white\", userProfile: 1,
             addresses: [{ label: \"home\", street: \"1 Loop\", number: \"1\",
                           neighborhood: \"X\", city: \"Cupertino\", state: \"CA\",
-                          zipCode: \"95014\", country: \"US\" }]
+                          zipCode: \"95014\", country: \"US\", addressType: \"residential\" }]
          }) { id } }" >/dev/null
     jq -r '.data.createUser.id' ${GQL_TMP}.body 2>/dev/null
 }

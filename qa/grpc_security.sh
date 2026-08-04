@@ -148,7 +148,7 @@ grpc_call "$GRPC_BASE" ListUsers '{"page":{"onlyTotal":true}}' -H "Authorization
 
 title "A.6 valid token WITH users:write → create 200"
 WRITER=$(mint "$FUTURE" '["users:write"]')
-grpc_call "$GRPC_BASE" CreateUser '{"name":"Sec Alice","email":"sec.alice@example.com","document":"99093000001","userName":"grpcsec_alice"}' -H "Authorization: Bearer $WRITER"
+grpc_call "$GRPC_BASE" CreateUser '{"name":"Sec Alice","email":"sec.alice@example.com","document":"99093000001","userName":"grpcsec_alice","ethnicity":"white","userProfile":1}' -H "Authorization: Bearer $WRITER"
 [ "$RPC_STATUS" = "200" ] && ok "gate grants write" || { bad "A.6 (got $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; }
 
 ##############################################################################
@@ -157,7 +157,7 @@ sec "B. Internal plane — same IdP material, trusted posture"
 boot "$WORK/internal.yaml"; ok "booted internal"
 
 title "B.1 anonymous create → 200 (gates pass on the trusted plane)"
-grpc_call "$GRPC_BASE" CreateUser '{"name":"Sec Bob","email":"sec.bob@example.com","document":"99093000002","userName":"grpcsec_bob"}'
+grpc_call "$GRPC_BASE" CreateUser '{"name":"Sec Bob","email":"sec.bob@example.com","document":"99093000002","userName":"grpcsec_bob","ethnicity":"white","userProfile":1}'
 [ "$RPC_STATUS" = "200" ] && ok "anonymous internal write" || { bad "B.1 (got $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; }
 
 title "B.2 the SAME expired token door A rejected → passes with attribution"

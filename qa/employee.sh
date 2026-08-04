@@ -88,7 +88,7 @@ qa_db_exec "DELETE FROM audit_events;" 2>/dev/null || true
 ok "domain tables + view collections reset"
 
 title "0.1 CDC warm-up probe (absorbs Kafka consumer-group rebalance after a server restart)"
-req POST /users '{"name":"Cdc Probe","email":"probe@example.com","document":"30000000000","userName":"cdcprobe"}'
+req POST /users '{"name":"Cdc Probe","email":"probe@example.com","document":"30000000000","userName":"cdcprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null}'
 if [ "$STATUS" = "201" ]; then
   PROBE_ID=$(jsonq "d['data']['id']")
   deadline=$(( $(date +%s) + 60 )); warm=fail
@@ -113,12 +113,12 @@ sec "1. SharedBase reuse across roles (layer 6) + vetoable purge + purge audit"
 D1="30000000001"
 
 title "1.1 POST /users (first role for document $D1)"
-req POST /users "{\"name\":\"Cross Role\",\"email\":\"cross@example.com\",\"document\":\"$D1\",\"userName\":\"crossrole\"}"
+req POST /users "{\"name\":\"Cross Role\",\"email\":\"cross@example.com\",\"document\":\"$D1\",\"userName\":\"crossrole\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "create user role" 201
 UID1=$(jsonq "d['data']['id']")
 
 title "1.2 POST /employees with the SAME document → same person, same deterministic id"
-req POST /employees "{\"name\":\"Cross Role\",\"email\":\"cross@example.com\",\"document\":\"$D1\",\"employeeNumber\":\"EMP-C1\"}"
+req POST /employees "{\"name\":\"Cross Role\",\"email\":\"cross@example.com\",\"document\":\"$D1\",\"employeeNumber\":\"EMP-C1\",\"ethnicity\":\"white\"}"
 expect_status "create employee role over existing person" 201
 EID1=$(jsonq "d['data']['id']")
 if [ "$UID1" = "$EID1" ]; then
@@ -176,7 +176,7 @@ PURGE_AUDIT=$(qa_db_query "SELECT count(*) FROM audit_events WHERE entity_type='
 
 title "1.7 Drop the external ref, re-create the employee role (kept identity is reused)"
 qa_db_exec "DROP TABLE qa_external_refs;"
-req POST /employees "{\"name\":\"Cross Role Renamed\",\"email\":\"cross@example.com\",\"document\":\"$D1\",\"employeeNumber\":\"EMP-C1\"}"
+req POST /employees "{\"name\":\"Cross Role Renamed\",\"email\":\"cross@example.com\",\"document\":\"$D1\",\"employeeNumber\":\"EMP-C1\",\"ethnicity\":\"white\"}"
 expect_status "re-create employee over the kept person" 201
 [ "$(jsonq "d['data']['id']")" = "$EID1" ] && ok "same deterministic id reused" || bad "id changed on re-create"
 
@@ -196,11 +196,11 @@ PURGE_OUTBOX=$(qa_db_query "SELECT count(*) FROM outbox WHERE aggregate_type='pe
 sec "2. Two role-owned child collections — CRUD, FLAT render, child filters"
 ####################################
 D2="30000000002"
-BODY_FULL="{\"name\":\"Alice Pereira\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"document\":\"$D2\",\"employeeNumber\":\"EMP-0002\",
+BODY_FULL="{\"name\":\"Alice Pereira\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"document\":\"$D2\",\"employeeNumber\":\"EMP-0002\",\"ethnicity\":\"white\",
   \"bank\":\"260\",\"branch\":\"0001\",\"account\":\"1234567-8\",\"pix\":\"alice.emp@example.com\",
-  \"addresses\":[{\"street\":\"1 Infinite Loop\",\"number\":\"1\",\"neighborhood\":\"Mariani\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\"}],
+  \"addresses\":[{\"street\":\"1 Infinite Loop\",\"number\":\"1\",\"neighborhood\":\"Mariani\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\",\"addressType\":\"residential\"}],
   \"dependents\":[
-    {\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
     {\"name\":\"Pedro Silva\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\"}
   ],
   \"jobHistories\":[
@@ -258,12 +258,12 @@ expect_status "unknown nested filter key → 400" 400
 sec "3. A2b — sibling of a CHILD (dependent_health_plans) PUT/PATCH semantics"
 ####################################
 title "3.1 PUT filling Pedro's plan → the child-sibling row materializes"
-BODY_PUT1="{\"name\":\"Alice Pereira\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"employeeNumber\":\"EMP-0002\",
+BODY_PUT1="{\"name\":\"Alice Pereira\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"employeeNumber\":\"EMP-0002\",\"ethnicity\":\"white\",
   \"bank\":\"260\",\"branch\":\"0001\",\"account\":\"1234567-8\",\"pix\":\"alice.emp@example.com\",
-  \"addresses\":[{\"street\":\"1 Infinite Loop\",\"number\":\"1\",\"neighborhood\":\"Mariani\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\"}],
+  \"addresses\":[{\"street\":\"1 Infinite Loop\",\"number\":\"1\",\"neighborhood\":\"Mariani\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\",\"addressType\":\"residential\"}],
   \"dependents\":[
-    {\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
-    {\"name\":\"Pedro Silva\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\",\"healthPlanProvider\":\"Amil\",\"healthPlanCard\":\"AM-11\",\"healthPlanExpiry\":\"2026-12-31T00:00:00Z\"}
+    {\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Pedro Silva\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\",\"healthPlanProvider\":\"Amil\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2026-12-31T00:00:00Z\"}
   ],
   \"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}]}"
 req PUT "/employees/$EID2" "$BODY_PUT1"
@@ -285,11 +285,11 @@ else
 fi
 
 title "3.3 PUT clearing Pedro's plan → the child-sibling row is removed"
-BODY_PUT2="{\"name\":\"Alice P. Patched\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"employeeNumber\":\"EMP-0002\",
+BODY_PUT2="{\"name\":\"Alice P. Patched\",\"email\":\"alice.emp@example.com\",\"phone\":\"14155552671\",\"employeeNumber\":\"EMP-0002\",\"ethnicity\":\"white\",
   \"bank\":\"260\",\"branch\":\"0001\",\"account\":\"1234567-8\",\"pix\":\"alice.emp@example.com\",
-  \"addresses\":[{\"street\":\"1 Infinite Loop\",\"number\":\"1\",\"neighborhood\":\"Mariani\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\"}],
+  \"addresses\":[{\"street\":\"1 Infinite Loop\",\"number\":\"1\",\"neighborhood\":\"Mariani\",\"city\":\"Cupertino\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\",\"addressType\":\"residential\"}],
   \"dependents\":[
-    {\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Maria Silva\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
     {\"name\":\"Pedro Silva\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\"}
   ],
   \"jobHistories\":[{\"jobTitle\":\"Engineer\",\"department\":\"Platform\",\"hiredAt\":\"2022-01-10T00:00:00Z\"}]}"
@@ -305,7 +305,7 @@ sec "4. Role sibling (employee_bank_accounts) — conditional materialization"
 ####################################
 D4="30000000004"
 title "4.1 POST without any bank field → no sibling row"
-req POST /employees "{\"name\":\"No Bank\",\"email\":\"nobank@example.com\",\"document\":\"$D4\",\"employeeNumber\":\"EMP-0004\"}"
+req POST /employees "{\"name\":\"No Bank\",\"email\":\"nobank@example.com\",\"document\":\"$D4\",\"employeeNumber\":\"EMP-0004\",\"ethnicity\":\"white\"}"
 expect_status "create bankless employee" 201
 EID4=$(jsonq "d['data']['id']")
 CNT=$(qa_db_query "SELECT count(*) FROM employee_bank_accounts WHERE id = $(qa_uuid_lit "$EID4");")
@@ -324,7 +324,7 @@ VAL=$(qa_db_query "SELECT bank FROM employee_bank_accounts WHERE id = $(qa_uuid_
 [ "$VAL" = "341" ] && ok "sibling value preserved through unrelated PATCH" || bad "bank value = '$VAL'"
 
 title "4.4 PUT omitting the whole facet → sibling row removed"
-req PUT "/employees/$EID4" "{\"name\":\"No Bank Renamed\",\"email\":\"nobank@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-0004\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,\"addresses\":[],\"dependents\":[],\"jobHistories\":[]}"
+req PUT "/employees/$EID4" "{\"name\":\"No Bank Renamed\",\"email\":\"nobank@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-0004\",\"ethnicity\":\"white\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,\"addresses\":[],\"dependents\":[],\"jobHistories\":[]}"
 expect_status "PUT without bank facet" 200
 CNT=$(qa_db_query "SELECT count(*) FROM employee_bank_accounts WHERE id = $(qa_uuid_lit "$EID4");")
 [ "$CNT" = "0" ] && ok "PUT removed the sibling row (absent facet = remove)" || bad "bank rows = $CNT (want 0)"
@@ -334,9 +334,9 @@ sec "5. Archive/unarchive — cascade over role children, base keep-by-default"
 ####################################
 D5="30000000005"
 title "5.1 Fixture: person with BOTH roles + employee children"
-req POST /users "{\"name\":\"Two Roles\",\"email\":\"tworoles@example.com\",\"document\":\"$D5\",\"userName\":\"tworoles\"}"
+req POST /users "{\"name\":\"Two Roles\",\"email\":\"tworoles@example.com\",\"document\":\"$D5\",\"userName\":\"tworoles\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "create user role" 201
-req POST /employees "{\"name\":\"Two Roles\",\"email\":\"tworoles@example.com\",\"document\":\"$D5\",\"employeeNumber\":\"EMP-0005\",
+req POST /employees "{\"name\":\"Two Roles\",\"email\":\"tworoles@example.com\",\"document\":\"$D5\",\"employeeNumber\":\"EMP-0005\",\"ethnicity\":\"white\",
   \"dependents\":[{\"name\":\"Kid A\",\"birthDate\":\"2019-01-01T00:00:00Z\",\"relationship\":\"son\"}],
   \"jobHistories\":[{\"jobTitle\":\"Clerk\",\"department\":\"Ops\",\"hiredAt\":\"2023-02-01T00:00:00Z\"}]}"
 expect_status "create employee role" 201
@@ -436,12 +436,12 @@ gql "{\"query\":\"{ employees(where: {dependents_relationship: {eq: \\\"daughter
 
 title "7.3 createEmployee mutation"
 D7="30000000007"
-gql "{\"query\":\"mutation { createEmployee(input: {name: \\\"Gql Emp\\\", email: \\\"gql@example.com\\\", document: \\\"$D7\\\", employeeNumber: \\\"EMP-0007\\\", dependents: [{name: \\\"Gql Kid\\\", birthDate: \\\"2020-05-05T00:00:00Z\\\", relationship: \\\"daughter\\\"}], jobHistories: [{jobTitle: \\\"Intern\\\", department: \\\"Lab\\\", hiredAt: \\\"2024-01-02T00:00:00Z\\\"}]}) { id employeeNumber } }\"}"
+gql "{\"query\":\"mutation { createEmployee(input: {ethnicity: \\\"white\\\", name: \\\"Gql Emp\\\", email: \\\"gql@example.com\\\", document: \\\"$D7\\\", employeeNumber: \\\"EMP-0007\\\", dependents: [{name: \\\"Gql Kid\\\", birthDate: \\\"2020-05-05T00:00:00Z\\\", relationship: \\\"daughter\\\"}], jobHistories: [{jobTitle: \\\"Intern\\\", department: \\\"Lab\\\", hiredAt: \\\"2024-01-02T00:00:00Z\\\"}]}) { id employeeNumber } }\"}"
 GQL_ID=$(jsonq "d['data']['createEmployee']['id']")
 [ -n "$GQL_ID" ] && [ "$GQL_ID" != "None" ] && ok "createEmployee returned id $GQL_ID" || bad "createEmployee failed: $RESP"
 
 title "7.4 updateEmployee (PUT semantics) + patchEmployee"
-gql "{\"query\":\"mutation { updateEmployee(id: \\\"$GQL_ID\\\", input: {name: \\\"Gql Emp Updated\\\", email: \\\"gql@example.com\\\", phone: \\\"14155550000\\\", employeeNumber: \\\"EMP-0007\\\", bank: \\\"777\\\", branch: \\\"0001\\\", account: \\\"9\\\", pix: \\\"g@x.io\\\", addresses: [], dependents: [], jobHistories: []}) { name bank } }\"}"
+gql "{\"query\":\"mutation { updateEmployee(id: \\\"$GQL_ID\\\", input: {ethnicity: \\\"white\\\", name: \\\"Gql Emp Updated\\\", email: \\\"gql@example.com\\\", phone: \\\"14155550000\\\", employeeNumber: \\\"EMP-0007\\\", bank: \\\"777\\\", branch: \\\"0001\\\", account: \\\"9\\\", pix: \\\"g@x.io\\\", addresses: [], dependents: [], jobHistories: []}) { name bank } }\"}"
 [ "$(jsonq "d['data']['updateEmployee']['name']")" = "Gql Emp Updated" ] && ok "updateEmployee applied" || bad "updateEmployee: $RESP"
 gql "{\"query\":\"mutation { patchEmployee(id: \\\"$GQL_ID\\\", input: {employeeNumber: \\\"EMP-0007B\\\"}) { employeeNumber } }\"}"
 [ "$(jsonq "d['data']['patchEmployee']['employeeNumber']")" = "EMP-0007B" ] && ok "patchEmployee applied" || bad "patchEmployee: $RESP"
@@ -455,7 +455,7 @@ gql "{\"query\":\"mutation { deleteEmployee(id: \\\"$GQL_ID\\\") { success } }\"
 [ "$(jsonq "d['data']['deleteEmployee']['success']")" = "True" ] && ok "deleteEmployee" || bad "deleteEmployee: $RESP"
 
 title "7.6 GraphQL validation error mirrors REST (422 envelope in errors)"
-gql "{\"query\":\"mutation { createEmployee(input: {name: \\\"X\\\", email: \\\"bad@example.com\\\", document: \\\"30000000008\\\", employeeNumber: \\\"EMP-8\\\", dependents: [{name: \\\"K\\\", birthDate: \\\"2020-01-01T00:00:00Z\\\", relationship: \\\"cousin\\\"}], jobHistories: []}) { id } }\"}"
+gql "{\"query\":\"mutation { createEmployee(input: {ethnicity: \\\"white\\\", name: \\\"X\\\", email: \\\"bad@example.com\\\", document: \\\"30000000008\\\", employeeNumber: \\\"EMP-8\\\", dependents: [{name: \\\"K\\\", birthDate: \\\"2020-01-01T00:00:00Z\\\", relationship: \\\"cousin\\\"}], jobHistories: []}) { id } }\"}"
 ERRS=$(jsonq "len(d.get('errors') or [])")
 [ "$ERRS" != "0" ] && [ "$ERRS" != "None" ] && ok "invalid relationship rejected through GraphQL" || bad "expected GraphQL errors: $RESP"
 
@@ -463,17 +463,17 @@ ERRS=$(jsonq "len(d.get('errors') or [])")
 sec "8. REST validation — domain rules on children"
 ####################################
 title "8.1 Relationship outside the closed set → 422"
-req POST /employees "{\"name\":\"Bad Rel\",\"email\":\"badrel@example.com\",\"document\":\"30000000009\",\"employeeNumber\":\"EMP-9\",\"dependents\":[{\"name\":\"K\",\"birthDate\":\"2020-01-01T00:00:00Z\",\"relationship\":\"cousin\"}]}"
+req POST /employees "{\"name\":\"Bad Rel\",\"email\":\"badrel@example.com\",\"document\":\"30000000009\",\"employeeNumber\":\"EMP-9\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"K\",\"birthDate\":\"2020-01-01T00:00:00Z\",\"relationship\":\"cousin\"}]}"
 expect_status "invalid relationship" 422
-echo "$RESP" | grep -q "InvalidRelationshipNotification" && ok "InvalidRelationshipNotification on the wire" || bad "notification missing: $RESP"
+echo "$RESP" | grep -q "UnknownRelationshipNotification" && ok "UnknownRelationshipNotification on the wire (enum VO membership check)" || bad "notification missing: $RESP"
 
 title "8.2 Termination before hire → 422"
-req POST /employees "{\"name\":\"Bad Hist\",\"email\":\"badhist@example.com\",\"document\":\"30000000010\",\"employeeNumber\":\"EMP-10\",\"jobHistories\":[{\"jobTitle\":\"X\",\"department\":\"Y\",\"hiredAt\":\"2024-01-01T00:00:00Z\",\"terminatedAt\":\"2023-01-01T00:00:00Z\"}]}"
+req POST /employees "{\"name\":\"Bad Hist\",\"email\":\"badhist@example.com\",\"document\":\"30000000010\",\"employeeNumber\":\"EMP-10\",\"ethnicity\":\"white\",\"jobHistories\":[{\"jobTitle\":\"X\",\"department\":\"Y\",\"hiredAt\":\"2024-01-01T00:00:00Z\",\"terminatedAt\":\"2023-01-01T00:00:00Z\"}]}"
 expect_status "termination before hire" 422
 echo "$RESP" | grep -q "TerminationBeforeHireNotification" && ok "TerminationBeforeHireNotification on the wire" || bad "notification missing: $RESP"
 
 title "8.3 Duplicate ACTIVE employee for the same document → 409"
-req POST /employees "{\"name\":\"Alice P. Patched\",\"email\":\"alice.emp@example.com\",\"document\":\"$D2\",\"employeeNumber\":\"EMP-0002\"}"
+req POST /employees "{\"name\":\"Alice P. Patched\",\"email\":\"alice.emp@example.com\",\"document\":\"$D2\",\"employeeNumber\":\"EMP-0002\",\"ethnicity\":\"white\"}"
 expect_status "duplicate active employee" 409
 
 title "8.4 Missing employeeNumber → 422 (role-private required field)"
@@ -513,14 +513,14 @@ sec "9. Cross-role shared fields — last-write-wins + fan-out in BOTH direction
 D9="30000000021"
 
 title "9.1 POST /users doc $D9 with name 'Cross XXX'"
-req POST /users "{\"name\":\"Cross XXX\",\"email\":\"cross9@example.com\",\"document\":\"$D9\",\"userName\":\"cross9\"}"
+req POST /users "{\"name\":\"Cross XXX\",\"email\":\"cross9@example.com\",\"document\":\"$D9\",\"userName\":\"cross9\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "create user (name XXX)" 201
 ID9=$(jsonq "d['data']['id']")
 wait_memp "var d=db.users.findOne({document:'$D9'}); print(d ? d.name : 'absent')" "Cross XXX" \
   && ok "user view materialized with 'Cross XXX'" || bad "user view never showed XXX"
 
 title "9.2 POST /employees SAME doc with name 'Cross YYY' → last-write-wins on the base"
-req POST /employees "{\"name\":\"Cross YYY\",\"email\":\"cross9@example.com\",\"document\":\"$D9\",\"employeeNumber\":\"EMP-C9\"}"
+req POST /employees "{\"name\":\"Cross YYY\",\"email\":\"cross9@example.com\",\"document\":\"$D9\",\"employeeNumber\":\"EMP-C9\",\"ethnicity\":\"white\"}"
 expect_status "create employee (name YYY)" 201
 PNAME=$(qa_db_query "SELECT name FROM persons WHERE document='$D9';")
 [ "$PNAME" = "Cross YYY" ] && ok "persons.name = 'Cross YYY' (last write wins)" || bad "persons.name = '$PNAME'"
@@ -560,11 +560,11 @@ AUD_USER_UPD=$(qa_db_query "SELECT count(*) FROM audit_events WHERE entity_type=
 ####################################
 sec "10. Base children (addresses) edited through EITHER role reflect in BOTH views"
 ####################################
-ADDR1='{"street":"1 Infinite Loop","number":"1","neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US"}'
-ADDR2='{"street":"500 Cross St","number":"9","neighborhood":"Centro","city":"Recife","state":"PE","zipCode":"50000-000","country":"BR"}'
+ADDR1='{"street":"1 Infinite Loop","number":"1","neighborhood":"Mariani","city":"Cupertino","state":"CA","zipCode":"95014","country":"US","addressType":"residential"}'
+ADDR2='{"street":"500 Cross St","number":"9","neighborhood":"Centro","city":"Recife","state":"PE","zipCode":"50000-000","country":"BR","addressType":"residential"}'
 
 title "10.1 PUT /users adds a SECOND address → employee view gains it"
-req PUT "/users/$ID9" "{\"name\":\"Cross ZZZ\",\"email\":\"cross9@example.com\",\"phone\":null,\"userName\":\"cross9\",\"emailNotification\":null,\"smsNotification\":null,\"addresses\":[$ADDR1,$ADDR2]}"
+req PUT "/users/$ID9" "{\"name\":\"Cross ZZZ\",\"email\":\"cross9@example.com\",\"phone\":null,\"userName\":\"cross9\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"emailNotification\":null,\"smsNotification\":null,\"addresses\":[$ADDR1,$ADDR2]}"
 expect_status "PUT user with 2 addresses" 200
 ACT=$(qa_db_query "SELECT count(*) FROM addresses a JOIN persons p ON a.person_id=p.id WHERE p.document='$D9' AND a.deleted_at IS NULL;")
 [ "$ACT" = "2" ] && ok "2 ACTIVE address rows on the base" || bad "active addresses = $ACT (want 2)"
@@ -573,7 +573,7 @@ wait_memp "var d=db.employees.findOne({document:'$D9'}); print(d ? (d.Addresses|
   || bad "employee view did not gain the address added through the user"
 
 title "10.2 PUT /employees removes one address → user view loses it"
-req PUT "/employees/$ID9" "{\"name\":\"Cross ZZZ\",\"email\":\"cross9@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-C9\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,\"addresses\":[$ADDR1],\"dependents\":[],\"jobHistories\":[]}"
+req PUT "/employees/$ID9" "{\"name\":\"Cross ZZZ\",\"email\":\"cross9@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-C9\",\"ethnicity\":\"white\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,\"addresses\":[$ADDR1],\"dependents\":[],\"jobHistories\":[]}"
 expect_status "PUT employee keeping only the first address" 200
 ACT=$(qa_db_query "SELECT count(*) FROM addresses a JOIN persons p ON a.person_id=p.id WHERE p.document='$D9' AND a.deleted_at IS NULL;")
 [ "$ACT" = "1" ] && ok "1 ACTIVE address row after the employee's replace" || bad "active addresses = $ACT (want 1)"
@@ -583,9 +583,9 @@ wait_memp "var d=db.users.findOne({document:'$D9'}); print(d ? (d.Addresses||[])
 
 title "10.3 Warm upsert dedups a re-sent identical address (cross-role)"
 D10="30000000022"
-req POST /users "{\"name\":\"Dedup Person\",\"email\":\"dedup@example.com\",\"document\":\"$D10\",\"userName\":\"dedup10\",\"addresses\":[$ADDR1]}"
+req POST /users "{\"name\":\"Dedup Person\",\"email\":\"dedup@example.com\",\"document\":\"$D10\",\"userName\":\"dedup10\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[$ADDR1]}"
 expect_status "create user with address A1" 201
-req POST /employees "{\"name\":\"Dedup Person\",\"email\":\"dedup@example.com\",\"document\":\"$D10\",\"employeeNumber\":\"EMP-C10\",\"addresses\":[$ADDR1]}"
+req POST /employees "{\"name\":\"Dedup Person\",\"email\":\"dedup@example.com\",\"document\":\"$D10\",\"employeeNumber\":\"EMP-C10\",\"ethnicity\":\"white\",\"addresses\":[$ADDR1]}"
 expect_status "create employee re-sending the SAME address" 201
 ACT=$(qa_db_query "SELECT count(*) FROM addresses a JOIN persons p ON a.person_id=p.id WHERE p.document='$D10' AND a.deleted_at IS NULL;")
 [ "$ACT" = "1" ] && ok "identical address deduped against the base's existing children" \
@@ -595,10 +595,10 @@ ACT=$(qa_db_query "SELECT count(*) FROM addresses a JOIN persons p ON a.person_i
 sec "11. Cross DeletedAt matrix — reverse order, base convergence, no POST revival"
 ####################################
 D11="30000000023"
-req POST /users "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"userName\":\"soft11\"}"
+req POST /users "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"userName\":\"soft11\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "fixture: user role" 201
 ID11=$(jsonq "d['data']['id']")
-req POST /employees "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"employeeNumber\":\"EMP-C11\",\"dependents\":[{\"name\":\"Soft Kid\",\"birthDate\":\"2019-01-01T00:00:00Z\",\"relationship\":\"son\"}]}"
+req POST /employees "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"employeeNumber\":\"EMP-C11\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"Soft Kid\",\"birthDate\":\"2019-01-01T00:00:00Z\",\"relationship\":\"son\"}]}"
 expect_status "fixture: employee role (with a dependent)" 201
 
 title "11.1 Archive the USER first → base and employee stay ACTIVE (reverse of 5.x)"
@@ -624,7 +624,7 @@ ROW=$(printf %s "$ROW" | tr "\t|" "//")
 if [ "$ROW" = "1/1/1" ]; then ok "base revived; employee + dependent remain archived (role lifecycles independent)"; else bad "state: $ROW (want 1/1/1)"; fi
 
 title "11.4 Re-POST over the ARCHIVED employee → invisible to the probe; shared-PK remnant vetoes → 409"
-req POST /employees "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"employeeNumber\":\"EMP-C11\"}"
+req POST /employees "{\"name\":\"Soft Cross\",\"email\":\"soft11@example.com\",\"document\":\"$D11\",\"employeeNumber\":\"EMP-C11\",\"ethnicity\":\"white\"}"
 expect_status "re-POST over an archived employee (DeletedAt is delete — no revival)" 409
 EARCH=$(qa_db_query "SELECT count(*) FROM employees WHERE id=$(qa_uuid_lit "$ID11") AND deleted_at IS NOT NULL;")
 [ "$EARCH" = "1" ] && ok "employee stays archived — the rejected POST applied nothing" || bad "employee archived rows = $EARCH"
@@ -640,10 +640,10 @@ if [ "$ROW" = "1/1" ]; then ok "role + dependent restored by the explicit unarch
 sec "12. Cross hard-delete matrix — reverse order + archived-row refcount"
 ####################################
 D12="30000000024"
-req POST /users "{\"name\":\"Hard Cross\",\"email\":\"hard12@example.com\",\"document\":\"$D12\",\"userName\":\"hard12\",\"addresses\":[$ADDR1]}"
+req POST /users "{\"name\":\"Hard Cross\",\"email\":\"hard12@example.com\",\"document\":\"$D12\",\"userName\":\"hard12\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null,\"addresses\":[$ADDR1]}"
 expect_status "fixture: user role (with address)" 201
 ID12=$(jsonq "d['data']['id']")
-req POST /employees "{\"name\":\"Hard Cross\",\"email\":\"hard12@example.com\",\"document\":\"$D12\",\"employeeNumber\":\"EMP-C12\",\"bank\":\"260\",\"dependents\":[{\"name\":\"Hard Kid\",\"birthDate\":\"2019-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanProvider\":\"Unimed\"}],\"jobHistories\":[{\"jobTitle\":\"Op\",\"department\":\"Ops\",\"hiredAt\":\"2023-01-01T00:00:00Z\"}]}"
+req POST /employees "{\"name\":\"Hard Cross\",\"email\":\"hard12@example.com\",\"document\":\"$D12\",\"employeeNumber\":\"EMP-C12\",\"ethnicity\":\"white\",\"bank\":\"260\",\"dependents\":[{\"name\":\"Hard Kid\",\"birthDate\":\"2019-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanProvider\":\"Unimed\"}],\"jobHistories\":[{\"jobTitle\":\"Op\",\"department\":\"Ops\",\"hiredAt\":\"2023-01-01T00:00:00Z\"}]}"
 expect_status "fixture: employee role (full graph)" 201
 
 title "12.1 DELETE the EMPLOYEE first → its whole role graph clears; base + addresses + user survive"
@@ -671,10 +671,10 @@ wait_memp "print(db.users.countDocuments({document:'$D12'}))" "0" \
 
 title "12.3 An ARCHIVED role row still counts as a reference — no purge while it exists"
 D13="30000000025"
-req POST /users "{\"name\":\"Ref Cross\",\"email\":\"ref13@example.com\",\"document\":\"$D13\",\"userName\":\"ref13\"}"
+req POST /users "{\"name\":\"Ref Cross\",\"email\":\"ref13@example.com\",\"document\":\"$D13\",\"userName\":\"ref13\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "fixture: user role" 201
 ID13=$(jsonq "d['data']['id']")
-req POST /employees "{\"name\":\"Ref Cross\",\"email\":\"ref13@example.com\",\"document\":\"$D13\",\"employeeNumber\":\"EMP-C13\"}"
+req POST /employees "{\"name\":\"Ref Cross\",\"email\":\"ref13@example.com\",\"document\":\"$D13\",\"employeeNumber\":\"EMP-C13\",\"ethnicity\":\"white\"}"
 expect_status "fixture: employee role" 201
 req PATCH "/employees/$ID13/archive"
 expect_status "archive the employee" 204
@@ -706,18 +706,18 @@ sec "13. Read-side archived-children strip + export strip + A2b survival (A4 loc
 DA4="40000000030"
 
 title "13.1 Fixture: employee with 2 dependents (Maria carries an A2b plan) + 1 address"
-req POST /employees "{\"name\":\"Strip Root\",\"email\":\"strip@example.com\",\"document\":\"$DA4\",\"employeeNumber\":\"EMP-A4\",
-  \"addresses\":[{\"street\":\"S1\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\"}],
+req POST /employees "{\"name\":\"Strip Root\",\"email\":\"strip@example.com\",\"document\":\"$DA4\",\"employeeNumber\":\"EMP-A4\",\"ethnicity\":\"white\",
+  \"addresses\":[{\"street\":\"S1\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95014\",\"country\":\"US\",\"addressType\":\"residential\"}],
   \"dependents\":[
-    {\"name\":\"Maria\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"UN-1\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Maria\",\"birthDate\":\"2015-03-10T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
     {\"name\":\"Pedro\",\"birthDate\":\"2018-07-22T00:00:00Z\",\"relationship\":\"son\"}]}"
 expect_status "create strip fixture" 201
 EIDA4=$(jsonq "d['data']['id']")
 wait_view_total "document=$DA4" 1 || bad "strip fixture never reached the view"
 
 title "13.2 PUT replaces both collections → originals archive, new ones insert"
-req PUT "/employees/$EIDA4" "{\"name\":\"Strip Root\",\"email\":\"strip@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-A4\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,
-  \"addresses\":[{\"street\":\"S2\",\"number\":\"2\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95015\",\"country\":\"US\"},{\"street\":\"S3\",\"number\":\"3\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95016\",\"country\":\"US\"}],
+req PUT "/employees/$EIDA4" "{\"name\":\"Strip Root\",\"email\":\"strip@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-A4\",\"ethnicity\":\"white\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,
+  \"addresses\":[{\"street\":\"S2\",\"number\":\"2\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95015\",\"country\":\"US\",\"addressType\":\"residential\"},{\"street\":\"S3\",\"number\":\"3\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95016\",\"country\":\"US\",\"addressType\":\"residential\"}],
   \"dependents\":[
     {\"name\":\"Ana\",\"birthDate\":\"2016-01-01T00:00:00Z\",\"relationship\":\"daughter\"},
     {\"name\":\"Bruno\",\"birthDate\":\"2017-01-01T00:00:00Z\",\"relationship\":\"son\"}],
@@ -789,23 +789,23 @@ sec "14. ONE PUT, mixed child operations — keep-changed + drop + add + identic
 # The true child NOOP is a different route by design (the address subresource
 # leaves the other children untouched — e2e §13.5/§26).
 DA5="40000000040"
-A5_1='{"street":"Mix1","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"95020","country":"US"}'
+A5_1='{"street":"Mix1","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"95020","country":"US","addressType":"residential"}'
 
 title "14.1 Fixture: dependents [Rita(Amil), Saulo] + address A1"
-req POST /employees "{\"name\":\"Mixed Ops\",\"email\":\"mixed@example.com\",\"document\":\"$DA5\",\"employeeNumber\":\"EMP-MX\",
+req POST /employees "{\"name\":\"Mixed Ops\",\"email\":\"mixed@example.com\",\"document\":\"$DA5\",\"employeeNumber\":\"EMP-MX\",\"ethnicity\":\"white\",
   \"addresses\":[$A5_1],
   \"dependents\":[
-    {\"name\":\"Rita\",\"birthDate\":\"2014-05-05T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Amil\",\"healthPlanCard\":\"AM-1\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
+    {\"name\":\"Rita\",\"birthDate\":\"2014-05-05T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Amil\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2027-12-31T00:00:00Z\"},
     {\"name\":\"Saulo\",\"birthDate\":\"2016-06-06T00:00:00Z\",\"relationship\":\"son\"}]}"
 expect_status "create mixed fixture" 201
 EIDA5=$(jsonq "d['data']['id']")
 wait_view_total "document=$DA5" 1 || bad "mixed fixture never reached the view"
 
 title "14.2 The mixed PUT: Rita plan Amil→Bradesco, Saulo dropped, Tania added, A1 identical, A2 new"
-req PUT "/employees/$EIDA5" "{\"name\":\"Mixed Ops\",\"email\":\"mixed@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-MX\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,
-  \"addresses\":[$A5_1,{\"street\":\"Mix2\",\"number\":\"2\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95021\",\"country\":\"US\"}],
+req PUT "/employees/$EIDA5" "{\"name\":\"Mixed Ops\",\"email\":\"mixed@example.com\",\"phone\":null,\"employeeNumber\":\"EMP-MX\",\"ethnicity\":\"white\",\"bank\":null,\"branch\":null,\"account\":null,\"pix\":null,
+  \"addresses\":[$A5_1,{\"street\":\"Mix2\",\"number\":\"2\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"95021\",\"country\":\"US\",\"addressType\":\"residential\"}],
   \"dependents\":[
-    {\"name\":\"Rita\",\"birthDate\":\"2014-05-05T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Bradesco\",\"healthPlanCard\":\"BR-9\",\"healthPlanExpiry\":\"2028-12-31T00:00:00Z\"},
+    {\"name\":\"Rita\",\"birthDate\":\"2014-05-05T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanProvider\":\"Bradesco\",\"healthPlanCard\":\"889923\",\"healthPlanExpiry\":\"2028-12-31T00:00:00Z\"},
     {\"name\":\"Tania\",\"birthDate\":\"2019-09-09T00:00:00Z\",\"relationship\":\"daughter\"}],
   \"jobHistories\":[]}"
 expect_status "mixed PUT" 200
@@ -841,6 +841,137 @@ gotall=$(jsonq "','.join(sorted(x['name'] for x in d['data'][0].get('dependents'
 title "14.5 Cleanup"
 req DELETE "/employees/$EIDA5"
 expect_status "delete mixed fixture" 204
+
+####################################
+sec "8. Value-object coverage — Relationship, HealthPlanType, HealthPlanCard, Ethnicity (in/out, filter, ?fields=, invalid, GraphQL)"
+####################################
+# Employee has no by-id route (100% canonical), so reads go through the list
+# filtered by document.eq. Every VO field on the Employee aggregate + its
+# dependent child + child-level sibling is exercised end to end.
+vpf() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got $2 want $3)"; fi; }
+VEDOC=48000000000
+emp_create() { # emp_create <empNum> <ethnicity> <relationship> <healthPlanType|-> ; sets STATUS/RESP + LAST_DOC. Call in the MAIN shell (never $(...)), so VEDOC/STATUS propagate.
+  VEDOC=$((VEDOC+1)); LAST_DOC="$VEDOC"; local hp="" body
+  [ "$4" != "-" ] && hp=",\"healthPlanType\":\"$4\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\""
+  body="{\"name\":\"VE $1\",\"email\":\"ve.$1@example.com\",\"document\":\"$VEDOC\",\"employeeNumber\":\"$1\",\"ethnicity\":\"$2\",\"dependents\":[{\"name\":\"Dep\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"$3\"$hp}]}"
+  req POST /employees "$body"
+}
+emp_dep_field() { req GET "/employees?document.eq=$1"; jsonq "d['data'][0]['dependents'][0].get('$2')"; }
+
+# ── 8.1 Relationship (enum, role child) — in/out + filter per member ────────
+for r in spouse son daughter father mother other; do
+  emp_create "EV-R-$r" white "$r" -; d="$LAST_DOC"
+  [ "$STATUS" = "201" ] || { bad "8.1 create relationship=$r ($STATUS)"; continue; }
+  wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+  vpf "8.1 relationship in/out ($r)" "$(emp_dep_field "$d" relationship)" "$r"
+  wait_view_total "dependents.relationship=$r" 1 8 >/dev/null 2>&1
+  req GET "/employees?dependents.relationship=$r&onlyTotal=true"
+  vpf "8.1 filter ?dependents.relationship=$r ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/employees?dependents.relationship=cousin&onlyTotal=true"
+vpf "8.1 filter relationship=cousin (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── 8.2 HealthPlanType (enum, CHILD-level sibling, nullable) ────────────────
+for h in individual family corporate; do
+  emp_create "EV-H-$h" white daughter "$h"; d="$LAST_DOC"
+  [ "$STATUS" = "201" ] || { bad "8.2 create healthPlanType=$h ($STATUS)"; continue; }
+  wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+  vpf "8.2 healthPlanType in/out ($h)" "$(emp_dep_field "$d" healthPlanType)" "$h"
+  wait_view_total "dependents.healthPlanType=$h" 1 8 >/dev/null 2>&1
+  req GET "/employees?dependents.healthPlanType=$h&onlyTotal=true"
+  vpf "8.2 filter ?dependents.healthPlanType=$h ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/employees?dependents.healthPlanType=platinum&onlyTotal=true"
+vpf "8.2 filter healthPlanType=platinum (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── 8.3 HealthPlanCard (raw VO, digit regex) — in/out + invalid ────────────
+emp_create "EV-CARD" white daughter family; d="$LAST_DOC"
+wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+vpf "8.3 healthPlanCard in/out (digits)" "$(emp_dep_field "$d" healthPlanCard)" "889923"
+req POST /employees "{\"name\":\"Bad Card\",\"email\":\"badcard@example.com\",\"document\":\"48900000001\",\"employeeNumber\":\"EV-BADCARD\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanCard\":\"UN-not-digits\"}]}"
+vpf "8.3 invalid healthPlanCard (non-digit) → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "InvalidHealthPlanCardNotification"
+
+# ── 8.4 Ethnicity (enum, shared base) on the employee role — filter ────────
+for e in black asian mixed; do
+  emp_create "EV-E-$e" "$e" son -; d="$LAST_DOC"
+  wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+  req GET "/employees?document.eq=$d"
+  vpf "8.4 employee ethnicity in/out ($e)" "$(jsonq "d['data'][0].get('ethnicity')")" "$e"
+done
+wait_view_total "ethnicity=asian" 1 8 >/dev/null 2>&1
+req GET "/employees?ethnicity=asian&onlyTotal=true"
+vpf "8.4 filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+
+# ── 8.5 Invalid enums on the dependent/role → 422 ──────────────────────────
+req POST /employees "{\"name\":\"Bad Rel\",\"email\":\"badrel@example.com\",\"document\":\"48900000002\",\"employeeNumber\":\"EV-BR\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"cousin\"}]}"
+vpf "8.5 invalid relationship → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownRelationshipNotification"
+req POST /employees "{\"name\":\"Bad HPT\",\"email\":\"badhpt@example.com\",\"document\":\"48900000003\",\"employeeNumber\":\"EV-BH\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanType\":\"platinum\"}]}"
+vpf "8.5 invalid healthPlanType → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownHealthPlanTypeNotification"
+
+# ── 8.6 ?fields= projects VO fields (root + into the dependent) ─────────────
+req GET "/employees?fields=ethnicity&limit=1"
+vpf "8.6 ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" True
+req GET "/employees?fields=dependents.relationship&limit=1"
+vpf "8.6 ?fields=dependents.relationship projects it" "$(jsonq "'relationship' in (d['data'][0]['dependents'][0] if d['data'] and d['data'][0].get('dependents') else {})")" True
+
+# ── 8.7 GraphQL surfaces the VO fields ─────────────────────────────────────
+gql "{\"query\":\"{ employees(where: {ethnicity: {eq: \\\"asian\\\"}}) { totalCount edges { node { ethnicity dependents { relationship healthPlanType } } } } }\"}"
+vpf "8.7 GraphQL filter ethnicity=asian + projects dependent VO" "$([ "$(jsonq "d['data']['employees']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
+
+# ── 8.8 sort by ethnicity accepted ─────────────────────────────────────────
+req GET "/employees?sort=ethnicity&limit=3"
+vpf "8.8 sort ?sort=ethnicity accepted" "$STATUS" 200
+
+####################################
+sec "9. VO validation — dependent notification message + FIELD LABEL (EN & PT-BR)"
+####################################
+# Regression guard for the role/child-side value objects reachable only through
+# the Employee aggregate: Relationship (child enum), HealthPlanType (child-
+# sibling enum) and HealthPlanCard (child-sibling raw VO). An invalid value is
+# rejected 422 with notificationKey + fieldLabel + message all rendered in the
+# caller's language. Expected strings are the LIVE catalog values.
+
+voval_post() {
+  local tmp; tmp=$(mktemp)
+  VOVAL_STATUS=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST "$BASE$1" \
+    -H "Content-Type: application/json" -H "Accept-Language: $2" --data "$3")
+  VOVAL_RESP=$(cat "$tmp"); rm -f "$tmp"
+}
+voval_assert() {
+  local field="$1" ekey="$2" elabel="$3" emsg="$4" got
+  got=$(printf '%s' "$VOVAL_RESP" | VOVAL_FIELD="$field" python3 -c '
+import sys, os, json
+leaf = os.environ["VOVAL_FIELD"]
+d = json.load(sys.stdin)
+for e in d.get("errors", []):
+    for m in e.get("messages", []):
+        if (m.get("field","") or "").split(".")[-1] == leaf:
+            print("\t".join([m.get("notificationKey",""), m.get("fieldLabel","") or "", m.get("message","") or ""])); sys.exit(0)
+print("\t\t")')
+  local gkey glabel gmsg
+  IFS=$'\t' read -r gkey glabel gmsg <<< "$got"
+  if [ "$VOVAL_STATUS" = "422" ] && [ "$gkey" = "$ekey" ] && [ "$glabel" = "$elabel" ] && [ "$gmsg" = "$emsg" ]; then
+    printf '\033[1;32mPASS\033[0m %-16s %s | [%s] %s\n' "$field" "$gkey" "$glabel" "$gmsg"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m %-16s status=%s key[%s≠%s] label[%s≠%s] msg[%s≠%s]\n' \
+      "$field" "$VOVAL_STATUS" "$gkey" "$ekey" "$glabel" "$elabel" "$gmsg" "$emsg"; FAIL=$((FAIL+1))
+  fi
+}
+
+VOVAL_BAD_DEP_EN='{"name":"E","email":"e-voval-en@b.co","phone":"14155550001","document":"70000008001","employeeNumber":"EMP-VOVAL-EN","ethnicity":"white","dependents":[{"name":"D","birthDate":"2020-01-01T00:00:00Z","relationship":"cousin","healthPlanType":"xxx","healthPlanCard":"bad-card"}]}'
+VOVAL_BAD_DEP_PT='{"name":"E","email":"e-voval-pt@b.co","phone":"14155550001","document":"70000008002","employeeNumber":"EMP-VOVAL-PT","ethnicity":"white","dependents":[{"name":"D","birthDate":"2020-01-01T00:00:00Z","relationship":"cousin","healthPlanType":"xxx","healthPlanCard":"bad-card"}]}'
+
+title "9.1 EN — dependent VO fields: notificationKey + fieldLabel + message"
+voval_post /employees en-US "$VOVAL_BAD_DEP_EN"
+voval_assert relationship   UnknownRelationshipNotification   "Relationship"     "Unknown relationship (use spouse, son, daughter, father, mother or other)."
+voval_assert healthPlanCard InvalidHealthPlanCardNotification "Health plan card" "Invalid health plan card."
+voval_assert healthPlanType UnknownHealthPlanTypeNotification "Health plan type" "Unknown health plan type."
+
+title "9.2 PT-BR — the SAME fields render the Portuguese catalog (locale-driven)"
+voval_post /employees pt-BR "$VOVAL_BAD_DEP_PT"
+voval_assert relationship   UnknownRelationshipNotification   "Parentesco"             "Parentesco desconhecido (use spouse, son, daughter, father, mother ou other)."
+voval_assert healthPlanCard InvalidHealthPlanCardNotification "Carteirinha do plano"   "Carteira do plano de saúde inválida."
+voval_assert healthPlanType UnknownHealthPlanTypeNotification "Tipo de plano de saúde" "Tipo de plano de saúde desconhecido."
 
 ####################################
 sec "Summary"

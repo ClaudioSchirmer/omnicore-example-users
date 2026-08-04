@@ -9,10 +9,17 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 func ptr(s string) *string { return &s }
 func bptr(b bool) *bool    { return &b }
+
+// phonePtr builds a *vos.Phone from a raw string — the wire scalar is the
+// value object's underlying, so this is the same nil-safe conversion the
+// web/application boundary performs, expressed once for the fixtures.
+func phonePtr(s string) *vos.Phone { p := vos.Phone(s); return &p }
 
 // User needs no domain service now — identity uniqueness is enforced by the
 // SharedBase write path, not by a domain lookup. So every Get*/IsValid call
@@ -46,9 +53,9 @@ func dumpContexts(ctxs []*domain.NotificationContext) string {
 	return "[" + strings.Join(out, ", ") + "]"
 }
 
-func validAddress() appdomain.Address {
+func validAddress() aggregatevos.Address {
 	label := "home"
-	return appdomain.Address{
+	return aggregatevos.Address{
 		Label:        &label,
 		Street:       "1 Infinite Loop",
 		Number:       "1",
@@ -57,6 +64,7 @@ func validAddress() appdomain.Address {
 		State:        "CA",
 		ZipCode:      "95014",
 		Country:      "US",
+		AddressType:  vos.AddressTypeResidential,
 	}
 }
 
@@ -65,11 +73,13 @@ func validAddress() appdomain.Address {
 // one address. No ID — Insert fixtures want a fresh entity.
 func validUser() *appdomain.User {
 	return &appdomain.User{
-		Name:     "Jane Doe",
-		Email:    "jane@example.com",
-		Phone:    ptr("14155552671"),
-		Document: "10000000001",
-		UserName: "jane",
+		Name:        "Jane Doe",
+		Email:       "jane@example.com",
+		Phone:       phonePtr("14155552671"),
+		Document:    "10000000001",
+		Ethnicity:   vos.EthnicityWhite,
+		UserName:    "jane",
+		UserProfile: vos.UserProfileAdmin,
 	}
 }
 
@@ -209,7 +219,7 @@ func TestUser_BuildRules_EmailInvalid(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			u := validUser()
-			u.Email = c.email
+			u.Email = vos.Email(c.email)
 			u.AddAddress(validAddress(), nil)
 
 			ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
@@ -251,7 +261,7 @@ func TestUser_BuildRules_DocumentInvalid(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			u := validUser()
-			u.Document = c.doc
+			u.Document = vos.Document(c.doc)
 			u.AddAddress(validAddress(), nil)
 
 			ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
@@ -316,7 +326,7 @@ func TestUser_BuildRules_PhoneOptional_EmptyStringPasses(t *testing.T) {
 	// short-circuits when *Phone == "" and tolerates the empty pointer.
 	empty := ""
 	u := validUser()
-	u.Phone = &empty
+	u.Phone = (*vos.Phone)(&empty)
 	u.AddAddress(validAddress(), nil)
 
 	ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
@@ -337,7 +347,7 @@ func TestUser_BuildRules_PhoneInvalid(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			u := validUser()
-			u.Phone = ptr(c.phone)
+			u.Phone = phonePtr(c.phone)
 			u.AddAddress(validAddress(), nil)
 
 			ok, ctxs := domain.IsValid(u, domain.ModeInsert, nil)
@@ -362,7 +372,7 @@ func TestUser_AddAddress_AcceptsDistinct(t *testing.T) {
 	u.AddAddress(a1, nil)
 	u.AddAddress(a2, nil)
 
-	items := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	items := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(items) != 2 {
 		t.Fatalf("expected 2 addresses in the aggregate, got %d", len(items))
 	}
@@ -379,7 +389,7 @@ func TestUser_AddAddress_RejectsDuplicateBusinessIdentity(t *testing.T) {
 	u.AddAddress(a, nil)
 	u.AddAddress(dup, nil)
 
-	items := domain.GetCurrentItemsOf[appdomain.Address](&u.AggregateRoot)
+	items := domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot)
 	if len(items) != 1 {
 		t.Fatalf("expected duplicate to be rejected, got %d items", len(items))
 	}

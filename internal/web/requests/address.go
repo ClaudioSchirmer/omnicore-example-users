@@ -20,6 +20,7 @@ type AddressRequest struct {
 	State        string  `json:"state"                example:"CA"`
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
+	AddressType  string  `json:"addressType"          example:"residential"`
 }
 
 // ToAddressInput converts the wire DTO into the application DTO. Boundary
@@ -35,5 +36,6 @@ func (a AddressRequest) ToAddressInput() dtos.AddressInput {
 		State:        a.State,
 		ZipCode:      a.ZipCode,
 		Country:      a.Country,
+		AddressType:  a.AddressType,
 	}
 }

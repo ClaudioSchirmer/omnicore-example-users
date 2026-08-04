@@ -292,7 +292,7 @@ capture_post() {
   "email": "${email}",
   "phone": "14155551234",
   "document": "${document}",
-  "userName": "${document}"
+  "userName": "${document}","ethnicity":"white","userProfile":1
 }
 JSON
   )
@@ -440,6 +440,16 @@ if [ -n "$CREATED_USER_ID" ]; then
     show_case "PATCH /users/:id/archive with bob (super admin *:*) → 204 (Layer-2 bypass)" \
       PATCH "/users/$STRANGER_ID/archive" "$TOK_BOB" "" 204
 
+    # Clause-scoping pin: the Layer-2 owner-check lives in the domain's IfArchive
+    # clause ONLY — there is no IfUnarchive owner-check (kept on Archive alone by
+    # design). So alice, who is NOT the owner and NOT an admin, can UNARCHIVE the
+    # stranger bob just archived: Layer-1 (users:archive) passes and no Layer-2
+    # rule fires for the unarchive verb. This proves the archive check does not
+    # bleed onto the symmetric verb — the whole point of giving each transition
+    # its own DSL clause. (Leaves the stranger active; no later op touches it.)
+    show_case "PATCH /users/:id/unarchive with alice (NOT owner) → 204 (no IfUnarchive owner-check)" \
+      PATCH "/users/$STRANGER_ID/unarchive" "$TOK_ALICE" "" 204
+
     # No DELETE on $STRANGER_ID after archive — the framework's FindByID filters
     # archived records, so DELETE would return 404 (RecordNotFound). Section 7
     # covers super-admin DELETE on an active (unarchived) user via the primary
@@ -562,7 +572,7 @@ if capture_post "$TOK_BOB" "bob-target@authz.test" "10000000303"; then
 
   show_case "PUT /users/:id with bob (super-admin) → 200" \
     PUT "/users/$BOB_TARGET_ID" "$TOK_BOB" \
-    '{"name":"bob-renamed","email":"bob-target@authz.test","phone":"14155559999","document":"10000000303","userName":"bobrenamed","emailNotification":true,"smsNotification":false,"addresses":[]}' \
+    '{"name":"bob-renamed","email":"bob-target@authz.test","phone":"14155559999","document":"10000000303","userName":"bobrenamed","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null,"emailNotification":true,"smsNotification":false,"addresses":[]}' \
     200
 
   show_case "PATCH /users/:id with bob → 200" \
@@ -655,7 +665,7 @@ show_gql_case "GraphQL users query with noperm → MissingPermissionNotification
   MissingPermissionNotification
 
 show_gql_case "GraphQL createUser with noperm → MissingPermissionNotification (needs users:write)" \
-  "$TOK_NOPERM" 'mutation { createUser(input: { name: "x", email: "x@e.test", phone: "14155550000", document: "10000000404", userName: "authzgql", addresses: [] }) { id } }' \
+  "$TOK_NOPERM" 'mutation { createUser(input: { name: "x", email: "x@e.test", phone: "14155550000", document: "10000000404", userName: "authzgql", ethnicity: "white", userProfile: 1, addresses: [] }) { id } }' \
   MissingPermissionNotification
 
 # alice carries users:read → the read field resolves (gate passes).
@@ -697,14 +707,14 @@ show_case "GET /employees with alice -> 200 (alice has employees:read)" \
 
 EMP_DOC="10000000399"
 show_case "POST /employees with noperm -> 403 (needs employees:write)" \
-  POST /employees "$TOK_NOPERM" "{\"name\":\"x\",\"email\":\"x@e.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-X\"}" \
+  POST /employees "$TOK_NOPERM" "{\"name\":\"x\",\"email\":\"x@e.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-X\",\"ethnicity\":\"white\"}" \
   403 MissingPermissionNotification
 
 title "17.1 Create an employee with alice (has employees:write)"
 emp_tmp=$(mktemp)
 EMP_STATUS=$(curl -sS -o "$emp_tmp" -w "%{http_code}" -X POST "$BASE/employees" \
   -H "Authorization: Bearer $TOK_ALICE" -H "Content-Type: application/json" \
-  -d "{\"name\":\"Authz Employee\",\"email\":\"authz.emp@omnicore.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-AUTHZ\"}")
+  -d "{\"name\":\"Authz Employee\",\"email\":\"authz.emp@omnicore.test\",\"document\":\"$EMP_DOC\",\"employeeNumber\":\"EMP-AUTHZ\",\"ethnicity\":\"white\"}")
 EMP_ID=$(python3 -c "import json;print(json.load(open('$emp_tmp'))['data']['id'])" 2>/dev/null)
 rm -f "$emp_tmp"
 if [ "$EMP_STATUS" = "201" ] && [ -n "$EMP_ID" ]; then

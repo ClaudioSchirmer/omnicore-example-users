@@ -34,8 +34,15 @@ type CreateUserRequest struct {
 	UserName          *string                `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3,oneof" json:"user_name,omitempty"`
 	EmailNotification *bool                  `protobuf:"varint,6,opt,name=email_notification,json=emailNotification,proto3,oneof" json:"email_notification,omitempty"`
 	SmsNotification   *bool                  `protobuf:"varint,7,opt,name=sms_notification,json=smsNotification,proto3,oneof" json:"sms_notification,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Value-object fields (enum VOs surface as their underlying scalar on the
+	// wire — the DTO carries vos.Ethnicity / vos.UserProfile; the raw-VO
+	// notification_email and enum notification_frequency ride the sibling facet).
+	Ethnicity             *string `protobuf:"bytes,8,opt,name=ethnicity,proto3,oneof" json:"ethnicity,omitempty"`
+	UserProfile           *int32  `protobuf:"varint,9,opt,name=user_profile,json=userProfile,proto3,oneof" json:"user_profile,omitempty"`
+	NotificationEmail     *string `protobuf:"bytes,10,opt,name=notification_email,json=notificationEmail,proto3,oneof" json:"notification_email,omitempty"`
+	NotificationFrequency *int32  `protobuf:"varint,11,opt,name=notification_frequency,json=notificationFrequency,proto3,oneof" json:"notification_frequency,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *CreateUserRequest) Reset() {
@@ -117,16 +124,48 @@ func (x *CreateUserRequest) GetSmsNotification() bool {
 	return false
 }
 
+func (x *CreateUserRequest) GetEthnicity() string {
+	if x != nil && x.Ethnicity != nil {
+		return *x.Ethnicity
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetUserProfile() int32 {
+	if x != nil && x.UserProfile != nil {
+		return *x.UserProfile
+	}
+	return 0
+}
+
+func (x *CreateUserRequest) GetNotificationEmail() string {
+	if x != nil && x.NotificationEmail != nil {
+		return *x.NotificationEmail
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetNotificationFrequency() int32 {
+	if x != nil && x.NotificationFrequency != nil {
+		return *x.NotificationFrequency
+	}
+	return 0
+}
+
 type CreateUserResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
-	Phone         *string                `protobuf:"bytes,4,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
-	Document      string                 `protobuf:"bytes,5,opt,name=document,proto3" json:"document,omitempty"`
-	UserName      string                 `protobuf:"bytes,6,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Email                 string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Phone                 *string                `protobuf:"bytes,4,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	Document              string                 `protobuf:"bytes,5,opt,name=document,proto3" json:"document,omitempty"`
+	UserName              string                 `protobuf:"bytes,6,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	Ethnicity             string                 `protobuf:"bytes,7,opt,name=ethnicity,proto3" json:"ethnicity,omitempty"`
+	UserProfile           int32                  `protobuf:"varint,8,opt,name=user_profile,json=userProfile,proto3" json:"user_profile,omitempty"`
+	NotificationEmail     *string                `protobuf:"bytes,9,opt,name=notification_email,json=notificationEmail,proto3,oneof" json:"notification_email,omitempty"`
+	NotificationFrequency *int32                 `protobuf:"varint,10,opt,name=notification_frequency,json=notificationFrequency,proto3,oneof" json:"notification_frequency,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *CreateUserResponse) Reset() {
@@ -199,6 +238,34 @@ func (x *CreateUserResponse) GetUserName() string {
 		return x.UserName
 	}
 	return ""
+}
+
+func (x *CreateUserResponse) GetEthnicity() string {
+	if x != nil {
+		return x.Ethnicity
+	}
+	return ""
+}
+
+func (x *CreateUserResponse) GetUserProfile() int32 {
+	if x != nil {
+		return x.UserProfile
+	}
+	return 0
+}
+
+func (x *CreateUserResponse) GetNotificationEmail() string {
+	if x != nil && x.NotificationEmail != nil {
+		return *x.NotificationEmail
+	}
+	return ""
+}
+
+func (x *CreateUserResponse) GetNotificationFrequency() int32 {
+	if x != nil && x.NotificationFrequency != nil {
+		return *x.NotificationFrequency
+	}
+	return 0
 }
 
 // UserFilters is the view's typed filter surface — each declared field is
@@ -334,9 +401,16 @@ type User struct {
 	// Restricted leaf: projected only for users:admin (the query type's
 	// ToCriteria Restrict) — also the read_mask/sort path the authz suites
 	// probe. optional: absent and empty are distinct.
-	Phone         *string `protobuf:"bytes,6,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Phone *string `protobuf:"bytes,6,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	// Value-object fields: the enum VOs surface as their underlying scalar
+	// (string/int) on the wire, populated from the projected document through the
+	// pb↔DTO bridge (the DTO carries vos.Ethnicity / vos.UserProfile).
+	Ethnicity             string  `protobuf:"bytes,7,opt,name=ethnicity,proto3" json:"ethnicity,omitempty"`
+	UserProfile           int32   `protobuf:"varint,8,opt,name=user_profile,json=userProfile,proto3" json:"user_profile,omitempty"`
+	NotificationEmail     *string `protobuf:"bytes,9,opt,name=notification_email,json=notificationEmail,proto3,oneof" json:"notification_email,omitempty"`
+	NotificationFrequency *int32  `protobuf:"varint,10,opt,name=notification_frequency,json=notificationFrequency,proto3,oneof" json:"notification_frequency,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -409,6 +483,34 @@ func (x *User) GetPhone() string {
 		return *x.Phone
 	}
 	return ""
+}
+
+func (x *User) GetEthnicity() string {
+	if x != nil {
+		return x.Ethnicity
+	}
+	return ""
+}
+
+func (x *User) GetUserProfile() int32 {
+	if x != nil {
+		return x.UserProfile
+	}
+	return 0
+}
+
+func (x *User) GetNotificationEmail() string {
+	if x != nil && x.NotificationEmail != nil {
+		return *x.NotificationEmail
+	}
+	return ""
+}
+
+func (x *User) GetNotificationFrequency() int32 {
+	if x != nil && x.NotificationFrequency != nil {
+		return *x.NotificationFrequency
+	}
+	return 0
 }
 
 type ListUsersResponse struct {
@@ -516,14 +618,18 @@ func (x *GetUserRequest) GetIncludeArchived() bool {
 }
 
 type GetUserResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
-	Document      string                 `protobuf:"bytes,4,opt,name=document,proto3" json:"document,omitempty"`
-	UserName      string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Email                 string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Document              string                 `protobuf:"bytes,4,opt,name=document,proto3" json:"document,omitempty"`
+	UserName              string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	Ethnicity             string                 `protobuf:"bytes,6,opt,name=ethnicity,proto3" json:"ethnicity,omitempty"`
+	UserProfile           int32                  `protobuf:"varint,7,opt,name=user_profile,json=userProfile,proto3" json:"user_profile,omitempty"`
+	NotificationEmail     *string                `protobuf:"bytes,8,opt,name=notification_email,json=notificationEmail,proto3,oneof" json:"notification_email,omitempty"`
+	NotificationFrequency *int32                 `protobuf:"varint,9,opt,name=notification_frequency,json=notificationFrequency,proto3,oneof" json:"notification_frequency,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GetUserResponse) Reset() {
@@ -589,6 +695,34 @@ func (x *GetUserResponse) GetUserName() string {
 		return x.UserName
 	}
 	return ""
+}
+
+func (x *GetUserResponse) GetEthnicity() string {
+	if x != nil {
+		return x.Ethnicity
+	}
+	return ""
+}
+
+func (x *GetUserResponse) GetUserProfile() int32 {
+	if x != nil {
+		return x.UserProfile
+	}
+	return 0
+}
+
+func (x *GetUserResponse) GetNotificationEmail() string {
+	if x != nil && x.NotificationEmail != nil {
+		return *x.NotificationEmail
+	}
+	return ""
+}
+
+func (x *GetUserResponse) GetNotificationFrequency() int32 {
+	if x != nil && x.NotificationFrequency != nil {
+		return *x.NotificationFrequency
+	}
+	return 0
 }
 
 type ArchiveUserRequest struct {
@@ -683,6 +817,7 @@ type AddressInput struct {
 	City          *string                `protobuf:"bytes,6,opt,name=city,proto3,oneof" json:"city,omitempty"`
 	State         *string                `protobuf:"bytes,7,opt,name=state,proto3,oneof" json:"state,omitempty"`
 	ZipCode       *string                `protobuf:"bytes,8,opt,name=zip_code,json=zipCode,proto3,oneof" json:"zip_code,omitempty"`
+	AddressType   *string                `protobuf:"bytes,9,opt,name=address_type,json=addressType,proto3,oneof" json:"address_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -773,21 +908,32 @@ func (x *AddressInput) GetZipCode() string {
 	return ""
 }
 
+func (x *AddressInput) GetAddressType() string {
+	if x != nil && x.AddressType != nil {
+		return *x.AddressType
+	}
+	return ""
+}
+
 // UpdateUserRequest is the WithBodyID sibling of PUT /users/:id — the id
 // plus the FULL body (the handler embeds FullBody: the strict set below is
 // enforced by fwgrpc.Strict on the mount).
 type UpdateUserRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Id                *string                `protobuf:"bytes,1,opt,name=id,proto3,oneof" json:"id,omitempty"`
-	Name              *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
-	Email             *string                `protobuf:"bytes,3,opt,name=email,proto3,oneof" json:"email,omitempty"`
-	Phone             *string                `protobuf:"bytes,4,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
-	UserName          *string                `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3,oneof" json:"user_name,omitempty"`
-	EmailNotification *bool                  `protobuf:"varint,6,opt,name=email_notification,json=emailNotification,proto3,oneof" json:"email_notification,omitempty"`
-	SmsNotification   *bool                  `protobuf:"varint,7,opt,name=sms_notification,json=smsNotification,proto3,oneof" json:"sms_notification,omitempty"`
-	Addresses         []*AddressInput        `protobuf:"bytes,8,rep,name=addresses,proto3" json:"addresses,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    *string                `protobuf:"bytes,1,opt,name=id,proto3,oneof" json:"id,omitempty"`
+	Name                  *string                `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Email                 *string                `protobuf:"bytes,3,opt,name=email,proto3,oneof" json:"email,omitempty"`
+	Phone                 *string                `protobuf:"bytes,4,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	UserName              *string                `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3,oneof" json:"user_name,omitempty"`
+	EmailNotification     *bool                  `protobuf:"varint,6,opt,name=email_notification,json=emailNotification,proto3,oneof" json:"email_notification,omitempty"`
+	SmsNotification       *bool                  `protobuf:"varint,7,opt,name=sms_notification,json=smsNotification,proto3,oneof" json:"sms_notification,omitempty"`
+	Addresses             []*AddressInput        `protobuf:"bytes,8,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	Ethnicity             *string                `protobuf:"bytes,9,opt,name=ethnicity,proto3,oneof" json:"ethnicity,omitempty"`
+	UserProfile           *int32                 `protobuf:"varint,10,opt,name=user_profile,json=userProfile,proto3,oneof" json:"user_profile,omitempty"`
+	NotificationEmail     *string                `protobuf:"bytes,11,opt,name=notification_email,json=notificationEmail,proto3,oneof" json:"notification_email,omitempty"`
+	NotificationFrequency *int32                 `protobuf:"varint,12,opt,name=notification_frequency,json=notificationFrequency,proto3,oneof" json:"notification_frequency,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UpdateUserRequest) Reset() {
@@ -876,15 +1022,47 @@ func (x *UpdateUserRequest) GetAddresses() []*AddressInput {
 	return nil
 }
 
+func (x *UpdateUserRequest) GetEthnicity() string {
+	if x != nil && x.Ethnicity != nil {
+		return *x.Ethnicity
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetUserProfile() int32 {
+	if x != nil && x.UserProfile != nil {
+		return *x.UserProfile
+	}
+	return 0
+}
+
+func (x *UpdateUserRequest) GetNotificationEmail() string {
+	if x != nil && x.NotificationEmail != nil {
+		return *x.NotificationEmail
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetNotificationFrequency() int32 {
+	if x != nil && x.NotificationFrequency != nil {
+		return *x.NotificationFrequency
+	}
+	return 0
+}
+
 type UpdateUserResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
-	Phone         *string                `protobuf:"bytes,4,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
-	UserName      string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Email                 string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Phone                 *string                `protobuf:"bytes,4,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
+	UserName              string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	Ethnicity             string                 `protobuf:"bytes,6,opt,name=ethnicity,proto3" json:"ethnicity,omitempty"`
+	UserProfile           int32                  `protobuf:"varint,7,opt,name=user_profile,json=userProfile,proto3" json:"user_profile,omitempty"`
+	NotificationEmail     *string                `protobuf:"bytes,8,opt,name=notification_email,json=notificationEmail,proto3,oneof" json:"notification_email,omitempty"`
+	NotificationFrequency *int32                 `protobuf:"varint,9,opt,name=notification_frequency,json=notificationFrequency,proto3,oneof" json:"notification_frequency,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UpdateUserResponse) Reset() {
@@ -952,11 +1130,39 @@ func (x *UpdateUserResponse) GetUserName() string {
 	return ""
 }
 
+func (x *UpdateUserResponse) GetEthnicity() string {
+	if x != nil {
+		return x.Ethnicity
+	}
+	return ""
+}
+
+func (x *UpdateUserResponse) GetUserProfile() int32 {
+	if x != nil {
+		return x.UserProfile
+	}
+	return 0
+}
+
+func (x *UpdateUserResponse) GetNotificationEmail() string {
+	if x != nil && x.NotificationEmail != nil {
+		return *x.NotificationEmail
+	}
+	return ""
+}
+
+func (x *UpdateUserResponse) GetNotificationFrequency() int32 {
+	if x != nil && x.NotificationFrequency != nil {
+		return *x.NotificationFrequency
+	}
+	return 0
+}
+
 var File_users_v1_users_proto protoreflect.FileDescriptor
 
 const file_users_v1_users_proto_rawDesc = "" +
 	"\n" +
-	"\x14users/v1/users.proto\x12\busers.v1\x1a google/protobuf/field_mask.proto\x1a\x17omnicore/v1/query.proto\"\xed\x02\n" +
+	"\x14users/v1/users.proto\x12\busers.v1\x1a google/protobuf/field_mask.proto\x1a\x17omnicore/v1/query.proto\"\xf9\x04\n" +
 	"\x11CreateUserRequest\x12\x17\n" +
 	"\x04name\x18\x01 \x01(\tH\x00R\x04name\x88\x01\x01\x12\x19\n" +
 	"\x05email\x18\x02 \x01(\tH\x01R\x05email\x88\x01\x01\x12\x19\n" +
@@ -964,7 +1170,13 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\bdocument\x18\x04 \x01(\tH\x03R\bdocument\x88\x01\x01\x12 \n" +
 	"\tuser_name\x18\x05 \x01(\tH\x04R\buserName\x88\x01\x01\x122\n" +
 	"\x12email_notification\x18\x06 \x01(\bH\x05R\x11emailNotification\x88\x01\x01\x12.\n" +
-	"\x10sms_notification\x18\a \x01(\bH\x06R\x0fsmsNotification\x88\x01\x01B\a\n" +
+	"\x10sms_notification\x18\a \x01(\bH\x06R\x0fsmsNotification\x88\x01\x01\x12!\n" +
+	"\tethnicity\x18\b \x01(\tH\aR\tethnicity\x88\x01\x01\x12&\n" +
+	"\fuser_profile\x18\t \x01(\x05H\bR\vuserProfile\x88\x01\x01\x122\n" +
+	"\x12notification_email\x18\n" +
+	" \x01(\tH\tR\x11notificationEmail\x88\x01\x01\x12:\n" +
+	"\x16notification_frequency\x18\v \x01(\x05H\n" +
+	"R\x15notificationFrequency\x88\x01\x01B\a\n" +
 	"\x05_nameB\b\n" +
 	"\x06_emailB\b\n" +
 	"\x06_phoneB\v\n" +
@@ -972,15 +1184,27 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\n" +
 	"_user_nameB\x15\n" +
 	"\x13_email_notificationB\x13\n" +
-	"\x11_sms_notification\"\xac\x01\n" +
+	"\x11_sms_notificationB\f\n" +
+	"\n" +
+	"_ethnicityB\x0f\n" +
+	"\r_user_profileB\x15\n" +
+	"\x13_notification_emailB\x19\n" +
+	"\x17_notification_frequency\"\x8f\x03\n" +
 	"\x12CreateUserResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x19\n" +
 	"\x05phone\x18\x04 \x01(\tH\x00R\x05phone\x88\x01\x01\x12\x1a\n" +
 	"\bdocument\x18\x05 \x01(\tR\bdocument\x12\x1b\n" +
-	"\tuser_name\x18\x06 \x01(\tR\buserNameB\b\n" +
-	"\x06_phone\"t\n" +
+	"\tuser_name\x18\x06 \x01(\tR\buserName\x12\x1c\n" +
+	"\tethnicity\x18\a \x01(\tR\tethnicity\x12!\n" +
+	"\fuser_profile\x18\b \x01(\x05R\vuserProfile\x122\n" +
+	"\x12notification_email\x18\t \x01(\tH\x01R\x11notificationEmail\x88\x01\x01\x12:\n" +
+	"\x16notification_frequency\x18\n" +
+	" \x01(\x05H\x02R\x15notificationFrequency\x88\x01\x01B\b\n" +
+	"\x06_phoneB\x15\n" +
+	"\x13_notification_emailB\x19\n" +
+	"\x17_notification_frequency\"t\n" +
 	"\vUserFilters\x126\n" +
 	"\tuser_name\x18\x01 \x01(\v2\x19.omnicore.v1.StringFilterR\buserName\x12-\n" +
 	"\x04name\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\"\xd6\x01\n" +
@@ -988,32 +1212,45 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\x04page\x18\x01 \x01(\v2\x18.omnicore.v1.PageRequestR\x04page\x12*\n" +
 	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
 	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x12/\n" +
-	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\x9e\x01\n" +
+	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\x81\x03\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
 	"\bdocument\x18\x04 \x01(\tR\bdocument\x12\x1b\n" +
 	"\tuser_name\x18\x05 \x01(\tR\buserName\x12\x19\n" +
-	"\x05phone\x18\x06 \x01(\tH\x00R\x05phone\x88\x01\x01B\b\n" +
-	"\x06_phone\"m\n" +
+	"\x05phone\x18\x06 \x01(\tH\x00R\x05phone\x88\x01\x01\x12\x1c\n" +
+	"\tethnicity\x18\a \x01(\tR\tethnicity\x12!\n" +
+	"\fuser_profile\x18\b \x01(\x05R\vuserProfile\x122\n" +
+	"\x12notification_email\x18\t \x01(\tH\x01R\x11notificationEmail\x88\x01\x01\x12:\n" +
+	"\x16notification_frequency\x18\n" +
+	" \x01(\x05H\x02R\x15notificationFrequency\x88\x01\x01B\b\n" +
+	"\x06_phoneB\x15\n" +
+	"\x13_notification_emailB\x19\n" +
+	"\x17_notification_frequency\"m\n" +
 	"\x11ListUsersResponse\x12$\n" +
 	"\x05items\x18\x01 \x03(\v2\x0e.users.v1.UserR\x05items\x122\n" +
 	"\tpage_info\x18\x02 \x01(\v2\x15.omnicore.v1.PageInfoR\bpageInfo\"W\n" +
 	"\x0eGetUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12)\n" +
 	"\x10include_archived\x18\x02 \x01(\bR\x0fincludeArchivedB\x05\n" +
-	"\x03_id\"\x84\x01\n" +
+	"\x03_id\"\xe7\x02\n" +
 	"\x0fGetUserResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
 	"\bdocument\x18\x04 \x01(\tR\bdocument\x12\x1b\n" +
-	"\tuser_name\x18\x05 \x01(\tR\buserName\"0\n" +
+	"\tuser_name\x18\x05 \x01(\tR\buserName\x12\x1c\n" +
+	"\tethnicity\x18\x06 \x01(\tR\tethnicity\x12!\n" +
+	"\fuser_profile\x18\a \x01(\x05R\vuserProfile\x122\n" +
+	"\x12notification_email\x18\b \x01(\tH\x00R\x11notificationEmail\x88\x01\x01\x12:\n" +
+	"\x16notification_frequency\x18\t \x01(\x05H\x01R\x15notificationFrequency\x88\x01\x01B\x15\n" +
+	"\x13_notification_emailB\x19\n" +
+	"\x17_notification_frequency\"0\n" +
 	"\x12ArchiveUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01B\x05\n" +
 	"\x03_id\"\x15\n" +
-	"\x13ArchiveUserResponse\"\xe5\x02\n" +
+	"\x13ArchiveUserResponse\"\x9e\x03\n" +
 	"\fAddressInput\x12\x19\n" +
 	"\x05label\x18\x01 \x01(\tH\x00R\x05label\x88\x01\x01\x12\x1b\n" +
 	"\x06street\x18\x02 \x01(\tH\x01R\x06street\x88\x01\x01\x12\x1b\n" +
@@ -1024,7 +1261,8 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\fneighborhood\x18\x05 \x01(\tH\x04R\fneighborhood\x88\x01\x01\x12\x17\n" +
 	"\x04city\x18\x06 \x01(\tH\x05R\x04city\x88\x01\x01\x12\x19\n" +
 	"\x05state\x18\a \x01(\tH\x06R\x05state\x88\x01\x01\x12\x1e\n" +
-	"\bzip_code\x18\b \x01(\tH\aR\azipCode\x88\x01\x01B\b\n" +
+	"\bzip_code\x18\b \x01(\tH\aR\azipCode\x88\x01\x01\x12&\n" +
+	"\faddress_type\x18\t \x01(\tH\bR\vaddressType\x88\x01\x01B\b\n" +
 	"\x06_labelB\t\n" +
 	"\a_streetB\t\n" +
 	"\a_numberB\r\n" +
@@ -1032,7 +1270,8 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\r_neighborhoodB\a\n" +
 	"\x05_cityB\b\n" +
 	"\x06_stateB\v\n" +
-	"\t_zip_code\"\x91\x03\n" +
+	"\t_zip_codeB\x0f\n" +
+	"\r_address_type\"\x9d\x05\n" +
 	"\x11UpdateUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tH\x01R\x04name\x88\x01\x01\x12\x19\n" +
@@ -1041,7 +1280,13 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\tuser_name\x18\x05 \x01(\tH\x04R\buserName\x88\x01\x01\x122\n" +
 	"\x12email_notification\x18\x06 \x01(\bH\x05R\x11emailNotification\x88\x01\x01\x12.\n" +
 	"\x10sms_notification\x18\a \x01(\bH\x06R\x0fsmsNotification\x88\x01\x01\x124\n" +
-	"\taddresses\x18\b \x03(\v2\x16.users.v1.AddressInputR\taddressesB\x05\n" +
+	"\taddresses\x18\b \x03(\v2\x16.users.v1.AddressInputR\taddresses\x12!\n" +
+	"\tethnicity\x18\t \x01(\tH\aR\tethnicity\x88\x01\x01\x12&\n" +
+	"\fuser_profile\x18\n" +
+	" \x01(\x05H\bR\vuserProfile\x88\x01\x01\x122\n" +
+	"\x12notification_email\x18\v \x01(\tH\tR\x11notificationEmail\x88\x01\x01\x12:\n" +
+	"\x16notification_frequency\x18\f \x01(\x05H\n" +
+	"R\x15notificationFrequency\x88\x01\x01B\x05\n" +
 	"\x03_idB\a\n" +
 	"\x05_nameB\b\n" +
 	"\x06_emailB\b\n" +
@@ -1049,14 +1294,25 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\n" +
 	"_user_nameB\x15\n" +
 	"\x13_email_notificationB\x13\n" +
-	"\x11_sms_notification\"\x90\x01\n" +
+	"\x11_sms_notificationB\f\n" +
+	"\n" +
+	"_ethnicityB\x0f\n" +
+	"\r_user_profileB\x15\n" +
+	"\x13_notification_emailB\x19\n" +
+	"\x17_notification_frequency\"\xf3\x02\n" +
 	"\x12UpdateUserResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x19\n" +
 	"\x05phone\x18\x04 \x01(\tH\x00R\x05phone\x88\x01\x01\x12\x1b\n" +
-	"\tuser_name\x18\x05 \x01(\tR\buserNameB\b\n" +
-	"\x06_phone2\xf2\x02\n" +
+	"\tuser_name\x18\x05 \x01(\tR\buserName\x12\x1c\n" +
+	"\tethnicity\x18\x06 \x01(\tR\tethnicity\x12!\n" +
+	"\fuser_profile\x18\a \x01(\x05R\vuserProfile\x122\n" +
+	"\x12notification_email\x18\b \x01(\tH\x01R\x11notificationEmail\x88\x01\x01\x12:\n" +
+	"\x16notification_frequency\x18\t \x01(\x05H\x02R\x15notificationFrequency\x88\x01\x01B\b\n" +
+	"\x06_phoneB\x15\n" +
+	"\x13_notification_emailB\x19\n" +
+	"\x17_notification_frequency2\xf2\x02\n" +
 	"\fUsersService\x12G\n" +
 	"\n" +
 	"CreateUser\x12\x1b.users.v1.CreateUserRequest\x1a\x1c.users.v1.CreateUserResponse\x12D\n" +
@@ -1135,6 +1391,7 @@ func file_users_v1_users_proto_init() {
 	file_users_v1_users_proto_msgTypes[1].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[4].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[6].OneofWrappers = []any{}
+	file_users_v1_users_proto_msgTypes[7].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[8].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[10].OneofWrappers = []any{}
 	file_users_v1_users_proto_msgTypes[11].OneofWrappers = []any{}

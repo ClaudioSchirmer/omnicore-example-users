@@ -1,15 +1,14 @@
 package schemas
 
 import (
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
 	"github.com/ClaudioSchirmer/omnicore/infra/db/core"
-
-	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 )
 
 // JobHistorySchema is the SECOND role-owned child — plain (no sibling),
 // present so the role dispatches more than one child collection of its own.
 func JobHistorySchema() *core.TableSchema {
-	return core.NewTableSchema[appdomain.JobHistory]("employee_job_histories").
+	return core.NewTableSchema[aggregatevos.JobHistory]("employee_job_histories").
 		ID("id").
 		ParentID("employee_id").
 		Field("JobTitle", "job_title").
