@@ -465,7 +465,7 @@ sec "8. REST validation — domain rules on children"
 title "8.1 Relationship outside the closed set → 422"
 req POST /employees "{\"name\":\"Bad Rel\",\"email\":\"badrel@example.com\",\"document\":\"30000000009\",\"employeeNumber\":\"EMP-9\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"K\",\"birthDate\":\"2020-01-01T00:00:00Z\",\"relationship\":\"cousin\"}]}"
 expect_status "invalid relationship" 422
-echo "$RESP" | grep -q "InvalidRelationshipNotification" && ok "InvalidRelationshipNotification on the wire" || bad "notification missing: $RESP"
+echo "$RESP" | grep -q "UnknownRelationshipNotification" && ok "UnknownRelationshipNotification on the wire (enum VO membership check)" || bad "notification missing: $RESP"
 
 title "8.2 Termination before hire → 422"
 req POST /employees "{\"name\":\"Bad Hist\",\"email\":\"badhist@example.com\",\"document\":\"30000000010\",\"employeeNumber\":\"EMP-10\",\"ethnicity\":\"white\",\"jobHistories\":[{\"jobTitle\":\"X\",\"department\":\"Y\",\"hiredAt\":\"2024-01-01T00:00:00Z\",\"terminatedAt\":\"2023-01-01T00:00:00Z\"}]}"
@@ -850,17 +850,17 @@ sec "8. Value-object coverage — Relationship, HealthPlanType, HealthPlanCard, 
 # dependent child + child-level sibling is exercised end to end.
 vpf() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got $2 want $3)"; fi; }
 VEDOC=48000000000
-emp_create() { # emp_create <empNum> <ethnicity> <relationship> <healthPlanType|-> ; sets RESP; echoes doc
-  VEDOC=$((VEDOC+1)); local hp="" body
+emp_create() { # emp_create <empNum> <ethnicity> <relationship> <healthPlanType|-> ; sets STATUS/RESP + LAST_DOC. Call in the MAIN shell (never $(...)), so VEDOC/STATUS propagate.
+  VEDOC=$((VEDOC+1)); LAST_DOC="$VEDOC"; local hp="" body
   [ "$4" != "-" ] && hp=",\"healthPlanType\":\"$4\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\""
   body="{\"name\":\"VE $1\",\"email\":\"ve.$1@example.com\",\"document\":\"$VEDOC\",\"employeeNumber\":\"$1\",\"ethnicity\":\"$2\",\"dependents\":[{\"name\":\"Dep\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"$3\"$hp}]}"
-  req POST /employees "$body"; echo "$VEDOC"
+  req POST /employees "$body"
 }
 emp_dep_field() { req GET "/employees?document.eq=$1"; jsonq "d['data'][0]['dependents'][0].get('$2')"; }
 
 # ── 8.1 Relationship (enum, role child) — in/out + filter per member ────────
 for r in spouse son daughter father mother other; do
-  d=$(emp_create "EV-R-$r" white "$r" -)
+  emp_create "EV-R-$r" white "$r" -; d="$LAST_DOC"
   [ "$STATUS" = "201" ] || { bad "8.1 create relationship=$r ($STATUS)"; continue; }
   wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
   vpf "8.1 relationship in/out ($r)" "$(emp_dep_field "$d" relationship)" "$r"
@@ -873,7 +873,7 @@ vpf "8.1 filter relationship=cousin (non-member) → 0" "$(jsonq "d['pagination'
 
 # ── 8.2 HealthPlanType (enum, CHILD-level sibling, nullable) ────────────────
 for h in individual family corporate; do
-  d=$(emp_create "EV-H-$h" white daughter "$h")
+  emp_create "EV-H-$h" white daughter "$h"; d="$LAST_DOC"
   [ "$STATUS" = "201" ] || { bad "8.2 create healthPlanType=$h ($STATUS)"; continue; }
   wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
   vpf "8.2 healthPlanType in/out ($h)" "$(emp_dep_field "$d" healthPlanType)" "$h"
@@ -885,7 +885,7 @@ req GET "/employees?dependents.healthPlanType=platinum&onlyTotal=true"
 vpf "8.2 filter healthPlanType=platinum (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
 
 # ── 8.3 HealthPlanCard (raw VO, digit regex) — in/out + invalid ────────────
-d=$(emp_create "EV-CARD" white daughter family)
+emp_create "EV-CARD" white daughter family; d="$LAST_DOC"
 wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
 vpf "8.3 healthPlanCard in/out (digits)" "$(emp_dep_field "$d" healthPlanCard)" "889923"
 req POST /employees "{\"name\":\"Bad Card\",\"email\":\"badcard@example.com\",\"document\":\"48900000001\",\"employeeNumber\":\"EV-BADCARD\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanCard\":\"UN-not-digits\"}]}"
@@ -893,7 +893,7 @@ vpf "8.3 invalid healthPlanCard (non-digit) → 422" "$([ "$STATUS" = "422" ] &&
 
 # ── 8.4 Ethnicity (enum, shared base) on the employee role — filter ────────
 for e in black asian mixed; do
-  d=$(emp_create "EV-E-$e" "$e" son -)
+  emp_create "EV-E-$e" "$e" son -; d="$LAST_DOC"
   wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
   req GET "/employees?document.eq=$d"
   vpf "8.4 employee ethnicity in/out ($e)" "$(jsonq "d['data'][0].get('ethnicity')")" "$e"

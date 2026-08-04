@@ -417,7 +417,7 @@ puser() { # puser <doc> <userName> <ethnicity> <userProfile> ; sets RESP; echoes
 # ── ethnicity (base) in/out + filter per member ────────────────────────────
 for e in white black asian mixed indigenous not_declared; do
   PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pve$e" "$e" 1)
-  [ "$STATUS" = "201" ] || { bad "person create ethnicity=$e ($STATUS)"; continue; }
+  [ -n "$pid" ] || { bad "person create ethnicity=$e (no id; status=$STATUS)"; continue; }
   wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
   req GET "/persons/$pid"
   vpf "person ethnicity in/out ($e)" "$(jsonq "d['data'].get('ethnicity')")" "$e"
@@ -430,7 +430,7 @@ vpf "person filter ethnicity=martian → 0" "$(jsonq "d['pagination']['total']")
 # ── userProfile (user role segment) in/out + filter per member ─────────────
 for p in 1 2 3 4 5 6; do
   PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pvp$p" white "$p")
-  [ "$STATUS" = "201" ] || { bad "person create userProfile=$p ($STATUS)"; continue; }
+  [ -n "$pid" ] || { bad "person create userProfile=$p (no id; status=$STATUS)"; continue; }
   wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
   req GET "/persons/$pid"
   vpf "person user.userProfile in/out ($p)" "$(jsonq "(d['data'].get('user') or {}).get('userProfile')")" "$p"
