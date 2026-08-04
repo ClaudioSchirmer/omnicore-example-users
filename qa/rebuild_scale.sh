@@ -275,7 +275,7 @@ patch_add_nickname(){
   #    or the V2 pods abort at boot with DriftForgotToBump on the un-bumped view).
   perl -pi -e 's/\bVersion\(\d+\)/Version(2)/g' "$VIEW_SRC" "$PERSON_VIEW_SRC" "$EMPLOYEE_VIEW_SRC"
   # 2) entity: exported Nickname field (required before the schema .Field, or it panics)
-  perl -0pi -e 's/(UserName\s+string[^\n]*\n)/$1\tNickname                    *string\n/' "$ENTITY_SRC"
+  perl -0pi -e 's/(UserName\s+vos\.Name[^\n]*\n)/$1\tNickname                    *string\n/' "$ENTITY_SRC"
   # 3) schema: map the column so ToGoDoc keeps it and the DTO renders it
   perl -0pi -e 's/(Field\("UserName", "user_name"\)\.\n)/$1\t\tField("Nickname", "nickname").\n/' "$SCHEMA_SRC"
   # 4) read DTOs: surface it on GET /users/:id and GET /users
@@ -287,7 +287,7 @@ patch_add_nickname(){
   perl -0pi -e 's/(UserName\s+\*string\s+`json:"userName,omitempty"[^\n]*\n)/$1\tNickname          *string `json:"nickname,omitempty"`\n/' "$PATCH_REQ_SRC"
   perl -0pi -e 's/(UserName:\s+r\.UserName,\n)/$1\t\tNickname:          r.Nickname,\n/'                                                       "$PATCH_REQ_SRC"
   perl -0pi -e 's/(\tUserName\s+\*string\n)/$1\tNickname          *string\n/'                                                                "$PATCH_CMD_SRC"
-  perl -0pi -e 's/(if c\.UserName != nil \{\n\t\tu\.UserName = \*c\.UserName\n\t\}\n)/$1\tif c.Nickname != nil {\n\t\tu.Nickname = c.Nickname\n\t}\n/' "$PATCH_CMD_SRC"
+  perl -0pi -e 's/(if c\.UserName != nil \{\n\t\tu\.UserName = vos\.Name\(\*c\.UserName\)\n\t\}\n)/$1\tif c.Nickname != nil {\n\t\tu.Nickname = c.Nickname\n\t}\n/' "$PATCH_CMD_SRC"
   # 6) OWN-CHILD column (Phase 3.5's second grain): JobHistory.Notes threaded
   #    entity → child schema → wire request → application DTO. The wire carries
   #    no child ids (collection replace), which is fine — the mixed-binary

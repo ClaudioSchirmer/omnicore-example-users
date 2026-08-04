@@ -923,6 +923,57 @@ req GET "/employees?sort=ethnicity&limit=3"
 vpf "8.8 sort ?sort=ethnicity accepted" "$STATUS" 200
 
 ####################################
+sec "9. VO validation — dependent notification message + FIELD LABEL (EN & PT-BR)"
+####################################
+# Regression guard for the role/child-side value objects reachable only through
+# the Employee aggregate: Relationship (child enum), HealthPlanType (child-
+# sibling enum) and HealthPlanCard (child-sibling raw VO). An invalid value is
+# rejected 422 with notificationKey + fieldLabel + message all rendered in the
+# caller's language. Expected strings are the LIVE catalog values.
+
+voval_post() {
+  local tmp; tmp=$(mktemp)
+  VOVAL_STATUS=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST "$BASE$1" \
+    -H "Content-Type: application/json" -H "Accept-Language: $2" --data "$3")
+  VOVAL_RESP=$(cat "$tmp"); rm -f "$tmp"
+}
+voval_assert() {
+  local field="$1" ekey="$2" elabel="$3" emsg="$4" got
+  got=$(printf '%s' "$VOVAL_RESP" | VOVAL_FIELD="$field" python3 -c '
+import sys, os, json
+leaf = os.environ["VOVAL_FIELD"]
+d = json.load(sys.stdin)
+for e in d.get("errors", []):
+    for m in e.get("messages", []):
+        if (m.get("field","") or "").split(".")[-1] == leaf:
+            print("\t".join([m.get("notificationKey",""), m.get("fieldLabel","") or "", m.get("message","") or ""])); sys.exit(0)
+print("\t\t")')
+  local gkey glabel gmsg
+  IFS=$'\t' read -r gkey glabel gmsg <<< "$got"
+  if [ "$VOVAL_STATUS" = "422" ] && [ "$gkey" = "$ekey" ] && [ "$glabel" = "$elabel" ] && [ "$gmsg" = "$emsg" ]; then
+    printf '\033[1;32mPASS\033[0m %-16s %s | [%s] %s\n' "$field" "$gkey" "$glabel" "$gmsg"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m %-16s status=%s key[%s≠%s] label[%s≠%s] msg[%s≠%s]\n' \
+      "$field" "$VOVAL_STATUS" "$gkey" "$ekey" "$glabel" "$elabel" "$gmsg" "$emsg"; FAIL=$((FAIL+1))
+  fi
+}
+
+VOVAL_BAD_DEP_EN='{"name":"E","email":"e-voval-en@b.co","phone":"14155550001","document":"70000008001","employeeNumber":"EMP-VOVAL-EN","ethnicity":"white","dependents":[{"name":"D","birthDate":"2020-01-01T00:00:00Z","relationship":"cousin","healthPlanType":"xxx","healthPlanCard":"bad-card"}]}'
+VOVAL_BAD_DEP_PT='{"name":"E","email":"e-voval-pt@b.co","phone":"14155550001","document":"70000008002","employeeNumber":"EMP-VOVAL-PT","ethnicity":"white","dependents":[{"name":"D","birthDate":"2020-01-01T00:00:00Z","relationship":"cousin","healthPlanType":"xxx","healthPlanCard":"bad-card"}]}'
+
+title "9.1 EN — dependent VO fields: notificationKey + fieldLabel + message"
+voval_post /employees en-US "$VOVAL_BAD_DEP_EN"
+voval_assert relationship   UnknownRelationshipNotification   "Relationship"     "Unknown relationship (use spouse, son, daughter, father, mother or other)."
+voval_assert healthPlanCard InvalidHealthPlanCardNotification "Health plan card" "Invalid health plan card."
+voval_assert healthPlanType UnknownHealthPlanTypeNotification "Health plan type" "Unknown health plan type."
+
+title "9.2 PT-BR — the SAME fields render the Portuguese catalog (locale-driven)"
+voval_post /employees pt-BR "$VOVAL_BAD_DEP_PT"
+voval_assert relationship   UnknownRelationshipNotification   "Parentesco"             "Parentesco desconhecido (use spouse, son, daughter, father, mother ou other)."
+voval_assert healthPlanCard InvalidHealthPlanCardNotification "Carteirinha do plano"   "Carteira do plano de saúde inválida."
+voval_assert healthPlanType UnknownHealthPlanTypeNotification "Tipo de plano de saúde" "Tipo de plano de saúde desconhecido."
+
+####################################
 sec "Summary"
 ####################################
 hr

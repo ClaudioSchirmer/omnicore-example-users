@@ -2432,6 +2432,81 @@ raw_invalid "29.10 Phone IsValid (raw VO) → 422"   "{\"name\":\"R\",\"email\":
 raw_invalid "29.10 ZipCode IsValid (raw VO) → 422" "{\"name\":\"R\",\"email\":\"ri4@example.com\",\"phone\":\"14155550000\",\"document\":\"43900000004\",\"userName\":\"ri4\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"CA\",\"zipCode\":\"!!bad!!\",\"country\":\"US\",\"addressType\":\"residential\"}]}" InvalidZipCodeNotification
 
 ####################################
+sec "30. VO validation — translated notification message + FIELD LABEL (EN & PT-BR)"
+####################################
+# Regression guard for every user-side value object: an invalid value is
+# rejected 422 with a typed notification whose notificationKey, fieldLabel AND
+# message all render in the caller's language (Accept-Language). The expected
+# strings are the LIVE catalog values (internal/application/translations/*.go) —
+# a drift in any VO's notification or field-label translation trips this.
+
+# voval_post <path> <lang> <body> — POST, cache VOVAL_STATUS + VOVAL_RESP.
+voval_post() {
+  local tmp; tmp=$(mktemp)
+  VOVAL_STATUS=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST "$BASE$1" \
+    -H "Content-Type: application/json" -H "Accept-Language: $2" --data "$3")
+  VOVAL_RESP=$(cat "$tmp"); rm -f "$tmp"
+}
+# voval_assert <field-leaf> <expKey> <expLabel> <expMsg> — assert one field's
+# envelope entry (matched by the leaf of its dotted path).
+voval_assert() {
+  local field="$1" ekey="$2" elabel="$3" emsg="$4" got
+  got=$(printf '%s' "$VOVAL_RESP" | VOVAL_FIELD="$field" python3 -c '
+import sys, os, json
+leaf = os.environ["VOVAL_FIELD"]
+d = json.load(sys.stdin)
+for e in d.get("errors", []):
+    for m in e.get("messages", []):
+        if (m.get("field","") or "").split(".")[-1] == leaf:
+            print("\t".join([m.get("notificationKey",""), m.get("fieldLabel","") or "", m.get("message","") or ""])); sys.exit(0)
+print("\t\t")')
+  local gkey glabel gmsg
+  IFS=$'\t' read -r gkey glabel gmsg <<< "$got"
+  if [ "$VOVAL_STATUS" = "422" ] && [ "$gkey" = "$ekey" ] && [ "$glabel" = "$elabel" ] && [ "$gmsg" = "$emsg" ]; then
+    printf '\033[1;32mPASS\033[0m %-22s %s | [%s] %s\n' "$field" "$gkey" "$glabel" "$gmsg"; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m %-22s status=%s key[%s≠%s] label[%s≠%s] msg[%s≠%s]\n' \
+      "$field" "$VOVAL_STATUS" "$gkey" "$ekey" "$glabel" "$elabel" "$gmsg" "$emsg"; FAIL=$((FAIL+1))
+  fi
+}
+
+# Kitchen-sink invalid user — every VO field wrong at once (the domain reports
+# them together in one 422); name empty exercises the framework RequiredField.
+VOVAL_BAD_USER='{"name":"","email":"bad-email","phone":"xx","document":"a b!","userName":"voprobe","ethnicity":"xxx","userProfile":99,"notificationFrequency":88,"addresses":[{"label":"h","street":"S","number":"1","neighborhood":"N","city":"C","state":"CA","zipCode":"!!!","country":"US","addressType":"zzz"}]}'
+
+title "30.1 EN — every user VO field: notificationKey + fieldLabel + message"
+voval_post /users en-US "$VOVAL_BAD_USER"
+voval_assert name                  RequiredFieldNotification                "Name"                   "Required field."
+voval_assert email                 InvalidEmailNotification                 "Email"                  "Invalid email."
+voval_assert phone                 InvalidPhoneNotification                 "Phone"                  "Invalid phone number."
+voval_assert document              InvalidDocumentNotification              "Document"               "Invalid document."
+voval_assert ethnicity             UnknownEthnicityNotification             "Ethnicity"              "Unknown ethnicity."
+voval_assert userProfile           UnknownUserProfileNotification           "Profile"                "Unknown user profile."
+voval_assert notificationFrequency UnknownNotificationFrequencyNotification "Notification frequency" "Unknown notification frequency."
+voval_assert zipCode               InvalidZipCodeNotification               "ZIP Code"               "Invalid postal code."
+voval_assert addressType           UnknownAddressTypeNotification           "Address type"           "Unknown address type."
+
+title "30.2 PT-BR — the SAME fields render the Portuguese catalog (locale-driven)"
+voval_post /users pt-BR "$VOVAL_BAD_USER"
+voval_assert name                  RequiredFieldNotification                "Nome"                      "Campo obrigatório."
+voval_assert email                 InvalidEmailNotification                 "E-mail"                    "E-mail inválido."
+voval_assert phone                 InvalidPhoneNotification                 "Telefone"                  "Telefone inválido."
+voval_assert document              InvalidDocumentNotification              "Documento"                 "Documento inválido."
+voval_assert ethnicity             UnknownEthnicityNotification             "Etnia"                     "Etnia desconhecida."
+voval_assert userProfile           UnknownUserProfileNotification           "Perfil"                    "Perfil de usuário desconhecido."
+voval_assert notificationFrequency UnknownNotificationFrequencyNotification "Frequência de notificação" "Frequência de notificação desconhecida."
+voval_assert zipCode               InvalidZipCodeNotification               "CEP"                       "Código postal inválido."
+voval_assert addressType           UnknownAddressTypeNotification           "Tipo de endereço"          "Tipo de endereço desconhecido."
+
+# Name max-length is a distinct rule (a body cannot be both empty AND too long).
+VOVAL_LONG=$(python3 -c 'print("A"*101)')
+title "30.3 Name max-length rule renders in both languages"
+voval_post /users en-US "{\"name\":\"$VOVAL_LONG\",\"email\":\"a@b.co\",\"phone\":\"14155550001\",\"document\":\"70000009001\",\"userName\":\"volong\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}"
+voval_assert name NameMaxLengthExceededNotification "Name" "Name exceeds the maximum allowed length of 100 characters."
+voval_post /users pt-BR "{\"name\":\"$VOVAL_LONG\",\"email\":\"a@b.co\",\"phone\":\"14155550001\",\"document\":\"70000009002\",\"userName\":\"volong2\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}"
+voval_assert name NameMaxLengthExceededNotification "Nome" "O nome excede o tamanho máximo permitido de 100 caracteres."
+
+####################################
 sec "Summary"
 ####################################
 printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
