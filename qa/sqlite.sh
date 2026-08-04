@@ -585,6 +585,59 @@ eq "outbox has rows (every write emits an event row)" "$([ "$(db "SELECT count(*
 
 ##############################################################################
 printf '\n'; hr
+####################################
+sec "VO coverage — value objects on the RELATIONAL read side (SoR) + converge on tampered rows"
+####################################
+# SQLite's read side is the RELATIONAL view (served from the SoR, no Mongo). So
+# this is the one place we can (a) assert the underlying scalar is what the column
+# stores, and (b) tamper a row to an OUT-OF-SET enum value and prove the loader
+# reconstructs it as Unknown (the D3/D8 converge) on read — impossible to force
+# through the write API.
+vpf() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (got '$2' want '$3')"; fi; }
+
+# ── create one user with distinctive VO values ─────────────────────────────
+VDOC="55000000001"
+post /users "{\"name\":\"VO Rel\",\"email\":\"vorel@example.com\",\"phone\":\"14155550000\",\"document\":\"$VDOC\",\"userName\":\"vorel\",\"ethnicity\":\"asian\",\"userProfile\":2,\"notificationEmail\":\"vo.n@example.com\",\"notificationFrequency\":3,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"commercial\"}]}"
+status_is "VO create → 201" 201
+VUID=$(jsonq "d['data']['id']")
+
+# ── the columns store the UNDERLYING scalar ────────────────────────────────
+eq "persons.ethnicity stores the underlying string" "$(db "SELECT ethnicity FROM persons WHERE id='$VUID';")" "asian"
+eq "users.user_profile stores the underlying int" "$(db "SELECT user_profile FROM users WHERE id='$VUID';")" "2"
+eq "addresses.address_type stores the underlying string" "$(db "SELECT address_type FROM addresses WHERE person_id='$VUID' LIMIT 1;")" "commercial"
+eq "user_configurations.notification_frequency underlying int" "$(db "SELECT notification_frequency FROM user_configurations WHERE id='$VUID';")" "3"
+eq "user_configurations.notification_email underlying string" "$(db "SELECT notification_email FROM user_configurations WHERE id='$VUID';")" "vo.n@example.com"
+
+# ── relational read reconstructs the VO fields (in/out) ────────────────────
+get "/users-rel/$VUID"
+vpf "relational read ethnicity" "$(jsonq "d['data'].get('ethnicity')")" "asian"
+vpf "relational read userProfile" "$(jsonq "d['data'].get('userProfile')")" "2"
+vpf "relational read addresses[0].addressType" "$(jsonq "d['data']['addresses'][0].get('addressType')")" "commercial"
+vpf "relational read notificationFrequency" "$(jsonq "d['data'].get('notificationFrequency')")" "3"
+vpf "relational read notificationEmail" "$(jsonq "d['data'].get('notificationEmail')")" "vo.n@example.com"
+
+# ── relational filter + ?fields= on the VO fields ──────────────────────────
+get "/users-rel?ethnicity=asian&onlyTotal=true"; vpf "relational filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+get "/users-rel?userProfile=2&onlyTotal=true"; vpf "relational filter ?userProfile=2 ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+get "/users-rel?ethnicity=martian&onlyTotal=true"; vpf "relational filter ?ethnicity=martian → 0" "$(jsonq "d['pagination']['total']")" "0"
+get "/users-rel?fields=ethnicity&limit=1"; vpf "relational ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" "True"
+
+# ── invalid VO on write → 422 (relational path validates identically) ──────
+post /users "{\"name\":\"Bad\",\"email\":\"badrel@example.com\",\"document\":\"55000000009\",\"userName\":\"badrel\",\"ethnicity\":\"martian\",\"userProfile\":1,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"commercial\"}]}"
+vpf "invalid ethnicity → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownEthnicityNotification"
+post /users "{\"name\":\"Bad2\",\"email\":\"badrel2@example.com\",\"document\":\"55000000010\",\"userName\":\"badrel2\",\"ethnicity\":\"white\",\"userProfile\":99,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"commercial\"}]}"
+vpf "invalid userProfile → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownUserProfileNotification"
+
+# ── CONVERGE: tamper the SoR to an out-of-set value → read reconstructs Unknown
+db "UPDATE users SET user_profile = 99 WHERE id = '$VUID';"
+get "/users-rel/$VUID"; vpf "converge: tampered user_profile=99 reads back Unknown (0)" "$(jsonq "d['data'].get('userProfile')")" "0"
+db "UPDATE persons SET ethnicity = 'martian' WHERE id = '$VUID';"
+get "/users-rel/$VUID"; vpf "converge: tampered ethnicity=martian reads back Unknown ('')" "$(jsonq "d['data'].get('ethnicity')")" ""
+db "UPDATE addresses SET address_type = 'spaceship' WHERE person_id = '$VUID';"
+get "/users-rel/$VUID"; vpf "converge: tampered address_type reads back Unknown ('')" "$(jsonq "d['data']['addresses'][0].get('addressType')")" ""
+db "UPDATE user_configurations SET notification_frequency = 88 WHERE id = '$VUID';"
+get "/users-rel/$VUID"; vpf "converge: tampered notification_frequency reads back Unknown (0)" "$(jsonq "d['data'].get('notificationFrequency')")" "0"
+
 printf 'SQLite isolated QA — \033[1;32mPASS %d\033[0m / \033[1;31mFAIL %d\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] && printf '\033[1;32mSQLITE OK\033[0m\n' || printf '\033[1;31mSQLITE RED\033[0m\n'
 # Standard machine-readable summary line — run.sh's summarize() parses this

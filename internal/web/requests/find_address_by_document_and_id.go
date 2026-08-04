@@ -50,8 +50,9 @@ func (r FindAddressByDocumentAndIDRequest) ToQuery(criteria fwqueries.ReadCriter
 // AutoFromDoc handles both sparse (*T+omitempty) and non-sparse (string)
 // shapes uniformly.
 type FindAddressByDocumentAndIDResponse struct {
-	ID      string `json:"id"      example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
-	Street  string `json:"street"  example:"1 Infinite Loop"`
-	City    string `json:"city"    example:"Cupertino"`
-	Country string `json:"country" example:"US"`
+	ID          string `json:"id"          example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
+	Street      string `json:"street"      example:"1 Infinite Loop"`
+	City        string `json:"city"        example:"Cupertino"`
+	Country     string `json:"country"     example:"US"`
+	AddressType string `json:"addressType" example:"residential"`
 }

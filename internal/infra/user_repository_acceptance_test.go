@@ -11,6 +11,7 @@ import (
 
 	appdomain "github.com/ClaudioSchirmer/omnicore-example-users/internal/domain"
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/aggregatevos"
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/domain/vos"
 )
 
 // testCtx is the request-scoped AppContext the write binding (repo.Scope) needs;
@@ -32,7 +33,7 @@ func testCtx() *configuration.AppContext {
 // upsert path on the canonical repository.
 func insertUser(t *testing.T, repo *UserRepository, document, name, email, userName string, addresses ...aggregatevos.Address) (domain.ID, error) {
 	t.Helper()
-	fresh := &appdomain.User{Document: document}
+	fresh := &appdomain.User{Document: vos.Document(document)}
 	loaded, existed, err := repo.LoadForSharedBaseInsert(testCtx(), fresh)
 	if err != nil {
 		// RETURN (don't t.Fatalf): since 775a3c6 the shared-base insert probe
@@ -41,10 +42,12 @@ func insertUser(t *testing.T, repo *UserRepository, document, name, email, userN
 		// error is expected — mirror the Insert path and hand it back.
 		return domain.ID{}, err
 	}
-	loaded.Name = name
-	loaded.Email = email
-	loaded.Document = document
-	loaded.UserName = userName
+	loaded.Name = vos.Name(name)
+	loaded.Email = vos.Email(email)
+	loaded.Document = vos.Document(document)
+	loaded.UserName = vos.Name(userName)
+	loaded.Ethnicity = vos.EthnicityWhite
+	loaded.UserProfile = vos.UserProfileAdmin
 	for _, a := range addresses {
 		loaded.AddAddress(a, nil)
 	}
@@ -63,6 +66,7 @@ func sampleAddress() aggregatevos.Address {
 	return aggregatevos.Address{
 		Street: "Main", Number: "1", Neighborhood: "N",
 		City: "Berlin", State: "BE", ZipCode: "10115", Country: "DE",
+		AddressType: "residential",
 	}
 }
 
@@ -324,12 +328,13 @@ func TestUserCustomRepository_WriteDelegations(t *testing.T) {
 	custom := NewUserCustomRepository(eng)
 
 	// Insert via the custom Repository's SharedBase upsert path.
-	fresh := &appdomain.User{Document: "10000000006"}
+	fresh := &appdomain.User{Document: vos.Document("10000000006")}
 	loaded0, existed, err := custom.LoadForSharedBaseInsert(testCtx(), fresh)
 	if err != nil {
 		t.Fatalf("LoadForSharedBaseInsert: %v", err)
 	}
-	loaded0.Name, loaded0.Email, loaded0.Document, loaded0.UserName = "C", "c@x.com", "10000000006", "c"
+	loaded0.Name, loaded0.Email, loaded0.Document, loaded0.UserName = vos.Name("C"), vos.Email("c@x.com"), vos.Document("10000000006"), vos.Name("c")
+	loaded0.Ethnicity, loaded0.UserProfile = vos.EthnicityWhite, vos.UserProfileAdmin
 	loaded0.AddAddress(sampleAddress(), nil)
 	action := "GetInsertable"
 	if existed {
@@ -351,7 +356,7 @@ func TestUserCustomRepository_WriteDelegations(t *testing.T) {
 	}
 
 	// Update.
-	upd, err := domain.GetUpdatable(loaded, func(u *appdomain.User) error { u.Name = "C2"; return nil }, nil, "GetUpdatable")
+	upd, err := domain.GetUpdatable(loaded, func(u *appdomain.User) error { u.Name = vos.Name("C2"); return nil }, nil, "GetUpdatable")
 	if err != nil {
 		t.Fatalf("GetUpdatable: %v", err)
 	}

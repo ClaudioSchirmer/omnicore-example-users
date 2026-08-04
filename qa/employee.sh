@@ -436,12 +436,12 @@ gql "{\"query\":\"{ employees(where: {dependents_relationship: {eq: \\\"daughter
 
 title "7.3 createEmployee mutation"
 D7="30000000007"
-gql "{\"query\":\"mutation { createEmployee(input: {name: \\\"Gql Emp\\\", email: \\\"gql@example.com\\\", document: \\\"$D7\\\", employeeNumber: \\\"EMP-0007\\\", dependents: [{name: \\\"Gql Kid\\\", birthDate: \\\"2020-05-05T00:00:00Z\\\", relationship: \\\"daughter\\\"}], jobHistories: [{jobTitle: \\\"Intern\\\", department: \\\"Lab\\\", hiredAt: \\\"2024-01-02T00:00:00Z\\\"}]}) { id employeeNumber } }\"}"
+gql "{\"query\":\"mutation { createEmployee(input: {ethnicity: \\\"white\\\", name: \\\"Gql Emp\\\", email: \\\"gql@example.com\\\", document: \\\"$D7\\\", employeeNumber: \\\"EMP-0007\\\", dependents: [{name: \\\"Gql Kid\\\", birthDate: \\\"2020-05-05T00:00:00Z\\\", relationship: \\\"daughter\\\"}], jobHistories: [{jobTitle: \\\"Intern\\\", department: \\\"Lab\\\", hiredAt: \\\"2024-01-02T00:00:00Z\\\"}]}) { id employeeNumber } }\"}"
 GQL_ID=$(jsonq "d['data']['createEmployee']['id']")
 [ -n "$GQL_ID" ] && [ "$GQL_ID" != "None" ] && ok "createEmployee returned id $GQL_ID" || bad "createEmployee failed: $RESP"
 
 title "7.4 updateEmployee (PUT semantics) + patchEmployee"
-gql "{\"query\":\"mutation { updateEmployee(id: \\\"$GQL_ID\\\", input: {name: \\\"Gql Emp Updated\\\", email: \\\"gql@example.com\\\", phone: \\\"14155550000\\\", employeeNumber: \\\"EMP-0007\\\", bank: \\\"777\\\", branch: \\\"0001\\\", account: \\\"9\\\", pix: \\\"g@x.io\\\", addresses: [], dependents: [], jobHistories: []}) { name bank } }\"}"
+gql "{\"query\":\"mutation { updateEmployee(id: \\\"$GQL_ID\\\", input: {ethnicity: \\\"white\\\", name: \\\"Gql Emp Updated\\\", email: \\\"gql@example.com\\\", phone: \\\"14155550000\\\", employeeNumber: \\\"EMP-0007\\\", bank: \\\"777\\\", branch: \\\"0001\\\", account: \\\"9\\\", pix: \\\"g@x.io\\\", addresses: [], dependents: [], jobHistories: []}) { name bank } }\"}"
 [ "$(jsonq "d['data']['updateEmployee']['name']")" = "Gql Emp Updated" ] && ok "updateEmployee applied" || bad "updateEmployee: $RESP"
 gql "{\"query\":\"mutation { patchEmployee(id: \\\"$GQL_ID\\\", input: {employeeNumber: \\\"EMP-0007B\\\"}) { employeeNumber } }\"}"
 [ "$(jsonq "d['data']['patchEmployee']['employeeNumber']")" = "EMP-0007B" ] && ok "patchEmployee applied" || bad "patchEmployee: $RESP"
@@ -455,7 +455,7 @@ gql "{\"query\":\"mutation { deleteEmployee(id: \\\"$GQL_ID\\\") { success } }\"
 [ "$(jsonq "d['data']['deleteEmployee']['success']")" = "True" ] && ok "deleteEmployee" || bad "deleteEmployee: $RESP"
 
 title "7.6 GraphQL validation error mirrors REST (422 envelope in errors)"
-gql "{\"query\":\"mutation { createEmployee(input: {name: \\\"X\\\", email: \\\"bad@example.com\\\", document: \\\"30000000008\\\", employeeNumber: \\\"EMP-8\\\", dependents: [{name: \\\"K\\\", birthDate: \\\"2020-01-01T00:00:00Z\\\", relationship: \\\"cousin\\\"}], jobHistories: []}) { id } }\"}"
+gql "{\"query\":\"mutation { createEmployee(input: {ethnicity: \\\"white\\\", name: \\\"X\\\", email: \\\"bad@example.com\\\", document: \\\"30000000008\\\", employeeNumber: \\\"EMP-8\\\", dependents: [{name: \\\"K\\\", birthDate: \\\"2020-01-01T00:00:00Z\\\", relationship: \\\"cousin\\\"}], jobHistories: []}) { id } }\"}"
 ERRS=$(jsonq "len(d.get('errors') or [])")
 [ "$ERRS" != "0" ] && [ "$ERRS" != "None" ] && ok "invalid relationship rejected through GraphQL" || bad "expected GraphQL errors: $RESP"
 
@@ -841,6 +841,86 @@ gotall=$(jsonq "','.join(sorted(x['name'] for x in d['data'][0].get('dependents'
 title "14.5 Cleanup"
 req DELETE "/employees/$EIDA5"
 expect_status "delete mixed fixture" 204
+
+####################################
+sec "8. Value-object coverage — Relationship, HealthPlanType, HealthPlanCard, Ethnicity (in/out, filter, ?fields=, invalid, GraphQL)"
+####################################
+# Employee has no by-id route (100% canonical), so reads go through the list
+# filtered by document.eq. Every VO field on the Employee aggregate + its
+# dependent child + child-level sibling is exercised end to end.
+vpf() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got $2 want $3)"; fi; }
+VEDOC=48000000000
+emp_create() { # emp_create <empNum> <ethnicity> <relationship> <healthPlanType|-> ; sets RESP; echoes doc
+  VEDOC=$((VEDOC+1)); local hp="" body
+  [ "$4" != "-" ] && hp=",\"healthPlanType\":\"$4\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\""
+  body="{\"name\":\"VE $1\",\"email\":\"ve.$1@example.com\",\"document\":\"$VEDOC\",\"employeeNumber\":\"$1\",\"ethnicity\":\"$2\",\"dependents\":[{\"name\":\"Dep\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"$3\"$hp}]}"
+  req POST /employees "$body"; echo "$VEDOC"
+}
+emp_dep_field() { req GET "/employees?document.eq=$1"; jsonq "d['data'][0]['dependents'][0].get('$2')"; }
+
+# ── 8.1 Relationship (enum, role child) — in/out + filter per member ────────
+for r in spouse son daughter father mother other; do
+  d=$(emp_create "EV-R-$r" white "$r" -)
+  [ "$STATUS" = "201" ] || { bad "8.1 create relationship=$r ($STATUS)"; continue; }
+  wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+  vpf "8.1 relationship in/out ($r)" "$(emp_dep_field "$d" relationship)" "$r"
+  wait_view_total "dependents.relationship=$r" 1 8 >/dev/null 2>&1
+  req GET "/employees?dependents.relationship=$r&onlyTotal=true"
+  vpf "8.1 filter ?dependents.relationship=$r ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/employees?dependents.relationship=cousin&onlyTotal=true"
+vpf "8.1 filter relationship=cousin (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── 8.2 HealthPlanType (enum, CHILD-level sibling, nullable) ────────────────
+for h in individual family corporate; do
+  d=$(emp_create "EV-H-$h" white daughter "$h")
+  [ "$STATUS" = "201" ] || { bad "8.2 create healthPlanType=$h ($STATUS)"; continue; }
+  wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+  vpf "8.2 healthPlanType in/out ($h)" "$(emp_dep_field "$d" healthPlanType)" "$h"
+  wait_view_total "dependents.healthPlanType=$h" 1 8 >/dev/null 2>&1
+  req GET "/employees?dependents.healthPlanType=$h&onlyTotal=true"
+  vpf "8.2 filter ?dependents.healthPlanType=$h ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/employees?dependents.healthPlanType=platinum&onlyTotal=true"
+vpf "8.2 filter healthPlanType=platinum (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── 8.3 HealthPlanCard (raw VO, digit regex) — in/out + invalid ────────────
+d=$(emp_create "EV-CARD" white daughter family)
+wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+vpf "8.3 healthPlanCard in/out (digits)" "$(emp_dep_field "$d" healthPlanCard)" "889923"
+req POST /employees "{\"name\":\"Bad Card\",\"email\":\"badcard@example.com\",\"document\":\"48900000001\",\"employeeNumber\":\"EV-BADCARD\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanCard\":\"UN-not-digits\"}]}"
+vpf "8.3 invalid healthPlanCard (non-digit) → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "InvalidHealthPlanCardNotification"
+
+# ── 8.4 Ethnicity (enum, shared base) on the employee role — filter ────────
+for e in black asian mixed; do
+  d=$(emp_create "EV-E-$e" "$e" son -)
+  wait_view_total "document.eq=$d" 1 15 >/dev/null 2>&1
+  req GET "/employees?document.eq=$d"
+  vpf "8.4 employee ethnicity in/out ($e)" "$(jsonq "d['data'][0].get('ethnicity')")" "$e"
+done
+wait_view_total "ethnicity=asian" 1 8 >/dev/null 2>&1
+req GET "/employees?ethnicity=asian&onlyTotal=true"
+vpf "8.4 filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+
+# ── 8.5 Invalid enums on the dependent/role → 422 ──────────────────────────
+req POST /employees "{\"name\":\"Bad Rel\",\"email\":\"badrel@example.com\",\"document\":\"48900000002\",\"employeeNumber\":\"EV-BR\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"cousin\"}]}"
+vpf "8.5 invalid relationship → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownRelationshipNotification"
+req POST /employees "{\"name\":\"Bad HPT\",\"email\":\"badhpt@example.com\",\"document\":\"48900000003\",\"employeeNumber\":\"EV-BH\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"son\",\"healthPlanType\":\"platinum\"}]}"
+vpf "8.5 invalid healthPlanType → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownHealthPlanTypeNotification"
+
+# ── 8.6 ?fields= projects VO fields (root + into the dependent) ─────────────
+req GET "/employees?fields=ethnicity&limit=1"
+vpf "8.6 ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" True
+req GET "/employees?fields=dependents.relationship&limit=1"
+vpf "8.6 ?fields=dependents.relationship projects it" "$(jsonq "'relationship' in (d['data'][0]['dependents'][0] if d['data'] and d['data'][0].get('dependents') else {})")" True
+
+# ── 8.7 GraphQL surfaces the VO fields ─────────────────────────────────────
+gql "{\"query\":\"{ employees(where: {ethnicity: {eq: \\\"asian\\\"}}) { totalCount edges { node { ethnicity dependents { relationship healthPlanType } } } } }\"}"
+vpf "8.7 GraphQL filter ethnicity=asian + projects dependent VO" "$([ "$(jsonq "d['data']['employees']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
+
+# ── 8.8 sort by ethnicity accepted ─────────────────────────────────────────
+req GET "/employees?sort=ethnicity&limit=3"
+vpf "8.8 sort ?sort=ethnicity accepted" "$STATUS" 200
 
 ####################################
 sec "Summary"

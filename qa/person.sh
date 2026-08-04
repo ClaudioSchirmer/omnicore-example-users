@@ -402,6 +402,66 @@ else
 fi
 
 ####################################
+sec "VO coverage on the person view — ethnicity (base), userProfile (user role), healthPlanType (employee dependent)"
+####################################
+# The SharedBaseView surfaces the base's VO (ethnicity) flat, the user role's VO
+# (userProfile) under user.*, and the employee dependent's VO under
+# employee.dependents.* — each queryable by its role path.
+vpf() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got $2 want $3)"; fi; }
+PVDOC=45000000000
+puser() { # puser <doc> <userName> <ethnicity> <userProfile> ; sets RESP; echoes id (=person id)
+  req POST /users "{\"name\":\"PV $2\",\"email\":\"pv.$2@example.com\",\"document\":\"$1\",\"userName\":\"$2\",\"ethnicity\":\"$3\",\"userProfile\":$4,\"notificationEmail\":null,\"notificationFrequency\":null}"
+  jsonq "d['data']['id']"
+}
+
+# ── ethnicity (base) in/out + filter per member ────────────────────────────
+for e in white black asian mixed indigenous not_declared; do
+  PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pve$e" "$e" 1)
+  [ "$STATUS" = "201" ] || { bad "person create ethnicity=$e ($STATUS)"; continue; }
+  wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
+  req GET "/persons/$pid"
+  vpf "person ethnicity in/out ($e)" "$(jsonq "d['data'].get('ethnicity')")" "$e"
+  req GET "/persons?ethnicity=$e&onlyTotal=true"
+  vpf "person filter ?ethnicity=$e ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/persons?ethnicity=martian&onlyTotal=true"
+vpf "person filter ethnicity=martian → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── userProfile (user role segment) in/out + filter per member ─────────────
+for p in 1 2 3 4 5 6; do
+  PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pvp$p" white "$p")
+  [ "$STATUS" = "201" ] || { bad "person create userProfile=$p ($STATUS)"; continue; }
+  wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
+  req GET "/persons/$pid"
+  vpf "person user.userProfile in/out ($p)" "$(jsonq "(d['data'].get('user') or {}).get('userProfile')")" "$p"
+  req GET "/persons?user.userProfile=$p&onlyTotal=true"
+  vpf "person filter ?user.userProfile=$p ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+done
+req GET "/persons?user.userProfile=99&onlyTotal=true"
+vpf "person filter user.userProfile=99 → 0" "$(jsonq "d['pagination']['total']")" 0
+
+# ── healthPlanType via the employee dependent role path ────────────────────
+PVDOC=$((PVDOC+1)); D_HP="$PVDOC"
+req POST /users "{\"name\":\"PV HP\",\"email\":\"pv.hp@example.com\",\"document\":\"$D_HP\",\"userName\":\"pvhp\",\"ethnicity\":\"asian\",\"userProfile\":2,\"notificationEmail\":null,\"notificationFrequency\":null}"
+PHPID=$(jsonq "d['data']['id']")
+req POST /employees "{\"name\":\"PV HP\",\"email\":\"pv.hp@example.com\",\"document\":\"$D_HP\",\"employeeNumber\":\"PV-HP\",\"ethnicity\":\"asian\",\"dependents\":[{\"name\":\"Dep\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"daughter\",\"healthPlanType\":\"family\",\"healthPlanProvider\":\"Unimed\",\"healthPlanCard\":\"889923\"}]}"
+expect_status "person: employee role added for HP" 201
+wait_person "id=$PHPID" "(d['data'][0].get('employee') if d['data'] else None) is not None" 15 >/dev/null 2>&1
+req GET "/persons/$PHPID"
+vpf "person employee.dependents[0].healthPlanType in/out" "$(jsonq "((d['data'].get('employee') or {}).get('dependents') or [{}])[0].get('healthPlanType')")" "family"
+vpf "person employee.dependents[0].relationship in/out" "$(jsonq "((d['data'].get('employee') or {}).get('dependents') or [{}])[0].get('relationship')")" "daughter"
+req GET "/persons?employee.dependents.healthPlanType=family&onlyTotal=true"
+vpf "person filter ?employee.dependents.healthPlanType=family ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+req GET "/persons?employee.dependents.relationship=daughter&onlyTotal=true"
+vpf "person filter ?employee.dependents.relationship=daughter ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+
+# ── ?fields= into the person view (root + role) ────────────────────────────
+req GET "/persons?fields=ethnicity&limit=1"
+vpf "person ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" True
+req GET "/persons?fields=user.userProfile&limit=1"
+vpf "person ?fields=user.userProfile projects it" "$(jsonq "'userProfile' in ((d['data'][0].get('user') or {}) if d['data'] else {})")" True
+
+####################################
 hr
 printf '\033[1;37mperson.sh done — PASS=%d FAIL=%d (backend=%s)\033[0m\n' "$PASS" "$FAIL" "$BACKEND"
 [ "$FAIL" -eq 0 ]
