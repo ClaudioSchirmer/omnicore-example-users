@@ -4,7 +4,6 @@ package qafixtures_test
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,17 +14,18 @@ import (
 )
 
 // The Product rules contract: the grouped-facts invariant (max 3 distinct
-// active categories) consumes the ProductStats port through the injected
-// ProductService — pure domain tests over a fake port, no database.
+// active categories) consumes the injected ProductService — pure domain tests
+// over a fake service, no database.
 
-// fakeStats answers the port from a canned fact list (or error).
+// fakeStats is a fake ProductService: it embeds ServiceBase (so it IS a
+// domain.Service) and answers ActiveCategoryFacts from a canned list.
 type fakeStats struct {
+	domain.ServiceBase
 	facts []qadomain.ProductCategoryFact
-	err   error
 }
 
-func (f fakeStats) ActiveCategoryFacts() ([]qadomain.ProductCategoryFact, error) {
-	return f.facts, f.err
+func (f fakeStats) ActiveCategoryFacts() []qadomain.ProductCategoryFact {
+	return f.facts
 }
 
 func factsFor(categories ...string) []qadomain.ProductCategoryFact {
@@ -36,8 +36,8 @@ func factsFor(categories ...string) []qadomain.ProductCategoryFact {
 	return out
 }
 
-func serviceWith(stats qadomain.ProductStats) *qadomain.ProductService {
-	return &qadomain.ProductService{Stats: stats}
+func serviceWith(stats fakeStats) qadomain.ProductService {
+	return stats
 }
 
 func validProduct(category string) *qadomain.Product {
@@ -119,19 +119,6 @@ func TestProduct_Insert_NilService_Rejects(t *testing.T) {
 	if !hasNotification(ctxs, "service", "ServiceIsRequiredNotification") {
 		t.Fatalf("expected ServiceIsRequiredNotification; got %s", dumpContexts(ctxs))
 	}
-}
-
-func TestProduct_Insert_StatsFailure_Panics(t *testing.T) {
-	// A stats-backend failure is not a validation outcome — the rule panics so
-	// the pipeline's single recover point renders the 500 Exception envelope
-	// and the write never happens.
-	svc := serviceWith(fakeStats{err: fmt.Errorf("relational backend down")})
-	defer func() {
-		if recover() == nil {
-			t.Fatal("a stats error must panic out of BuildRules")
-		}
-	}()
-	_, _ = domain.GetInsertable(validProduct("books"), svc, "GetInsertable")
 }
 
 func TestProduct_Insert_FieldValidations(t *testing.T) {

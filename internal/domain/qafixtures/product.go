@@ -65,19 +65,10 @@ func (p *Product) BuildRules(_ string, svc domain.Service, r *domain.Rules) {
 		if p.Category == "" {
 			return // the required-field notification above already fired
 		}
-		ps, ok := svc.(*ProductService)
-		if !ok || ps.Stats == nil {
-			// RequiresService() true guards the nil-Service case before rules
-			// run; a Service of the wrong TYPE is a wiring bug — fail loudly.
-			panic("Product.BuildRules: the Service must be a *ProductService carrying the Stats port")
-		}
-		facts, err := ps.Stats.ActiveCategoryFacts()
-		if err != nil {
-			// A stats-backend failure is not a validation outcome: propagate as a
-			// panic so the pipeline's single recover point converts it into the
-			// 500 Exception envelope and the write never happens.
-			panic("Product.BuildRules: category facts unavailable: " + err.Error())
-		}
+		// svc is guaranteed present (RequiresService() true) and of this type
+		// (the wiring + the infra compile-time assertion). The port returns pure
+		// facts — an infra failure is handled in infra (500), never in the domain.
+		facts := svc.(ProductService).ActiveCategoryFacts()
 		for _, f := range facts {
 			if f.Category == p.Category {
 				return // existing category — the cap gates only new keys
