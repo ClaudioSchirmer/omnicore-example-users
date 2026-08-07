@@ -370,6 +370,37 @@ echo "$CSV" | grep -q "beto" && ok "10.2 CSV carries the user role branch (userN
 XLSX_MAGIC=$(curl -sS "$BASE/persons.xlsx?document=$D2" | head -c 2)
 [ "$XLSX_MAGIC" = "PK" ] && ok "10.3 XLSX responds with a ZIP container" || bad "10.3 XLSX magic bytes = $XLSX_MAGIC"
 
+# 10.4+ — labelKey headers of the SHARED-BASE columns (the root of this view).
+# A SharedBaseView is rooted at the TYPE-LESS persons base, so its columns carry
+# no struct tag of their own: their `labelKey` lives on the ROLE structs (User,
+# Employee) that hold them flat. The header must therefore render the TRANSLATED
+# label for the base columns too, exactly like a role-own column.
+# Asserted in pt-BR on purpose: in en-US the catalog value coincides with the Go
+# field name ("Document", "Phone", "Ethnicity"), so an untranslated header would
+# pass unnoticed — in pt-BR the two are unmistakably different.
+CSV_PT=$(curl -sS "$BASE/persons.csv?document=$D2" -H "Accept-Language: pt-BR")
+HDR_PT=$(echo "$CSV_PT" | head -1 | tr -d '\r')
+echo "root header (pt-BR): $HDR_PT"
+if echo "$HDR_PT" | grep -qF "Documento" && echo "$HDR_PT" | grep -qF "Telefone" && echo "$HDR_PT" | grep -qF "Etnia"; then
+  ok "10.4 base columns render their labelKey in pt-BR (Documento/Telefone/Etnia)"
+else
+  bad "10.4 base columns fell back to the Go field name — $HDR_PT"
+fi
+# The Go field names must be GONE from the header (Ethnicity/Phone are not
+# substrings of Etnia/Telefone, so this is an exact discriminator).
+if echo "$HDR_PT" | grep -qF "Ethnicity" || echo "$HDR_PT" | grep -qF "Phone"; then
+  bad "10.5 untranslated Go field name still in the pt-BR header — $HDR_PT"
+else
+  ok "10.5 no untranslated Go field name in the pt-BR header"
+fi
+# The role branch (type-anchored, always labeled) must be translated in the same
+# document — proving the two halves of one header agree on the language.
+if echo "$CSV_PT" | grep -qF "Nome de usuário"; then
+  ok "10.6 role branch header translated in the same export (Nome de usuário)"
+else
+  bad "10.6 role branch header not translated — $(echo "$CSV_PT" | head -6 | tr '\n' '|')"
+fi
+
 ####################################
 sec "11. GraphQL persons connection"
 ####################################

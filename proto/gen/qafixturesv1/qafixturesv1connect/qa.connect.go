@@ -37,18 +37,31 @@ const (
 	QAServiceProvokeProcedure = "/qafixtures.v1.QAService/Provoke"
 	// QAServiceListGadgetsProcedure is the fully-qualified name of the QAService's ListGadgets RPC.
 	QAServiceListGadgetsProcedure = "/qafixtures.v1.QAService/ListGadgets"
+	// QAServiceListGadgetsRelProcedure is the fully-qualified name of the QAService's ListGadgetsRel
+	// RPC.
+	QAServiceListGadgetsRelProcedure = "/qafixtures.v1.QAService/ListGadgetsRel"
 	// QAServiceFlakyEchoProcedure is the fully-qualified name of the QAService's FlakyEcho RPC.
 	QAServiceFlakyEchoProcedure = "/qafixtures.v1.QAService/FlakyEcho"
 	// QAServiceBoomProcedure is the fully-qualified name of the QAService's Boom RPC.
 	QAServiceBoomProcedure = "/qafixtures.v1.QAService/Boom"
+	// QAServiceEchoTypesProcedure is the fully-qualified name of the QAService's EchoTypes RPC.
+	QAServiceEchoTypesProcedure = "/qafixtures.v1.QAService/EchoTypes"
 )
 
 // QAServiceClient is a client for the qafixtures.v1.QAService service.
 type QAServiceClient interface {
 	Provoke(context.Context, *connect.Request[qafixturesv1.ProvokeRequest]) (*connect.Response[qafixturesv1.ProvokeResponse], error)
 	ListGadgets(context.Context, *connect.Request[qafixturesv1.ListGadgetsRequest]) (*connect.Response[qafixturesv1.ListGadgetsResponse], error)
+	// ListGadgetsRel is ListGadgets against the RelationalSource twin of the same
+	// root (view gadgets_rel, served from the SoR instead of the Mongo
+	// projection). Same request/response messages — nothing about the WIRE
+	// changes when the view's backing does, which is the point: it proves the
+	// gRPC list envelope (PaginationInfo, the REST pagination block mirrored) is filled identically from a
+	// relationally served page.
+	ListGadgetsRel(context.Context, *connect.Request[qafixturesv1.ListGadgetsRequest]) (*connect.Response[qafixturesv1.ListGadgetsResponse], error)
 	FlakyEcho(context.Context, *connect.Request[qafixturesv1.FlakyEchoRequest]) (*connect.Response[qafixturesv1.FlakyEchoResponse], error)
 	Boom(context.Context, *connect.Request[qafixturesv1.BoomRequest]) (*connect.Response[qafixturesv1.BoomResponse], error)
+	EchoTypes(context.Context, *connect.Request[qafixturesv1.EchoTypesRequest]) (*connect.Response[qafixturesv1.EchoTypesResponse], error)
 }
 
 // NewQAServiceClient constructs a client for the qafixtures.v1.QAService service. By default, it
@@ -74,6 +87,12 @@ func NewQAServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(qAServiceMethods.ByName("ListGadgets")),
 			connect.WithClientOptions(opts...),
 		),
+		listGadgetsRel: connect.NewClient[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse](
+			httpClient,
+			baseURL+QAServiceListGadgetsRelProcedure,
+			connect.WithSchema(qAServiceMethods.ByName("ListGadgetsRel")),
+			connect.WithClientOptions(opts...),
+		),
 		flakyEcho: connect.NewClient[qafixturesv1.FlakyEchoRequest, qafixturesv1.FlakyEchoResponse](
 			httpClient,
 			baseURL+QAServiceFlakyEchoProcedure,
@@ -86,15 +105,23 @@ func NewQAServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...c
 			connect.WithSchema(qAServiceMethods.ByName("Boom")),
 			connect.WithClientOptions(opts...),
 		),
+		echoTypes: connect.NewClient[qafixturesv1.EchoTypesRequest, qafixturesv1.EchoTypesResponse](
+			httpClient,
+			baseURL+QAServiceEchoTypesProcedure,
+			connect.WithSchema(qAServiceMethods.ByName("EchoTypes")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // qAServiceClient implements QAServiceClient.
 type qAServiceClient struct {
-	provoke     *connect.Client[qafixturesv1.ProvokeRequest, qafixturesv1.ProvokeResponse]
-	listGadgets *connect.Client[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse]
-	flakyEcho   *connect.Client[qafixturesv1.FlakyEchoRequest, qafixturesv1.FlakyEchoResponse]
-	boom        *connect.Client[qafixturesv1.BoomRequest, qafixturesv1.BoomResponse]
+	provoke        *connect.Client[qafixturesv1.ProvokeRequest, qafixturesv1.ProvokeResponse]
+	listGadgets    *connect.Client[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse]
+	listGadgetsRel *connect.Client[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse]
+	flakyEcho      *connect.Client[qafixturesv1.FlakyEchoRequest, qafixturesv1.FlakyEchoResponse]
+	boom           *connect.Client[qafixturesv1.BoomRequest, qafixturesv1.BoomResponse]
+	echoTypes      *connect.Client[qafixturesv1.EchoTypesRequest, qafixturesv1.EchoTypesResponse]
 }
 
 // Provoke calls qafixtures.v1.QAService.Provoke.
@@ -107,6 +134,11 @@ func (c *qAServiceClient) ListGadgets(ctx context.Context, req *connect.Request[
 	return c.listGadgets.CallUnary(ctx, req)
 }
 
+// ListGadgetsRel calls qafixtures.v1.QAService.ListGadgetsRel.
+func (c *qAServiceClient) ListGadgetsRel(ctx context.Context, req *connect.Request[qafixturesv1.ListGadgetsRequest]) (*connect.Response[qafixturesv1.ListGadgetsResponse], error) {
+	return c.listGadgetsRel.CallUnary(ctx, req)
+}
+
 // FlakyEcho calls qafixtures.v1.QAService.FlakyEcho.
 func (c *qAServiceClient) FlakyEcho(ctx context.Context, req *connect.Request[qafixturesv1.FlakyEchoRequest]) (*connect.Response[qafixturesv1.FlakyEchoResponse], error) {
 	return c.flakyEcho.CallUnary(ctx, req)
@@ -117,12 +149,25 @@ func (c *qAServiceClient) Boom(ctx context.Context, req *connect.Request[qafixtu
 	return c.boom.CallUnary(ctx, req)
 }
 
+// EchoTypes calls qafixtures.v1.QAService.EchoTypes.
+func (c *qAServiceClient) EchoTypes(ctx context.Context, req *connect.Request[qafixturesv1.EchoTypesRequest]) (*connect.Response[qafixturesv1.EchoTypesResponse], error) {
+	return c.echoTypes.CallUnary(ctx, req)
+}
+
 // QAServiceHandler is an implementation of the qafixtures.v1.QAService service.
 type QAServiceHandler interface {
 	Provoke(context.Context, *connect.Request[qafixturesv1.ProvokeRequest]) (*connect.Response[qafixturesv1.ProvokeResponse], error)
 	ListGadgets(context.Context, *connect.Request[qafixturesv1.ListGadgetsRequest]) (*connect.Response[qafixturesv1.ListGadgetsResponse], error)
+	// ListGadgetsRel is ListGadgets against the RelationalSource twin of the same
+	// root (view gadgets_rel, served from the SoR instead of the Mongo
+	// projection). Same request/response messages — nothing about the WIRE
+	// changes when the view's backing does, which is the point: it proves the
+	// gRPC list envelope (PaginationInfo, the REST pagination block mirrored) is filled identically from a
+	// relationally served page.
+	ListGadgetsRel(context.Context, *connect.Request[qafixturesv1.ListGadgetsRequest]) (*connect.Response[qafixturesv1.ListGadgetsResponse], error)
 	FlakyEcho(context.Context, *connect.Request[qafixturesv1.FlakyEchoRequest]) (*connect.Response[qafixturesv1.FlakyEchoResponse], error)
 	Boom(context.Context, *connect.Request[qafixturesv1.BoomRequest]) (*connect.Response[qafixturesv1.BoomResponse], error)
+	EchoTypes(context.Context, *connect.Request[qafixturesv1.EchoTypesRequest]) (*connect.Response[qafixturesv1.EchoTypesResponse], error)
 }
 
 // NewQAServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -144,6 +189,12 @@ func NewQAServiceHandler(svc QAServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(qAServiceMethods.ByName("ListGadgets")),
 		connect.WithHandlerOptions(opts...),
 	)
+	qAServiceListGadgetsRelHandler := connect.NewUnaryHandler(
+		QAServiceListGadgetsRelProcedure,
+		svc.ListGadgetsRel,
+		connect.WithSchema(qAServiceMethods.ByName("ListGadgetsRel")),
+		connect.WithHandlerOptions(opts...),
+	)
 	qAServiceFlakyEchoHandler := connect.NewUnaryHandler(
 		QAServiceFlakyEchoProcedure,
 		svc.FlakyEcho,
@@ -156,16 +207,26 @@ func NewQAServiceHandler(svc QAServiceHandler, opts ...connect.HandlerOption) (s
 		connect.WithSchema(qAServiceMethods.ByName("Boom")),
 		connect.WithHandlerOptions(opts...),
 	)
+	qAServiceEchoTypesHandler := connect.NewUnaryHandler(
+		QAServiceEchoTypesProcedure,
+		svc.EchoTypes,
+		connect.WithSchema(qAServiceMethods.ByName("EchoTypes")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/qafixtures.v1.QAService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case QAServiceProvokeProcedure:
 			qAServiceProvokeHandler.ServeHTTP(w, r)
 		case QAServiceListGadgetsProcedure:
 			qAServiceListGadgetsHandler.ServeHTTP(w, r)
+		case QAServiceListGadgetsRelProcedure:
+			qAServiceListGadgetsRelHandler.ServeHTTP(w, r)
 		case QAServiceFlakyEchoProcedure:
 			qAServiceFlakyEchoHandler.ServeHTTP(w, r)
 		case QAServiceBoomProcedure:
 			qAServiceBoomHandler.ServeHTTP(w, r)
+		case QAServiceEchoTypesProcedure:
+			qAServiceEchoTypesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -183,10 +244,18 @@ func (UnimplementedQAServiceHandler) ListGadgets(context.Context, *connect.Reque
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("qafixtures.v1.QAService.ListGadgets is not implemented"))
 }
 
+func (UnimplementedQAServiceHandler) ListGadgetsRel(context.Context, *connect.Request[qafixturesv1.ListGadgetsRequest]) (*connect.Response[qafixturesv1.ListGadgetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("qafixtures.v1.QAService.ListGadgetsRel is not implemented"))
+}
+
 func (UnimplementedQAServiceHandler) FlakyEcho(context.Context, *connect.Request[qafixturesv1.FlakyEchoRequest]) (*connect.Response[qafixturesv1.FlakyEchoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("qafixtures.v1.QAService.FlakyEcho is not implemented"))
 }
 
 func (UnimplementedQAServiceHandler) Boom(context.Context, *connect.Request[qafixturesv1.BoomRequest]) (*connect.Response[qafixturesv1.BoomResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("qafixtures.v1.QAService.Boom is not implemented"))
+}
+
+func (UnimplementedQAServiceHandler) EchoTypes(context.Context, *connect.Request[qafixturesv1.EchoTypesRequest]) (*connect.Response[qafixturesv1.EchoTypesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("qafixtures.v1.QAService.EchoTypes is not implemented"))
 }

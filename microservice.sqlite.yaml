@@ -1,0 +1,65 @@
+service: omnicore-example-users
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The SQLite profile: SQLite as the SoR and NO BROKER. No `transport:` block —
+# nothing to subscribe to, nothing to consume.
+#
+# SQLite has no CDC source (Debezium cannot tail a SQLite file), so a Mongo
+# projection could never materialize from this service's own writes. Declaring
+# a broker here would be worse than useless: the SyncEngine would subscribe to
+# `<table>.events` — a name that is a cross-service contract — and the only
+# events it could ever receive are ANOTHER service's, which it would faithfully
+# project into this database. The read side here is the RelationalSource twin,
+# served straight from the SoR.
+#
+# `mongo:` stays because the example declares a SharedBaseView (/persons), a
+# shape RelationalSource cannot serve — so the collections must exist for the
+# service to boot. They simply never receive a row.
+# ─────────────────────────────────────────────────────────────────────────────
+
+http:
+  addr: "${HTTP_ADDR::8080}"
+  requestTimeoutSeconds: 30
+
+grpc:
+  addr: "${GRPC_ADDR::9090}"
+  reflection: false
+
+relational:
+  dialect: "${REL_DIALECT:sqlite}"
+  dsn: "${DATABASE_URL:file:./app.db}"
+
+mongo:
+  uri: "${MONGO_URI:mongodb://localhost:27028/?directConnection=true}"
+  database: "${MONGO_DB:users_views_sqlite}"
+
+migrations:
+  dir: "${MIGRATIONS_DIR:./migrations/sqlite}"
+  autoRun: true
+
+query:
+  maxLimit: 100
+  maxExportRows: 5000
+
+openapi:
+  uiPath: /docs
+  rootRedirect: true
+
+auth:
+  mode: disabled
+  auditClaims: []
+
+audit:
+  destinations:
+    - slog
+    - database
+
+graphql:
+  path: /graphql
+  uiPath: /graphql/ui
+  playground: true
+  introspection: true
+  rootRedirect: false
+
+shutdown:
+  drainTimeoutSeconds: 30

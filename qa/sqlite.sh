@@ -27,15 +27,22 @@
 # (no CDC → the Mongo views never materialize), served straight from the SoR —
 # read-your-writes, and filter/sort on shared-base (name/email/document) + root
 # (userName) fields via the loader's 1:1 JOINs, with 1:N child fields + ?search=
-# → 400. Boot, migrations control plane and probes are proven too. Mongo + NATS
-# from the QA bench are attached only so the service boots; the Mongo-backed views
-# stay empty, as expected — the relational twin is the read side that works.
+# → 400. Boot, migrations control plane and probes are proven too.
+#
+# NO BROKER: it boots microservice.sqlite.yaml, which declares no `transport:`
+# block at all. SQLite cannot be a CDC source, so the only events this service
+# could ever receive on `<table>.events` — a name that is a cross-service
+# contract, not a per-lane one — are ANOTHER service's, which the SyncEngine
+# would faithfully project into this database. Unsubscribed, the Mongo-backed
+# views stay empty BY CONSTRUCTION (§17), and the relational twin is the read
+# side that works. Mongo itself stays attached only because the example
+# declares a SharedBaseView (/persons), a shape RelationalSource cannot serve.
 #
 # OUTPUT CONTRACT: like every other qa suite, it ends on the standard
 # `PASS=N  FAIL=M` line (run.sh's summarize() parses it — no bespoke format).
 #
 # Self-contained: it does NOT source _backend.sh (whose helpers are Docker/lane
-# specific). It needs only the Go toolchain, sqlite3, and the QA-bench Mongo/NATS
+# specific). It needs only the Go toolchain, sqlite3, and the QA-bench Mongo
 # for boot. Run from anywhere:  bash qa/sqlite.sh
 # ============================================================================
 set -u
@@ -50,9 +57,9 @@ export DATABASE_URL="file:${DB_FILE}"
 export MIGRATIONS_DIR="./migrations/sqlite"
 export MONGO_URI="${MONGO_URI:-mongodb://localhost:27028/?directConnection=true}"
 export MONGO_DB="${MONGO_DB:-users_views_sqlite}"
-export TRANSPORT_ENDPOINTS="${TRANSPORT_ENDPOINTS:-localhost:4232}"
-export SYNC_GROUP_ID="omnicore-example-users-sync-sqlite"
-export INTEGRATION_GROUP_ID="omnicore-example-users-integration-sqlite"
+# No broker env: microservice.sqlite.yaml declares no `transport:` block, so
+# there is nothing to point at a bench — see the header.
+export OMNICORE_CONFIG_PATH="$REPO_ROOT/microservice.sqlite.yaml"
 export HTTP_ADDR=":8087"; HTTP_PORT="8087"
 export GRPC_ADDR=":9098"; export GRPC_PORT="9098"
 BASE="http://localhost:8087"
@@ -118,7 +125,7 @@ docker exec omnicore-qa-mongo mongosh --quiet --eval \
   "db.getSiblingDB('${MONGO_DB}').dropDatabase()" >/dev/null 2>&1 \
   && ok "Mongo view DB ${MONGO_DB} reset" || ok "Mongo reset skipped (db already clean / mongosh unavailable)"
 
-title "0.3 Boot (SQLite SoR + QA-bench Mongo/NATS for boot) + migrations autoRun"
+title "0.3 Boot (SQLite SoR + QA-bench Mongo, NO broker) + migrations autoRun"
 APP_PROFILE=dev "$SERVER_BIN" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 ready=""
@@ -128,6 +135,26 @@ for _ in $(seq 1 40); do
   sleep 0.5
 done
 [ "$ready" = ok ] && ok "service ready on SQLite (readyz 200)" || { bad "service never became ready"; tail -20 "$SERVER_LOG"; printf '\nPASS=%d  FAIL=%d\n' "$PASS" "$FAIL"; exit 1; }
+
+title "0.3b The projection consumer did NOT start (no transport configured)"
+# The GUARD behind §17. The projection subjects (`<table>.events`) are a
+# cross-service contract, so a SQLite service — which can never have a CDC
+# relay of its own — must not subscribe: everything it could receive would be
+# ANOTHER service's events, which it would faithfully project into its own
+# collections (that is exactly how this suite once read 5 foreign users).
+# microservice.sqlite.yaml declares no `transport:` block; the framework must
+# skip the consumer and say so. Asserted on the boot log, because a silent
+# regression here would only surface as §17 mysteriously finding documents.
+if grep -q "projection consumer not started" "$SERVER_LOG"; then
+  ok "framework skipped the projection consumer"
+else
+  bad "projection consumer was started despite no transport"; grep -i "sync engine" "$SERVER_LOG" | head -2
+fi
+if grep -q '"msg":"sync engine started"' "$SERVER_LOG"; then
+  bad "sync engine started — the SQLite service is subscribed to a broker"
+else
+  ok "no sync engine subscription on the SQLite posture"
+fi
 
 title "0.4 The .db file was created + control plane + full domain schema migrated"
 [ -f "$DB_FILE" ] && ok "app.db created ($DB_FILE)" || bad "app.db missing"
@@ -546,6 +573,53 @@ eq "no-match → empty data array" "$(jsonq "len(d['data'])")" "0"
 title "16.5 unsupported on the twin → 400 RelationalCapabilityNotification"
 get "/users-rel?search=rel"; status_is "?search= → 400" 400; note_has "search rejected" "RelationalCapabilityNotification"
 get "/users-rel?addresses.city.eq=Portland"; status_is "1:N child filter → 400" 400; note_has "child filter rejected" "RelationalCapabilityNotification"
+
+##############################################################################
+# 16.6 pagination.total on a NORMAL listing — the count must NOT depend on
+# ?onlyTotal. A relational listing used to serve `"total": 0` beside perfectly
+# correct items (Total was assigned only in the count-only short-circuit), so a
+# consumer paging a 47-row result saw total=0 on every page and the right number
+# only when it asked for the count alone. These cases pin the whole contract:
+# total is the FULL match count (never the page size, never 0), it agrees with
+# the ?onlyTotal answer, it follows the filter and the archived gate, and it is
+# honestly 0 only when nothing matches. `indigenous` is used by no other case in
+# this suite, so the group is isolated from everything the run seeded before.
+##############################################################################
+TOTDOC=90000000210
+TOTIDS=""
+for i in 1 2 3; do
+  post /users "{\"name\":\"Tot $i\",\"email\":\"tot$i@example.com\",\"document\":\"$((TOTDOC+i))\",\"userName\":\"tot$i\",\"ethnicity\":\"indigenous\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
+  status_is "seed total-group user $i" 201
+  TOTIDS="$TOTIDS $(jsonq "d['data']['id']")"
+done
+
+title "16.6 a PAGED listing reports the FULL match count, not 0 and not the page size"
+get "/users-rel?ethnicity=indigenous&limit=2"; status_is "paged relational listing" 200
+eq "the page carries 2 items (limit honored)"        "$(jsonq "len(d['data'])")" "2"
+eq "pagination.total is the full match count (3)"    "$(jsonq "d['pagination']['total']")" "3"
+eq "has_next true (a third row is ahead)"            "$(jsonq "d['pagination']['has_next']")" "True"
+
+title "16.6b total is the SAME number with and without ?onlyTotal (the parity that broke)"
+get "/users-rel?ethnicity=indigenous&limit=2"; TOT_LIST=$(jsonq "d['pagination']['total']")
+get "/users-rel?ethnicity=indigenous&onlyTotal=true"; TOT_ONLY=$(jsonq "d['pagination']['total']")
+eq "listing total == onlyTotal total" "$TOT_LIST" "$TOT_ONLY"
+
+title "16.6c total follows the FILTER — the count is taken under the same criteria as the items"
+get "/users-rel?document.eq=$RDOC"; status_is "single-match filter" 200
+eq "one row matches → total 1" "$(jsonq "d['pagination']['total']")" "1"
+get "/users-rel?document.eq=00000000000"; status_is "no-match filter" 200
+eq "nothing matches → data empty" "$(jsonq "len(d['data'])")" "0"
+eq "nothing matches → total is an honest 0" "$(jsonq "d['pagination']['total']")" "0"
+
+title "16.6d total follows the ARCHIVED gate — archiving one drops it from the count"
+TOTARCH=$(echo "$TOTIDS" | awk '{print $1}')
+patch "/users/$TOTARCH/archive"; status_2xx "archive one of the group"
+get "/users-rel?ethnicity=indigenous&limit=2"; status_is "default read after archive" 200
+eq "default read counts the 2 ACTIVE rows" "$(jsonq "d['pagination']['total']")" "2"
+get "/users-rel?ethnicity=indigenous&limit=2&includeArchived=true"; status_is "?includeArchived read" 200
+eq "?includeArchived counts all 3 again"   "$(jsonq "d['pagination']['total']")" "3"
+
+for i in $TOTIDS; do patch "/users/$i/unarchive" >/dev/null 2>&1; delete "/users/$i" >/dev/null 2>&1; done
 
 delete "/users/$RID" >/dev/null 2>&1
 

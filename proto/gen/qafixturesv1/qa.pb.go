@@ -11,6 +11,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -22,6 +23,55 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type Flavor int32
+
+const (
+	Flavor_FLAVOR_UNSPECIFIED Flavor = 0
+	Flavor_FLAVOR_SWEET       Flavor = 1
+	Flavor_FLAVOR_SALTY       Flavor = 2
+)
+
+// Enum value maps for Flavor.
+var (
+	Flavor_name = map[int32]string{
+		0: "FLAVOR_UNSPECIFIED",
+		1: "FLAVOR_SWEET",
+		2: "FLAVOR_SALTY",
+	}
+	Flavor_value = map[string]int32{
+		"FLAVOR_UNSPECIFIED": 0,
+		"FLAVOR_SWEET":       1,
+		"FLAVOR_SALTY":       2,
+	}
+)
+
+func (x Flavor) Enum() *Flavor {
+	p := new(Flavor)
+	*p = x
+	return p
+}
+
+func (x Flavor) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Flavor) Descriptor() protoreflect.EnumDescriptor {
+	return file_qafixtures_v1_qa_proto_enumTypes[0].Descriptor()
+}
+
+func (Flavor) Type() protoreflect.EnumType {
+	return &file_qafixtures_v1_qa_proto_enumTypes[0]
+}
+
+func (x Flavor) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Flavor.Descriptor instead.
+func (Flavor) EnumDescriptor() ([]byte, []int) {
+	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{0}
+}
 
 // ProvokeRequest names the NotificationSemantic to emit: validation,
 // schema, not_found, conflict, state_conflict, forbidden, unauthorized,
@@ -177,7 +227,7 @@ func (x *GadgetFilters) GetStatus() *pb.StringFilter {
 
 type ListGadgetsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Page          *pb.PageRequest        `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
+	Pagination    *pb.PaginationRequest  `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	Sort          []*pb.SortField        `protobuf:"bytes,2,rep,name=sort,proto3" json:"sort,omitempty"`
 	ReadMask      *fieldmaskpb.FieldMask `protobuf:"bytes,3,opt,name=read_mask,json=readMask,proto3" json:"read_mask,omitempty"`
 	Filters       *GadgetFilters         `protobuf:"bytes,4,opt,name=filters,proto3" json:"filters,omitempty"`
@@ -215,9 +265,9 @@ func (*ListGadgetsRequest) Descriptor() ([]byte, []int) {
 	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ListGadgetsRequest) GetPage() *pb.PageRequest {
+func (x *ListGadgetsRequest) GetPagination() *pb.PaginationRequest {
 	if x != nil {
-		return x.Page
+		return x.Pagination
 	}
 	return nil
 }
@@ -322,7 +372,7 @@ func (x *Gadget) GetStatus() string {
 type ListGadgetsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Items         []*Gadget              `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	PageInfo      *pb.PageInfo           `protobuf:"bytes,2,opt,name=page_info,json=pageInfo,proto3" json:"page_info,omitempty"`
+	Pagination    *pb.PaginationInfo     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -364,9 +414,9 @@ func (x *ListGadgetsResponse) GetItems() []*Gadget {
 	return nil
 }
 
-func (x *ListGadgetsResponse) GetPageInfo() *pb.PageInfo {
+func (x *ListGadgetsResponse) GetPagination() *pb.PaginationInfo {
 	if x != nil {
-		return x.PageInfo
+		return x.Pagination
 	}
 	return nil
 }
@@ -547,11 +597,443 @@ func (*BoomResponse) Descriptor() ([]byte, []int) {
 	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{9}
 }
 
+type EchoTypesChild struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChildCents    int64                  `protobuf:"varint,1,opt,name=child_cents,json=childCents,proto3" json:"child_cents,omitempty"`
+	ChildLabel    string                 `protobuf:"bytes,2,opt,name=child_label,json=childLabel,proto3" json:"child_label,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EchoTypesChild) Reset() {
+	*x = EchoTypesChild{}
+	mi := &file_qafixtures_v1_qa_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EchoTypesChild) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EchoTypesChild) ProtoMessage() {}
+
+func (x *EchoTypesChild) ProtoReflect() protoreflect.Message {
+	mi := &file_qafixtures_v1_qa_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EchoTypesChild.ProtoReflect.Descriptor instead.
+func (*EchoTypesChild) Descriptor() ([]byte, []int) {
+	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *EchoTypesChild) GetChildCents() int64 {
+	if x != nil {
+		return x.ChildCents
+	}
+	return 0
+}
+
+func (x *EchoTypesChild) GetChildLabel() string {
+	if x != nil {
+		return x.ChildLabel
+	}
+	return ""
+}
+
+type EchoTypesRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PriceCents       *int64                 `protobuf:"varint,1,opt,name=price_cents,json=priceCents,proto3,oneof" json:"price_cents,omitempty"`
+	SignedDelta      *int64                 `protobuf:"zigzag64,2,opt,name=signed_delta,json=signedDelta,proto3,oneof" json:"signed_delta,omitempty"`
+	FixedSigned      *int64                 `protobuf:"fixed64,3,opt,name=fixed_signed,json=fixedSigned,proto3,oneof" json:"fixed_signed,omitempty"`
+	HugeCount        *uint64                `protobuf:"varint,4,opt,name=huge_count,json=hugeCount,proto3,oneof" json:"huge_count,omitempty"`
+	FixedUnsigned    *uint64                `protobuf:"fixed64,5,opt,name=fixed_unsigned,json=fixedUnsigned,proto3,oneof" json:"fixed_unsigned,omitempty"`
+	Quantity         *int32                 `protobuf:"varint,6,opt,name=quantity,proto3,oneof" json:"quantity,omitempty"`
+	UnsignedQuantity *uint32                `protobuf:"varint,7,opt,name=unsigned_quantity,json=unsignedQuantity,proto3,oneof" json:"unsigned_quantity,omitempty"`
+	Weight           *float64               `protobuf:"fixed64,8,opt,name=weight,proto3,oneof" json:"weight,omitempty"`
+	Ratio            *float32               `protobuf:"fixed32,9,opt,name=ratio,proto3,oneof" json:"ratio,omitempty"`
+	Active           *bool                  `protobuf:"varint,10,opt,name=active,proto3,oneof" json:"active,omitempty"`
+	Label            *string                `protobuf:"bytes,11,opt,name=label,proto3,oneof" json:"label,omitempty"`
+	Payload          []byte                 `protobuf:"bytes,12,opt,name=payload,proto3,oneof" json:"payload,omitempty"`
+	Flavor           *Flavor                `protobuf:"varint,13,opt,name=flavor,proto3,enum=qafixtures.v1.Flavor,oneof" json:"flavor,omitempty"`
+	OccurredAt       *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	Amounts          []int64                `protobuf:"varint,15,rep,packed,name=amounts,proto3" json:"amounts,omitempty"`
+	Tags             []string               `protobuf:"bytes,16,rep,name=tags,proto3" json:"tags,omitempty"`
+	Child            *EchoTypesChild        `protobuf:"bytes,17,opt,name=child,proto3" json:"child,omitempty"`
+	Children         []*EchoTypesChild      `protobuf:"bytes,18,rep,name=children,proto3" json:"children,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *EchoTypesRequest) Reset() {
+	*x = EchoTypesRequest{}
+	mi := &file_qafixtures_v1_qa_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EchoTypesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EchoTypesRequest) ProtoMessage() {}
+
+func (x *EchoTypesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_qafixtures_v1_qa_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EchoTypesRequest.ProtoReflect.Descriptor instead.
+func (*EchoTypesRequest) Descriptor() ([]byte, []int) {
+	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *EchoTypesRequest) GetPriceCents() int64 {
+	if x != nil && x.PriceCents != nil {
+		return *x.PriceCents
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetSignedDelta() int64 {
+	if x != nil && x.SignedDelta != nil {
+		return *x.SignedDelta
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetFixedSigned() int64 {
+	if x != nil && x.FixedSigned != nil {
+		return *x.FixedSigned
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetHugeCount() uint64 {
+	if x != nil && x.HugeCount != nil {
+		return *x.HugeCount
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetFixedUnsigned() uint64 {
+	if x != nil && x.FixedUnsigned != nil {
+		return *x.FixedUnsigned
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetQuantity() int32 {
+	if x != nil && x.Quantity != nil {
+		return *x.Quantity
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetUnsignedQuantity() uint32 {
+	if x != nil && x.UnsignedQuantity != nil {
+		return *x.UnsignedQuantity
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetWeight() float64 {
+	if x != nil && x.Weight != nil {
+		return *x.Weight
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetRatio() float32 {
+	if x != nil && x.Ratio != nil {
+		return *x.Ratio
+	}
+	return 0
+}
+
+func (x *EchoTypesRequest) GetActive() bool {
+	if x != nil && x.Active != nil {
+		return *x.Active
+	}
+	return false
+}
+
+func (x *EchoTypesRequest) GetLabel() string {
+	if x != nil && x.Label != nil {
+		return *x.Label
+	}
+	return ""
+}
+
+func (x *EchoTypesRequest) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *EchoTypesRequest) GetFlavor() Flavor {
+	if x != nil && x.Flavor != nil {
+		return *x.Flavor
+	}
+	return Flavor_FLAVOR_UNSPECIFIED
+}
+
+func (x *EchoTypesRequest) GetOccurredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OccurredAt
+	}
+	return nil
+}
+
+func (x *EchoTypesRequest) GetAmounts() []int64 {
+	if x != nil {
+		return x.Amounts
+	}
+	return nil
+}
+
+func (x *EchoTypesRequest) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *EchoTypesRequest) GetChild() *EchoTypesChild {
+	if x != nil {
+		return x.Child
+	}
+	return nil
+}
+
+func (x *EchoTypesRequest) GetChildren() []*EchoTypesChild {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
+type EchoTypesResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	PriceCents       int64                  `protobuf:"varint,1,opt,name=price_cents,json=priceCents,proto3" json:"price_cents,omitempty"`
+	SignedDelta      int64                  `protobuf:"zigzag64,2,opt,name=signed_delta,json=signedDelta,proto3" json:"signed_delta,omitempty"`
+	FixedSigned      int64                  `protobuf:"fixed64,3,opt,name=fixed_signed,json=fixedSigned,proto3" json:"fixed_signed,omitempty"`
+	HugeCount        uint64                 `protobuf:"varint,4,opt,name=huge_count,json=hugeCount,proto3" json:"huge_count,omitempty"`
+	FixedUnsigned    uint64                 `protobuf:"fixed64,5,opt,name=fixed_unsigned,json=fixedUnsigned,proto3" json:"fixed_unsigned,omitempty"`
+	Quantity         int32                  `protobuf:"varint,6,opt,name=quantity,proto3" json:"quantity,omitempty"`
+	UnsignedQuantity uint32                 `protobuf:"varint,7,opt,name=unsigned_quantity,json=unsignedQuantity,proto3" json:"unsigned_quantity,omitempty"`
+	Weight           float64                `protobuf:"fixed64,8,opt,name=weight,proto3" json:"weight,omitempty"`
+	Ratio            float32                `protobuf:"fixed32,9,opt,name=ratio,proto3" json:"ratio,omitempty"`
+	Active           bool                   `protobuf:"varint,10,opt,name=active,proto3" json:"active,omitempty"`
+	Label            string                 `protobuf:"bytes,11,opt,name=label,proto3" json:"label,omitempty"`
+	Payload          []byte                 `protobuf:"bytes,12,opt,name=payload,proto3" json:"payload,omitempty"`
+	Flavor           Flavor                 `protobuf:"varint,13,opt,name=flavor,proto3,enum=qafixtures.v1.Flavor" json:"flavor,omitempty"`
+	OccurredAt       *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
+	Amounts          []int64                `protobuf:"varint,15,rep,packed,name=amounts,proto3" json:"amounts,omitempty"`
+	Tags             []string               `protobuf:"bytes,16,rep,name=tags,proto3" json:"tags,omitempty"`
+	Child            *EchoTypesChild        `protobuf:"bytes,17,opt,name=child,proto3" json:"child,omitempty"`
+	Children         []*EchoTypesChild      `protobuf:"bytes,18,rep,name=children,proto3" json:"children,omitempty"`
+	// sum_cents = price_cents + Σ amounts + Σ children.child_cents, computed
+	// by the handler on the BOUND values.
+	SumCents int64 `protobuf:"varint,19,opt,name=sum_cents,json=sumCents,proto3" json:"sum_cents,omitempty"`
+	// label_present distinguishes an absent optional from an empty string —
+	// the presence contract the bridge must preserve.
+	LabelPresent  bool `protobuf:"varint,20,opt,name=label_present,json=labelPresent,proto3" json:"label_present,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EchoTypesResponse) Reset() {
+	*x = EchoTypesResponse{}
+	mi := &file_qafixtures_v1_qa_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EchoTypesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EchoTypesResponse) ProtoMessage() {}
+
+func (x *EchoTypesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_qafixtures_v1_qa_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EchoTypesResponse.ProtoReflect.Descriptor instead.
+func (*EchoTypesResponse) Descriptor() ([]byte, []int) {
+	return file_qafixtures_v1_qa_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *EchoTypesResponse) GetPriceCents() int64 {
+	if x != nil {
+		return x.PriceCents
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetSignedDelta() int64 {
+	if x != nil {
+		return x.SignedDelta
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetFixedSigned() int64 {
+	if x != nil {
+		return x.FixedSigned
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetHugeCount() uint64 {
+	if x != nil {
+		return x.HugeCount
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetFixedUnsigned() uint64 {
+	if x != nil {
+		return x.FixedUnsigned
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetQuantity() int32 {
+	if x != nil {
+		return x.Quantity
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetUnsignedQuantity() uint32 {
+	if x != nil {
+		return x.UnsignedQuantity
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetWeight() float64 {
+	if x != nil {
+		return x.Weight
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetRatio() float32 {
+	if x != nil {
+		return x.Ratio
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *EchoTypesResponse) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *EchoTypesResponse) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *EchoTypesResponse) GetFlavor() Flavor {
+	if x != nil {
+		return x.Flavor
+	}
+	return Flavor_FLAVOR_UNSPECIFIED
+}
+
+func (x *EchoTypesResponse) GetOccurredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.OccurredAt
+	}
+	return nil
+}
+
+func (x *EchoTypesResponse) GetAmounts() []int64 {
+	if x != nil {
+		return x.Amounts
+	}
+	return nil
+}
+
+func (x *EchoTypesResponse) GetTags() []string {
+	if x != nil {
+		return x.Tags
+	}
+	return nil
+}
+
+func (x *EchoTypesResponse) GetChild() *EchoTypesChild {
+	if x != nil {
+		return x.Child
+	}
+	return nil
+}
+
+func (x *EchoTypesResponse) GetChildren() []*EchoTypesChild {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
+func (x *EchoTypesResponse) GetSumCents() int64 {
+	if x != nil {
+		return x.SumCents
+	}
+	return 0
+}
+
+func (x *EchoTypesResponse) GetLabelPresent() bool {
+	if x != nil {
+		return x.LabelPresent
+	}
+	return false
+}
+
 var File_qafixtures_v1_qa_proto protoreflect.FileDescriptor
 
 const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\n" +
-	"\x16qafixtures/v1/qa.proto\x12\rqafixtures.v1\x1a google/protobuf/field_mask.proto\x1a\x17omnicore/v1/query.proto\">\n" +
+	"\x16qafixtures/v1/qa.proto\x12\rqafixtures.v1\x1a google/protobuf/field_mask.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17omnicore/v1/query.proto\">\n" +
 	"\x0eProvokeRequest\x12\x1f\n" +
 	"\bsemantic\x18\x01 \x01(\tH\x00R\bsemantic\x88\x01\x01B\v\n" +
 	"\t_semantic\"\x11\n" +
@@ -560,9 +1042,11 @@ const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\x12-\n" +
 	"\x04code\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04code\x125\n" +
 	"\bcategory\x18\x03 \x01(\v2\x19.omnicore.v1.StringFilterR\bcategory\x121\n" +
-	"\x06status\x18\x04 \x01(\v2\x19.omnicore.v1.StringFilterR\x06status\"\xdf\x01\n" +
-	"\x12ListGadgetsRequest\x12,\n" +
-	"\x04page\x18\x01 \x01(\v2\x18.omnicore.v1.PageRequestR\x04page\x12*\n" +
+	"\x06status\x18\x04 \x01(\v2\x19.omnicore.v1.StringFilterR\x06status\"\xf1\x01\n" +
+	"\x12ListGadgetsRequest\x12>\n" +
+	"\n" +
+	"pagination\x18\x01 \x01(\v2\x1e.omnicore.v1.PaginationRequestR\n" +
+	"pagination\x12*\n" +
 	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
 	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x126\n" +
 	"\afilters\x18\x04 \x01(\v2\x1c.qafixtures.v1.GadgetFiltersR\afilters\"t\n" +
@@ -571,10 +1055,12 @@ const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1a\n" +
 	"\bcategory\x18\x04 \x01(\tR\bcategory\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\"v\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\"\x7f\n" +
 	"\x13ListGadgetsResponse\x12+\n" +
-	"\x05items\x18\x01 \x03(\v2\x15.qafixtures.v1.GadgetR\x05items\x122\n" +
-	"\tpage_info\x18\x02 \x01(\v2\x15.omnicore.v1.PageInfoR\bpageInfo\"d\n" +
+	"\x05items\x18\x01 \x03(\v2\x15.qafixtures.v1.GadgetR\x05items\x12;\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x1b.omnicore.v1.PaginationInfoR\n" +
+	"pagination\"d\n" +
 	"\x10FlakyEchoRequest\x12\x15\n" +
 	"\x03key\x18\x01 \x01(\tH\x00R\x03key\x88\x01\x01\x12\"\n" +
 	"\n" +
@@ -585,12 +1071,86 @@ const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\battempts\x18\x01 \x01(\x05R\battempts\x12#\n" +
 	"\rdistinct_keys\x18\x02 \x01(\x05R\fdistinctKeys\"\r\n" +
 	"\vBoomRequest\"\x0e\n" +
-	"\fBoomResponse2\xbc\x02\n" +
+	"\fBoomResponse\"R\n" +
+	"\x0eEchoTypesChild\x12\x1f\n" +
+	"\vchild_cents\x18\x01 \x01(\x03R\n" +
+	"childCents\x12\x1f\n" +
+	"\vchild_label\x18\x02 \x01(\tR\n" +
+	"childLabel\"\x81\a\n" +
+	"\x10EchoTypesRequest\x12$\n" +
+	"\vprice_cents\x18\x01 \x01(\x03H\x00R\n" +
+	"priceCents\x88\x01\x01\x12&\n" +
+	"\fsigned_delta\x18\x02 \x01(\x12H\x01R\vsignedDelta\x88\x01\x01\x12&\n" +
+	"\ffixed_signed\x18\x03 \x01(\x10H\x02R\vfixedSigned\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"huge_count\x18\x04 \x01(\x04H\x03R\thugeCount\x88\x01\x01\x12*\n" +
+	"\x0efixed_unsigned\x18\x05 \x01(\x06H\x04R\rfixedUnsigned\x88\x01\x01\x12\x1f\n" +
+	"\bquantity\x18\x06 \x01(\x05H\x05R\bquantity\x88\x01\x01\x120\n" +
+	"\x11unsigned_quantity\x18\a \x01(\rH\x06R\x10unsignedQuantity\x88\x01\x01\x12\x1b\n" +
+	"\x06weight\x18\b \x01(\x01H\aR\x06weight\x88\x01\x01\x12\x19\n" +
+	"\x05ratio\x18\t \x01(\x02H\bR\x05ratio\x88\x01\x01\x12\x1b\n" +
+	"\x06active\x18\n" +
+	" \x01(\bH\tR\x06active\x88\x01\x01\x12\x19\n" +
+	"\x05label\x18\v \x01(\tH\n" +
+	"R\x05label\x88\x01\x01\x12\x1d\n" +
+	"\apayload\x18\f \x01(\fH\vR\apayload\x88\x01\x01\x122\n" +
+	"\x06flavor\x18\r \x01(\x0e2\x15.qafixtures.v1.FlavorH\fR\x06flavor\x88\x01\x01\x12;\n" +
+	"\voccurred_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"occurredAt\x12\x18\n" +
+	"\aamounts\x18\x0f \x03(\x03R\aamounts\x12\x12\n" +
+	"\x04tags\x18\x10 \x03(\tR\x04tags\x123\n" +
+	"\x05child\x18\x11 \x01(\v2\x1d.qafixtures.v1.EchoTypesChildR\x05child\x129\n" +
+	"\bchildren\x18\x12 \x03(\v2\x1d.qafixtures.v1.EchoTypesChildR\bchildrenB\x0e\n" +
+	"\f_price_centsB\x0f\n" +
+	"\r_signed_deltaB\x0f\n" +
+	"\r_fixed_signedB\r\n" +
+	"\v_huge_countB\x11\n" +
+	"\x0f_fixed_unsignedB\v\n" +
+	"\t_quantityB\x14\n" +
+	"\x12_unsigned_quantityB\t\n" +
+	"\a_weightB\b\n" +
+	"\x06_ratioB\t\n" +
+	"\a_activeB\b\n" +
+	"\x06_labelB\n" +
+	"\n" +
+	"\b_payloadB\t\n" +
+	"\a_flavor\"\xcb\x05\n" +
+	"\x11EchoTypesResponse\x12\x1f\n" +
+	"\vprice_cents\x18\x01 \x01(\x03R\n" +
+	"priceCents\x12!\n" +
+	"\fsigned_delta\x18\x02 \x01(\x12R\vsignedDelta\x12!\n" +
+	"\ffixed_signed\x18\x03 \x01(\x10R\vfixedSigned\x12\x1d\n" +
+	"\n" +
+	"huge_count\x18\x04 \x01(\x04R\thugeCount\x12%\n" +
+	"\x0efixed_unsigned\x18\x05 \x01(\x06R\rfixedUnsigned\x12\x1a\n" +
+	"\bquantity\x18\x06 \x01(\x05R\bquantity\x12+\n" +
+	"\x11unsigned_quantity\x18\a \x01(\rR\x10unsignedQuantity\x12\x16\n" +
+	"\x06weight\x18\b \x01(\x01R\x06weight\x12\x14\n" +
+	"\x05ratio\x18\t \x01(\x02R\x05ratio\x12\x16\n" +
+	"\x06active\x18\n" +
+	" \x01(\bR\x06active\x12\x14\n" +
+	"\x05label\x18\v \x01(\tR\x05label\x12\x18\n" +
+	"\apayload\x18\f \x01(\fR\apayload\x12-\n" +
+	"\x06flavor\x18\r \x01(\x0e2\x15.qafixtures.v1.FlavorR\x06flavor\x12;\n" +
+	"\voccurred_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"occurredAt\x12\x18\n" +
+	"\aamounts\x18\x0f \x03(\x03R\aamounts\x12\x12\n" +
+	"\x04tags\x18\x10 \x03(\tR\x04tags\x123\n" +
+	"\x05child\x18\x11 \x01(\v2\x1d.qafixtures.v1.EchoTypesChildR\x05child\x129\n" +
+	"\bchildren\x18\x12 \x03(\v2\x1d.qafixtures.v1.EchoTypesChildR\bchildren\x12\x1b\n" +
+	"\tsum_cents\x18\x13 \x01(\x03R\bsumCents\x12#\n" +
+	"\rlabel_present\x18\x14 \x01(\bR\flabelPresent*D\n" +
+	"\x06Flavor\x12\x16\n" +
+	"\x12FLAVOR_UNSPECIFIED\x10\x00\x12\x10\n" +
+	"\fFLAVOR_SWEET\x10\x01\x12\x10\n" +
+	"\fFLAVOR_SALTY\x10\x022\xe5\x03\n" +
 	"\tQAService\x12H\n" +
 	"\aProvoke\x12\x1d.qafixtures.v1.ProvokeRequest\x1a\x1e.qafixtures.v1.ProvokeResponse\x12T\n" +
-	"\vListGadgets\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12N\n" +
+	"\vListGadgets\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12W\n" +
+	"\x0eListGadgetsRel\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12N\n" +
 	"\tFlakyEcho\x12\x1f.qafixtures.v1.FlakyEchoRequest\x1a .qafixtures.v1.FlakyEchoResponse\x12?\n" +
-	"\x04Boom\x12\x1a.qafixtures.v1.BoomRequest\x1a\x1b.qafixtures.v1.BoomResponseBJZHgithub.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1b\x06proto3"
+	"\x04Boom\x12\x1a.qafixtures.v1.BoomRequest\x1a\x1b.qafixtures.v1.BoomResponse\x12N\n" +
+	"\tEchoTypes\x12\x1f.qafixtures.v1.EchoTypesRequest\x1a .qafixtures.v1.EchoTypesResponseBJZHgithub.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1b\x06proto3"
 
 var (
 	file_qafixtures_v1_qa_proto_rawDescOnce sync.Once
@@ -604,48 +1164,66 @@ func file_qafixtures_v1_qa_proto_rawDescGZIP() []byte {
 	return file_qafixtures_v1_qa_proto_rawDescData
 }
 
-var file_qafixtures_v1_qa_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_qafixtures_v1_qa_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_qafixtures_v1_qa_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_qafixtures_v1_qa_proto_goTypes = []any{
-	(*ProvokeRequest)(nil),        // 0: qafixtures.v1.ProvokeRequest
-	(*ProvokeResponse)(nil),       // 1: qafixtures.v1.ProvokeResponse
-	(*GadgetFilters)(nil),         // 2: qafixtures.v1.GadgetFilters
-	(*ListGadgetsRequest)(nil),    // 3: qafixtures.v1.ListGadgetsRequest
-	(*Gadget)(nil),                // 4: qafixtures.v1.Gadget
-	(*ListGadgetsResponse)(nil),   // 5: qafixtures.v1.ListGadgetsResponse
-	(*FlakyEchoRequest)(nil),      // 6: qafixtures.v1.FlakyEchoRequest
-	(*FlakyEchoResponse)(nil),     // 7: qafixtures.v1.FlakyEchoResponse
-	(*BoomRequest)(nil),           // 8: qafixtures.v1.BoomRequest
-	(*BoomResponse)(nil),          // 9: qafixtures.v1.BoomResponse
-	(*pb.StringFilter)(nil),       // 10: omnicore.v1.StringFilter
-	(*pb.PageRequest)(nil),        // 11: omnicore.v1.PageRequest
-	(*pb.SortField)(nil),          // 12: omnicore.v1.SortField
-	(*fieldmaskpb.FieldMask)(nil), // 13: google.protobuf.FieldMask
-	(*pb.PageInfo)(nil),           // 14: omnicore.v1.PageInfo
+	(Flavor)(0),                   // 0: qafixtures.v1.Flavor
+	(*ProvokeRequest)(nil),        // 1: qafixtures.v1.ProvokeRequest
+	(*ProvokeResponse)(nil),       // 2: qafixtures.v1.ProvokeResponse
+	(*GadgetFilters)(nil),         // 3: qafixtures.v1.GadgetFilters
+	(*ListGadgetsRequest)(nil),    // 4: qafixtures.v1.ListGadgetsRequest
+	(*Gadget)(nil),                // 5: qafixtures.v1.Gadget
+	(*ListGadgetsResponse)(nil),   // 6: qafixtures.v1.ListGadgetsResponse
+	(*FlakyEchoRequest)(nil),      // 7: qafixtures.v1.FlakyEchoRequest
+	(*FlakyEchoResponse)(nil),     // 8: qafixtures.v1.FlakyEchoResponse
+	(*BoomRequest)(nil),           // 9: qafixtures.v1.BoomRequest
+	(*BoomResponse)(nil),          // 10: qafixtures.v1.BoomResponse
+	(*EchoTypesChild)(nil),        // 11: qafixtures.v1.EchoTypesChild
+	(*EchoTypesRequest)(nil),      // 12: qafixtures.v1.EchoTypesRequest
+	(*EchoTypesResponse)(nil),     // 13: qafixtures.v1.EchoTypesResponse
+	(*pb.StringFilter)(nil),       // 14: omnicore.v1.StringFilter
+	(*pb.PaginationRequest)(nil),  // 15: omnicore.v1.PaginationRequest
+	(*pb.SortField)(nil),          // 16: omnicore.v1.SortField
+	(*fieldmaskpb.FieldMask)(nil), // 17: google.protobuf.FieldMask
+	(*pb.PaginationInfo)(nil),     // 18: omnicore.v1.PaginationInfo
+	(*timestamppb.Timestamp)(nil), // 19: google.protobuf.Timestamp
 }
 var file_qafixtures_v1_qa_proto_depIdxs = []int32{
-	10, // 0: qafixtures.v1.GadgetFilters.name:type_name -> omnicore.v1.StringFilter
-	10, // 1: qafixtures.v1.GadgetFilters.code:type_name -> omnicore.v1.StringFilter
-	10, // 2: qafixtures.v1.GadgetFilters.category:type_name -> omnicore.v1.StringFilter
-	10, // 3: qafixtures.v1.GadgetFilters.status:type_name -> omnicore.v1.StringFilter
-	11, // 4: qafixtures.v1.ListGadgetsRequest.page:type_name -> omnicore.v1.PageRequest
-	12, // 5: qafixtures.v1.ListGadgetsRequest.sort:type_name -> omnicore.v1.SortField
-	13, // 6: qafixtures.v1.ListGadgetsRequest.read_mask:type_name -> google.protobuf.FieldMask
-	2,  // 7: qafixtures.v1.ListGadgetsRequest.filters:type_name -> qafixtures.v1.GadgetFilters
-	4,  // 8: qafixtures.v1.ListGadgetsResponse.items:type_name -> qafixtures.v1.Gadget
-	14, // 9: qafixtures.v1.ListGadgetsResponse.page_info:type_name -> omnicore.v1.PageInfo
-	0,  // 10: qafixtures.v1.QAService.Provoke:input_type -> qafixtures.v1.ProvokeRequest
-	3,  // 11: qafixtures.v1.QAService.ListGadgets:input_type -> qafixtures.v1.ListGadgetsRequest
-	6,  // 12: qafixtures.v1.QAService.FlakyEcho:input_type -> qafixtures.v1.FlakyEchoRequest
-	8,  // 13: qafixtures.v1.QAService.Boom:input_type -> qafixtures.v1.BoomRequest
-	1,  // 14: qafixtures.v1.QAService.Provoke:output_type -> qafixtures.v1.ProvokeResponse
-	5,  // 15: qafixtures.v1.QAService.ListGadgets:output_type -> qafixtures.v1.ListGadgetsResponse
-	7,  // 16: qafixtures.v1.QAService.FlakyEcho:output_type -> qafixtures.v1.FlakyEchoResponse
-	9,  // 17: qafixtures.v1.QAService.Boom:output_type -> qafixtures.v1.BoomResponse
-	14, // [14:18] is the sub-list for method output_type
-	10, // [10:14] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	14, // 0: qafixtures.v1.GadgetFilters.name:type_name -> omnicore.v1.StringFilter
+	14, // 1: qafixtures.v1.GadgetFilters.code:type_name -> omnicore.v1.StringFilter
+	14, // 2: qafixtures.v1.GadgetFilters.category:type_name -> omnicore.v1.StringFilter
+	14, // 3: qafixtures.v1.GadgetFilters.status:type_name -> omnicore.v1.StringFilter
+	15, // 4: qafixtures.v1.ListGadgetsRequest.pagination:type_name -> omnicore.v1.PaginationRequest
+	16, // 5: qafixtures.v1.ListGadgetsRequest.sort:type_name -> omnicore.v1.SortField
+	17, // 6: qafixtures.v1.ListGadgetsRequest.read_mask:type_name -> google.protobuf.FieldMask
+	3,  // 7: qafixtures.v1.ListGadgetsRequest.filters:type_name -> qafixtures.v1.GadgetFilters
+	5,  // 8: qafixtures.v1.ListGadgetsResponse.items:type_name -> qafixtures.v1.Gadget
+	18, // 9: qafixtures.v1.ListGadgetsResponse.pagination:type_name -> omnicore.v1.PaginationInfo
+	0,  // 10: qafixtures.v1.EchoTypesRequest.flavor:type_name -> qafixtures.v1.Flavor
+	19, // 11: qafixtures.v1.EchoTypesRequest.occurred_at:type_name -> google.protobuf.Timestamp
+	11, // 12: qafixtures.v1.EchoTypesRequest.child:type_name -> qafixtures.v1.EchoTypesChild
+	11, // 13: qafixtures.v1.EchoTypesRequest.children:type_name -> qafixtures.v1.EchoTypesChild
+	0,  // 14: qafixtures.v1.EchoTypesResponse.flavor:type_name -> qafixtures.v1.Flavor
+	19, // 15: qafixtures.v1.EchoTypesResponse.occurred_at:type_name -> google.protobuf.Timestamp
+	11, // 16: qafixtures.v1.EchoTypesResponse.child:type_name -> qafixtures.v1.EchoTypesChild
+	11, // 17: qafixtures.v1.EchoTypesResponse.children:type_name -> qafixtures.v1.EchoTypesChild
+	1,  // 18: qafixtures.v1.QAService.Provoke:input_type -> qafixtures.v1.ProvokeRequest
+	4,  // 19: qafixtures.v1.QAService.ListGadgets:input_type -> qafixtures.v1.ListGadgetsRequest
+	4,  // 20: qafixtures.v1.QAService.ListGadgetsRel:input_type -> qafixtures.v1.ListGadgetsRequest
+	7,  // 21: qafixtures.v1.QAService.FlakyEcho:input_type -> qafixtures.v1.FlakyEchoRequest
+	9,  // 22: qafixtures.v1.QAService.Boom:input_type -> qafixtures.v1.BoomRequest
+	12, // 23: qafixtures.v1.QAService.EchoTypes:input_type -> qafixtures.v1.EchoTypesRequest
+	2,  // 24: qafixtures.v1.QAService.Provoke:output_type -> qafixtures.v1.ProvokeResponse
+	6,  // 25: qafixtures.v1.QAService.ListGadgets:output_type -> qafixtures.v1.ListGadgetsResponse
+	6,  // 26: qafixtures.v1.QAService.ListGadgetsRel:output_type -> qafixtures.v1.ListGadgetsResponse
+	8,  // 27: qafixtures.v1.QAService.FlakyEcho:output_type -> qafixtures.v1.FlakyEchoResponse
+	10, // 28: qafixtures.v1.QAService.Boom:output_type -> qafixtures.v1.BoomResponse
+	13, // 29: qafixtures.v1.QAService.EchoTypes:output_type -> qafixtures.v1.EchoTypesResponse
+	24, // [24:30] is the sub-list for method output_type
+	18, // [18:24] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_qafixtures_v1_qa_proto_init() }
@@ -655,18 +1233,20 @@ func file_qafixtures_v1_qa_proto_init() {
 	}
 	file_qafixtures_v1_qa_proto_msgTypes[0].OneofWrappers = []any{}
 	file_qafixtures_v1_qa_proto_msgTypes[6].OneofWrappers = []any{}
+	file_qafixtures_v1_qa_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_qafixtures_v1_qa_proto_rawDesc), len(file_qafixtures_v1_qa_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   10,
+			NumEnums:      1,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_qafixtures_v1_qa_proto_goTypes,
 		DependencyIndexes: file_qafixtures_v1_qa_proto_depIdxs,
+		EnumInfos:         file_qafixtures_v1_qa_proto_enumTypes,
 		MessageInfos:      file_qafixtures_v1_qa_proto_msgTypes,
 	}.Build()
 	File_qafixtures_v1_qa_proto = out.File

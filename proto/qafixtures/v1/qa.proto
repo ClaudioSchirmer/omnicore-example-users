@@ -5,6 +5,7 @@ package qafixtures.v1;
 option go_package = "github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1";
 
 import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
 import "omnicore/v1/query.proto";
 
 // QAService is the qa-only gRPC fixture surface (//go:build qa consumers
@@ -17,8 +18,16 @@ import "omnicore/v1/query.proto";
 service QAService {
   rpc Provoke(ProvokeRequest) returns (ProvokeResponse);
   rpc ListGadgets(ListGadgetsRequest) returns (ListGadgetsResponse);
+  // ListGadgetsRel is ListGadgets against the RelationalSource twin of the same
+  // root (view gadgets_rel, served from the SoR instead of the Mongo
+  // projection). Same request/response messages — nothing about the WIRE
+  // changes when the view's backing does, which is the point: it proves the
+  // gRPC list envelope (PaginationInfo, the REST pagination block mirrored) is filled identically from a
+  // relationally served page.
+  rpc ListGadgetsRel(ListGadgetsRequest) returns (ListGadgetsResponse);
   rpc FlakyEcho(FlakyEchoRequest) returns (FlakyEchoResponse);
   rpc Boom(BoomRequest) returns (BoomResponse);
+  rpc EchoTypes(EchoTypesRequest) returns (EchoTypesResponse);
 }
 
 // ProvokeRequest names the NotificationSemantic to emit: validation,
@@ -39,7 +48,7 @@ message GadgetFilters {
 }
 
 message ListGadgetsRequest {
-  omnicore.v1.PageRequest page = 1;
+  omnicore.v1.PaginationRequest pagination = 1;
   repeated omnicore.v1.SortField sort = 2;
   google.protobuf.FieldMask read_mask = 3;
   GadgetFilters filters = 4;
@@ -55,7 +64,7 @@ message Gadget {
 
 message ListGadgetsResponse {
   repeated Gadget items = 1;
-  omnicore.v1.PageInfo page_info = 2;
+  omnicore.v1.PaginationInfo pagination = 2;
 }
 
 message FlakyEchoRequest {
@@ -71,3 +80,72 @@ message FlakyEchoResponse {
 message BoomRequest {}
 
 message BoomResponse {}
+
+// ─── EchoTypes: the WIRE-TYPE matrix ────────────────────────────────────────
+//
+// Every proto scalar kind in ONE command, echoed back, so grpc.sh proves the
+// pb↔DTO bridge per kind in BOTH directions over a real connection against
+// the SAME DTO shapes REST binds. The 64-bit integers are the pair the two
+// JSON dialects disagree on (the proto3 JSON mapping quotes them,
+// encoding/json does not) — priceCents is the money shape that disagreement
+// used to break. sumCents is computed IN THE HANDLER, so a green case proves
+// the value arrived as a NUMBER the domain can do arithmetic on, not as text.
+
+enum Flavor {
+  FLAVOR_UNSPECIFIED = 0;
+  FLAVOR_SWEET = 1;
+  FLAVOR_SALTY = 2;
+}
+
+message EchoTypesChild {
+  int64 child_cents = 1;
+  string child_label = 2;
+}
+
+message EchoTypesRequest {
+  optional int64 price_cents = 1;
+  optional sint64 signed_delta = 2;
+  optional sfixed64 fixed_signed = 3;
+  optional uint64 huge_count = 4;
+  optional fixed64 fixed_unsigned = 5;
+  optional int32 quantity = 6;
+  optional uint32 unsigned_quantity = 7;
+  optional double weight = 8;
+  optional float ratio = 9;
+  optional bool active = 10;
+  optional string label = 11;
+  optional bytes payload = 12;
+  optional Flavor flavor = 13;
+  google.protobuf.Timestamp occurred_at = 14;
+  repeated int64 amounts = 15;
+  repeated string tags = 16;
+  EchoTypesChild child = 17;
+  repeated EchoTypesChild children = 18;
+}
+
+message EchoTypesResponse {
+  int64 price_cents = 1;
+  sint64 signed_delta = 2;
+  sfixed64 fixed_signed = 3;
+  uint64 huge_count = 4;
+  fixed64 fixed_unsigned = 5;
+  int32 quantity = 6;
+  uint32 unsigned_quantity = 7;
+  double weight = 8;
+  float ratio = 9;
+  bool active = 10;
+  string label = 11;
+  bytes payload = 12;
+  Flavor flavor = 13;
+  google.protobuf.Timestamp occurred_at = 14;
+  repeated int64 amounts = 15;
+  repeated string tags = 16;
+  EchoTypesChild child = 17;
+  repeated EchoTypesChild children = 18;
+  // sum_cents = price_cents + Σ amounts + Σ children.child_cents, computed
+  // by the handler on the BOUND values.
+  int64 sum_cents = 19;
+  // label_present distinguishes an absent optional from an empty string —
+  // the presence contract the bridge must preserve.
+  bool label_present = 20;
+}
