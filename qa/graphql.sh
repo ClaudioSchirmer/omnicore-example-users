@@ -403,6 +403,132 @@ gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"
 assert_jq "backward last:1 (orderBy name) → Charlie (the maximum)" \
     '.data.users.edges[0].node.name' "Gqlop Charlie"
 
+# ── 19b. Walk with SERVER-ISSUED cursors + the cursor↔context guards ────────
+# Every `after:` up to here carried STALE_CURSOR (§17 / §17b / §18): those cases
+# pin the REJECTIONS and never the walk. A server that silently re-returned page
+# 1 forever would pass all of them intact. This section spends the cursors the
+# connection itself hands back, over the three GOP fixtures ordered by name
+# (Alpha < Bravo < Charlie) — the GraphQL twin of REST e2e §15.3 / §15.9.
+#
+# Envelope contract of the framework reader: endCursor is emitted ONLY when
+# hasNextPage, startCursor ONLY when hasPreviousPage — so page 1 of a forward
+# walk carries no startCursor, and the last page carries no endCursor. The
+# assertions below encode that contract; they do not work around it.
+GOP_CTX='where: { name: { icontains: "Gqlop" } }, orderBy: ["name"]'
+GOP_PI='pageInfo { hasNextPage hasPreviousPage startCursor endCursor }'
+gop_pi() { jq -r ".data.users.pageInfo.${1} // \"\"" ${GQL_TMP}.body 2>/dev/null; }
+
+gql "query { users(${GOP_CTX}, first: 1) { edges { cursor node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.1 page 1 (first:1) → Alpha (the minimum)" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+assert_jq "19b.1 page 1 → hasNextPage=true" '.data.users.pageInfo.hasNextPage' "true"
+assert_jq "19b.1 page 1 → hasPreviousPage=false (nothing behind the head)" \
+    '.data.users.pageInfo.hasPreviousPage' "false"
+assert_jq_true "19b.1 page 1 → no startCursor (the backward half stays unemitted)" \
+    '(.data.users.pageInfo.startCursor == null)'
+assert_jq_true "19b.2 edges[0].cursor == pageInfo.endCursor on a one-row page" \
+    '(.data.users.pageInfo.endCursor != "") and (.data.users.edges[0].cursor == .data.users.pageInfo.endCursor)'
+GOP_C1=$(gop_pi endCursor)
+
+gql "query { users(${GOP_CTX}, first: 1, after: \"${GOP_C1}\") { edges { node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.3 page 2 (after:<page1 endCursor>) → Bravo (the window ADVANCED)" \
+    '.data.users.edges[0].node.name' "Gqlop Bravo"
+assert_jq "19b.3 page 2 → hasPreviousPage=true" '.data.users.pageInfo.hasPreviousPage' "true"
+assert_jq "19b.3 page 2 → hasNextPage=true (Charlie still ahead)" \
+    '.data.users.pageInfo.hasNextPage' "true"
+GOP_C2S=$(gop_pi startCursor)
+GOP_C2E=$(gop_pi endCursor)
+
+gql "query { users(${GOP_CTX}, first: 1, after: \"${GOP_C2E}\") { edges { node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.4 page 3 (after:<page2 endCursor>) → Charlie (the tail)" \
+    '.data.users.edges[0].node.name' "Gqlop Charlie"
+assert_jq "19b.4 page 3 → hasNextPage=false (end of the set)" \
+    '.data.users.pageInfo.hasNextPage' "false"
+assert_jq_true "19b.4 page 3 → no endCursor past the last row (empty ⇒ null on the wire)" \
+    '(.data.users.pageInfo.endCursor == null)'
+
+# Round trip: page 2's startCursor takes the consumer BACK to page 1 — the
+# inverse of 19b.3, and the GraphQL twin of REST e2e §15.9. hasNextPage is true
+# on a before-walk because the page we left still sits ahead.
+gql "query { users(${GOP_CTX}, last: 1, before: \"${GOP_C2S}\") { edges { node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.5 last:1 before:<page2 startCursor> → back to Alpha (round trip)" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+assert_jq "19b.5 backward page → hasNextPage=true (the page we left sits ahead)" \
+    '.data.users.pageInfo.hasNextPage' "true"
+
+# The reader binds every cursor to HashContext(filter, orderBy, search,
+# includeArchived), so a cursor is only spendable inside the EXACT listing that
+# issued it — changing any axis between pages must reject rather than silently
+# seek into a different result set. REST rejects these at the wrapper (e2e
+# §15.16-15.18); GraphQL has no pre-dispatch cursor check (§17b), so the same
+# SchemaViolationNotification comes from the reader. Same key, both surfaces.
+gql "query { users(where: { name: { icontains: \"Gqlop A\" } }, orderBy: [\"name\"], first: 1, after: \"${GOP_C1}\") { edges { node { name } } } }" >/dev/null
+assert_jq "19b.6 cursor↔filter mismatch → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.6 cursor↔filter mismatch → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, first: 1) { pageInfo { endCursor } } }" >/dev/null
+GOP_NOSORT=$(gop_pi endCursor)
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], first: 1, after: \"${GOP_NOSORT}\") { edges { node { name } } } }" >/dev/null
+assert_jq "19b.7 cursor↔sort mismatch (issued unsorted, spent sorted) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.7 cursor↔sort mismatch → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+gql "query { users(${GOP_CTX}, first: 1, after: \"${GOP_C1}\", includeArchived: true) { edges { node { name } } } }" >/dev/null
+assert_jq "19b.8 cursor↔includeArchived mismatch → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.8 cursor↔includeArchived mismatch → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# An undecodable cursor is a SHAPE violation, distinct from the context
+# mismatches above — it must still be a legible Schema rejection, never a 500.
+gql 'query { users(first: 1, after: "not-base64---") { edges { node { id } } } }' >/dev/null
+assert_jq "19b.9 malformed cursor (not base64) → semantic Schema (not Internal)" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.9 malformed cursor → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# Page-size guards. §18 covers first:0; the negative case and the BACKWARD side
+# of the positivity rule are the REST parity legs still missing here (e2e
+# §15.13/§15.14 assert both directions of the same canonical gate).
+gql 'query { users(first: -5) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.10 first:-5 (negative page size) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+gql 'query { users(last: 0) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.11 last:0 (non-positive, backward side) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+gql 'query { users(last: -5) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.11 last:-5 (negative, backward side) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+
+# The per-view page-size ceiling lives in the reader, so it is surface-neutral:
+# `query.maxLimit: 100` in microservice.qa.yaml is the resolved cap here. 100 is
+# AT the ceiling (accepted), 101 is the first value past it — the boundary pair,
+# with the typed LimitExceededNotification REST asserts at e2e §15.15.
+gql 'query { users(first: 101) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.12 first:101 (one past the ceiling) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.12 first:101 → LimitExceededNotification" \
+    '.errors[0].extensions.notificationKey' "LimitExceededNotification"
+gql 'query { users(first: 100) { edges { node { id } } } }' >/dev/null
+assert_jq_true "19b.12 first:100 (exactly AT the ceiling) → accepted, no errors" \
+    '(((.errors // []) | length) == 0) and (.data.users.edges | type == "array")'
+
+# The last direction mix §18 does not carry: forward size + backward cursor.
+gql "query { users(first: 1, before: \"${GOP_C1}\") { edges { node { id } } } }" >/dev/null
+assert_jq "19b.13 first + before (forward size, backward cursor) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.13 first + before → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# No page-size argument at all → the framework default page size applies; the
+# connection is a normal listing, never an unbounded dump (REST e2e §15.4).
+gql 'query { users { edges { node { id } } pageInfo { hasNextPage } totalCount } }' >/dev/null
+assert_jq_true "19b.14 no first/last → default page size, bounded listing (<=100)" \
+    '(((.errors // []) | length) == 0) and ((.data.users.edges | length) <= 100)'
+
 # Cleanup the GOP fixtures.
 for gid in "$GOP_ID_A" "$GOP_ID_B" "$GOP_ID_C"; do
     [ -n "$gid" ] && [ "$gid" != "null" ] && gql "mutation { deleteUser(id: \"${gid}\") { success } }" >/dev/null
