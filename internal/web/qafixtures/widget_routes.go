@@ -67,10 +67,11 @@ type FindWidgetsRequest struct {
 	Material    *string          `query:"material" filter:"eq,icontains"`
 	WidgetParts WidgetPartFilter `query:"widgetParts"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`

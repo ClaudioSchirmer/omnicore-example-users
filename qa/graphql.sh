@@ -174,6 +174,15 @@ gql 'query { users(first: 1) { edges { node { id } } pageInfo { hasNextPage } to
 assert_jq_true "users(first:1) returns a well-formed connection" \
     '(.data.users.edges | type == "array") and (.data.users.totalCount | type == "number")'
 
+# ── 8b. Pagination probe — pageInfo WITHOUT edges. The framework interprets
+# the selection: the read narrows to the keyset essentials (ordering values +
+# _id) and still answers the window's boundaries + the total. No wire change
+# vs a full read — the probe is a server-side optimization — so the assert is
+# simply a correct pageInfo without any edges requested.
+gql 'query { users(first: 1) { pageInfo { hasNextPage hasPreviousPage startCursor endCursor } totalCount } }' >/dev/null
+assert_jq_true "pageInfo-only probe answers boundaries + total without edges" \
+    '(.data.users.pageInfo.hasNextPage | type == "boolean") and (.data.users.totalCount >= 1)'
+
 # ── 9. Validation: undeclared operator on a declared field → errors[] (200) ─
 echo "${WHITE}--- undeclared operator rejected by validation ---${RESET}"
 vstatus=$(gql 'query { users(where: { email: { contains: "x" } }) { totalCount } }')
@@ -265,7 +274,7 @@ assert_jq "invalid email → context mirrors REST grouping (translated 'User')" 
     '.errors[0].extensions.context' "User"
 
 # ── 17. Count-only (totalCount-only) + pagination arg → pre-dispatch conflict ─
-# A totalCount-only selection maps to count-only (ReadCriteria.OnlyTotal). A
+# A totalCount-only selection maps to only-total (ReadCriteria.OnlyTotal). A
 # pagination/sort argument alongside it (here first + after) is a conflict —
 # there is no page to order or seek into when only the count is asked — rejected
 # pre-dispatch with a legible SchemaViolationNotification (semantic Schema),
@@ -273,15 +282,15 @@ assert_jq "invalid email → context mirrors REST grouping (translated 'User')" 
 # moot: the conflict fires before the reader ever sees it.
 STALE_CURSOR="eyJ2IjogMSwgImsiOiBbIngiXSwgImgiOiAiZGVhZGJlZWYifQ=="
 gql "query { users(first: 1, after: \"${STALE_CURSOR}\") { totalCount } }" >/dev/null
-assert_jq "count-only + pagination → semantic Schema (not Internal)" '.errors[0].extensions.semantic' "Schema"
-assert_jq "count-only + pagination → notificationKey SchemaViolationNotification" \
+assert_jq "only-total + pagination → semantic Schema (not Internal)" '.errors[0].extensions.semantic' "Schema"
+assert_jq "only-total + pagination → notificationKey SchemaViolationNotification" \
     '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
-assert_jq_true "count-only + pagination → message is legible (not 'internal server error')" \
+assert_jq_true "only-total + pagination → message is legible (not 'internal server error')" \
     '((.errors[0].message // "") != "internal server error")'
 
 # ── 17b. Stale cursor on a real (edges) read → reader-side Schema rejection ───
-# An edges selection is a full read (not count-only), so the stale cursor is NOT
-# short-circuited by the count-only conflict above — it reaches the reader,
+# An edges selection is a full read (not only-total), so the stale cursor is NOT
+# short-circuited by the only-total conflict above — it reaches the reader,
 # which returns the same legible SchemaViolationNotification (semantic Schema)
 # instead of a 500/Internal. GraphQL has no pre-dispatch cursor check on a real
 # read; the typed rejection comes from the reader (infra.InvalidCursorError).
@@ -291,10 +300,10 @@ assert_jq "stale cursor (edges read) → notificationKey SchemaViolationNotifica
     '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
 
 # ── 17c. Count-only alone (no pagination) → just the count, no items ──────────
-# The common count-only shape: totalCount only, no pagination arg → short-circuit
+# The common only-total shape: totalCount only, no pagination arg → short-circuit
 # to a count. The envelope carries totalCount and no edges key.
 gql 'query { users { totalCount } }' >/dev/null
-assert_jq_true "count-only alone → totalCount is a number, edges absent" \
+assert_jq_true "only-total alone → totalCount is a number, edges absent" \
     '(.data.users.totalCount | type == "number") and (.data.users | has("edges") | not)'
 
 # ── 18. Relay pagination direction (first/after forward, last/before backward) ─
@@ -320,7 +329,7 @@ for combo in \
         '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
 done
 
-# A non-positive page size is rejected too — parity with REST rejecting ?limit= <= 0.
+# A non-positive page size is rejected too — parity with REST rejecting ?first= <= 0.
 gql 'query { users(first: 0) { edges { node { id } } } }' >/dev/null
 assert_jq "first: 0 (non-positive page size) → semantic Schema" \
     '.errors[0].extensions.semantic' "Schema"

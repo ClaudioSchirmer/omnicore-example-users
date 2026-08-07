@@ -52,10 +52,10 @@ func (h *FindUsersCustomQueryHandler) Handle(
 	//       criteria.Limit = 50
 	//   }
 	//
-	//   // Force a default Sort so pagination cursors stay stable across
-	//   // consumers that did not supply ?sort.
-	//   if len(criteria.Sort) == 0 {
-	//       criteria.Sort = []queries.SortField{{Field: "CreatedAt", Desc: true}}
+	//   // Force a default OrderBy so pagination cursors stay stable across
+	//   // consumers that did not supply ?orderBy.
+	//   if len(criteria.OrderBy) == 0 {
+	//       criteria.OrderBy = []queries.OrderByField{{Field: "CreatedAt", Desc: true}}
 	//   }
 	//
 	// Sort/pagination overlays belong on this seam — they shape the

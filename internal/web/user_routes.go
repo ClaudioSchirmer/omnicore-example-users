@@ -165,7 +165,7 @@ func MountUsers(
 	// CSV export — same Request DTO, same view query handler as GET /users,
 	// rendered as a hierarchical CSV (root columns at A, addresses at B…).
 	// Headers come from the `labelKey:"…"` tags on User/Address resolved per
-	// Accept-Language; `?fields=` narrows columns; filters/`?search`/`?sort`
+	// Accept-Language; `?fields=` narrows columns; filters/`?search`/`?orderBy`
 	// work like the JSON list. User pagination is ignored — the export streams
 	// the full filtered set capped at the resolved maxExportRows. Registered at
 	// the app root (`/users.csv`) to avoid colliding with `/users/:id`. The ';'
@@ -182,7 +182,7 @@ func MountUsers(
 		csvH, csvSpec,
 		fwopenapi.Doc{
 			Summary:     "Export users as CSV",
-			Description: "Streams the same `users` view read as GET /users — same filter allowlist, `?search`, `?sort`, `?includeArchived`, `?fields=` — rendered as a hierarchical CSV: root columns start at column A, each address at column B (one column per nesting level). Column headers are the fields' `labelKey` catalog entries rendered in the request's `Accept-Language`. User pagination (`?limit`/`?after`/`?before`/`?onlyTotal`) is ignored — the export returns the full filtered set capped at `query.maxExportRows`. Field separator is `;`.",
+			Description: "Streams the same `users` view read as GET /users — same filter allowlist, `?search`, `?orderBy`, `?includeArchived`, `?fields=` — rendered as a hierarchical CSV: root columns start at column A, each address at column B (one column per nesting level). Column headers are the fields' `labelKey` catalog entries rendered in the request's `Accept-Language`. User pagination (`?first`/`?last`/`?after`/`?before`/`?onlyTotal`) is ignored — the export returns the full filtered set capped at `query.maxExportRows`. Field separator is `;`.",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:read"))
@@ -203,7 +203,7 @@ func MountUsers(
 		xlsxH, xlsxSpec,
 		fwopenapi.Doc{
 			Summary:     "Export users as Excel (.xlsx)",
-			Description: "Same surface as `GET /users.csv` — same filter allowlist, `?fields=`, `?search`, `?sort`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook instead of CSV. Header rows are bold and numeric columns keep their numeric cell type. Demonstrates the format-pluggable export: only the encoder differs between this route and `/users.csv`.",
+			Description: "Same surface as `GET /users.csv` — same filter allowlist, `?fields=`, `?search`, `?orderBy`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook instead of CSV. Header rows are bold and numeric columns keep their numeric cell type. Demonstrates the format-pluggable export: only the encoder differs between this route and `/users.csv`.",
 			Tags:        []string{"Users"},
 		},
 		fwopenapi.RequirePermission("users:read"))

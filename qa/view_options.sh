@@ -2,7 +2,7 @@
 # Read-side option suite — the ViewDefinition knobs the canonical example never
 # opts into, on the qa-only Gadget mirror (`//go:build qa`):
 #
-#   MaxLimit(N)      — a per-view ?limit ceiling; ?limit>N is rejected (400)
+#   MaxLimit(N)      — a per-view ?first ceiling; ?first>N is rejected (400)
 #   RawDoc projector — the raw view document passes through (map[string]any)
 #   DeleteOnArchive  — archived rows are DROPPED from the view (vs kept-hidden)
 #
@@ -87,22 +87,22 @@ done
 [ "$seeded" = ok ] && ok "8 gadgets materialized in the default view" || { bad "seed did not reach 8"; }
 
 ##############################################################################
-sec "1. MaxLimit(5) — per-view ?limit ceiling"
+sec "1. MaxLimit(5) — per-view ?first ceiling"
 ##############################################################################
-title "1.1 GET /qa/gadgets-capped?limit=100 → 400 LimitExceededNotification"
-tmp=$(mktemp); st=$(curl -sS -o "$tmp" -w "%{http_code}" "$BASE/qa/gadgets-capped?limit=100")
+title "1.1 GET /qa/gadgets-capped?first=100 → 400 LimitExceededNotification"
+tmp=$(mktemp); st=$(curl -sS -o "$tmp" -w "%{http_code}" "$BASE/qa/gadgets-capped?first=100")
 if [ "$st" = "400" ] && grep -q '"notificationKey":"LimitExceededNotification"' "$tmp"; then
-  ok "?limit>5 rejected (400 / LimitExceededNotification)"
+  ok "?first>5 rejected (400 / LimitExceededNotification)"
 else bad "want 400/LimitExceededNotification, got $st"; head -c 200 "$tmp"; echo; fi
 rm -f "$tmp"
 
-title "1.2 GET /qa/gadgets-capped?limit=5 → 200 (at the cap)"
-st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-capped?limit=5")
-[ "$st" = "200" ] && ok "?limit=5 accepted (200)" || bad "?limit=5 status $st (want 200)"
+title "1.2 GET /qa/gadgets-capped?first=5 → 200 (at the cap)"
+st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets-capped?first=5")
+[ "$st" = "200" ] && ok "?first=5 accepted (200)" || bad "?first=5 status $st (want 200)"
 
-title "1.3 The default gadgets view accepts ?limit=100 (framework default 100, no per-view cap)"
-st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets?limit=100")
-[ "$st" = "200" ] && ok "default view ?limit=100 accepted" || bad "default ?limit=100 status $st"
+title "1.3 The default gadgets view accepts ?first=100 (framework default 100, no per-view cap)"
+st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets?first=100")
+[ "$st" = "200" ] && ok "default view ?first=100 accepted" || bad "default ?first=100 status $st"
 
 ##############################################################################
 sec "2. RawDoc projector — raw view document passthrough"
@@ -112,7 +112,7 @@ title "2.1 GET /qa/gadgets-raw → raw docs keyed by Go field names (NOT the jso
 # the Go field names the reader translated the physical columns into (Code, Name,
 # _id) — NOT the json wire names (code, name) a typed Response would emit. That
 # divergence IS the point: proving RawDoc bypasses the per-Response json mapping.
-RAW=$(curl -sS "$BASE/qa/gadgets-raw?code.startswith=RX&limit=3")
+RAW=$(curl -sS "$BASE/qa/gadgets-raw?code.startswith=RX&first=3")
 echo "$RAW" | python3 -m json.tool 2>/dev/null | head -16
 HASRAW=$(echo "$RAW" | python3 -c 'import sys,json
 try:

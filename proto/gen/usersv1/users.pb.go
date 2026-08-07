@@ -326,8 +326,8 @@ func (x *UserFilters) GetName() *pb.StringFilter {
 type ListUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Pagination    *pb.PaginationRequest  `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
-	Sort          []*pb.SortField        `protobuf:"bytes,2,rep,name=sort,proto3" json:"sort,omitempty"`
-	ReadMask      *fieldmaskpb.FieldMask `protobuf:"bytes,3,opt,name=read_mask,json=readMask,proto3" json:"read_mask,omitempty"`
+	OrderBy       []*pb.OrderByField     `protobuf:"bytes,2,rep,name=order_by,json=orderBy,proto3" json:"order_by,omitempty"`
+	Fields        *fieldmaskpb.FieldMask `protobuf:"bytes,3,opt,name=fields,proto3" json:"fields,omitempty"`
 	Filters       *UserFilters           `protobuf:"bytes,4,opt,name=filters,proto3" json:"filters,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -370,16 +370,16 @@ func (x *ListUsersRequest) GetPagination() *pb.PaginationRequest {
 	return nil
 }
 
-func (x *ListUsersRequest) GetSort() []*pb.SortField {
+func (x *ListUsersRequest) GetOrderBy() []*pb.OrderByField {
 	if x != nil {
-		return x.Sort
+		return x.OrderBy
 	}
 	return nil
 }
 
-func (x *ListUsersRequest) GetReadMask() *fieldmaskpb.FieldMask {
+func (x *ListUsersRequest) GetFields() *fieldmaskpb.FieldMask {
 	if x != nil {
-		return x.ReadMask
+		return x.Fields
 	}
 	return nil
 }
@@ -399,7 +399,7 @@ type User struct {
 	Document string                 `protobuf:"bytes,4,opt,name=document,proto3" json:"document,omitempty"`
 	UserName string                 `protobuf:"bytes,5,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
 	// Restricted leaf: projected only for users:admin (the query type's
-	// ToCriteria Restrict) — also the read_mask/sort path the authz suites
+	// ToCriteria Restrict) — also the fields/order_by path the authz suites
 	// probe. optional: absent and empty are distinct.
 	Phone *string `protobuf:"bytes,6,opt,name=phone,proto3,oneof" json:"phone,omitempty"`
 	// Value-object fields: the enum VOs surface as their underlying scalar
@@ -1207,13 +1207,13 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\x17_notification_frequency\"t\n" +
 	"\vUserFilters\x126\n" +
 	"\tuser_name\x18\x01 \x01(\v2\x19.omnicore.v1.StringFilterR\buserName\x12-\n" +
-	"\x04name\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\"\xe8\x01\n" +
+	"\x04name\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\"\xed\x01\n" +
 	"\x10ListUsersRequest\x12>\n" +
 	"\n" +
 	"pagination\x18\x01 \x01(\v2\x1e.omnicore.v1.PaginationRequestR\n" +
-	"pagination\x12*\n" +
-	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
-	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x12/\n" +
+	"pagination\x124\n" +
+	"\border_by\x18\x02 \x03(\v2\x19.omnicore.v1.OrderByFieldR\aorderBy\x122\n" +
+	"\x06fields\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\x06fields\x12/\n" +
 	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\x81\x03\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -1355,7 +1355,7 @@ var file_users_v1_users_proto_goTypes = []any{
 	(*UpdateUserResponse)(nil),    // 12: users.v1.UpdateUserResponse
 	(*pb.StringFilter)(nil),       // 13: omnicore.v1.StringFilter
 	(*pb.PaginationRequest)(nil),  // 14: omnicore.v1.PaginationRequest
-	(*pb.SortField)(nil),          // 15: omnicore.v1.SortField
+	(*pb.OrderByField)(nil),       // 15: omnicore.v1.OrderByField
 	(*fieldmaskpb.FieldMask)(nil), // 16: google.protobuf.FieldMask
 	(*pb.PaginationInfo)(nil),     // 17: omnicore.v1.PaginationInfo
 }
@@ -1363,8 +1363,8 @@ var file_users_v1_users_proto_depIdxs = []int32{
 	13, // 0: users.v1.UserFilters.user_name:type_name -> omnicore.v1.StringFilter
 	13, // 1: users.v1.UserFilters.name:type_name -> omnicore.v1.StringFilter
 	14, // 2: users.v1.ListUsersRequest.pagination:type_name -> omnicore.v1.PaginationRequest
-	15, // 3: users.v1.ListUsersRequest.sort:type_name -> omnicore.v1.SortField
-	16, // 4: users.v1.ListUsersRequest.read_mask:type_name -> google.protobuf.FieldMask
+	15, // 3: users.v1.ListUsersRequest.order_by:type_name -> omnicore.v1.OrderByField
+	16, // 4: users.v1.ListUsersRequest.fields:type_name -> google.protobuf.FieldMask
 	2,  // 5: users.v1.ListUsersRequest.filters:type_name -> users.v1.UserFilters
 	4,  // 6: users.v1.ListUsersResponse.items:type_name -> users.v1.User
 	17, // 7: users.v1.ListUsersResponse.pagination:type_name -> omnicore.v1.PaginationInfo

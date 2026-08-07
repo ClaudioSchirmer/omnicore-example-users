@@ -291,7 +291,7 @@ post_user() {
 }
 
 count_users_via_api() {
-  curl -sS "$BASE/users?limit=50" 2>/dev/null | jq '.pagination.total // (.data | length)'
+  curl -sS "$BASE/users?first=50" 2>/dev/null | jq '.pagination.totalCount // (.data | length)'
 }
 
 # Reads a column from the omnicore_mongo_views registry row for "users".

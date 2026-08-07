@@ -76,7 +76,7 @@ func GadgetHotView() *query.ViewDefinition {
 
 // GadgetCappedView is a THIRD projection over the SAME `gadgets` root, landing
 // in the `gadgets_capped` collection with a small per-view .MaxLimit(5). A read
-// against it with ?limit greater than 5 is rejected with 400
+// against it with ?first greater than 5 is rejected with 400
 // LimitExceededNotification at read time (the reader's per-view ceiling), while
 // the default `gadgets` view keeps the framework default of 100.
 func GadgetCappedView() *query.ViewDefinition {

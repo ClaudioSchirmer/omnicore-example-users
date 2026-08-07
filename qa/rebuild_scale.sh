@@ -261,7 +261,7 @@ start_pod(){
 wait_ready(){ local base="$1"; local t="${2:-30}"; local d=$(( $(date +%s)+t )); while [ "$(date +%s)" -lt "$d" ]; do curl -sf -o /dev/null "$base/readyz" && return 0; sleep 0.5; done; return 1; }
 post_user(){ curl -sS -X POST "$1/users" -H 'Content-Type: application/json' -H 'Accept-Language: en-US' \
   --data "{\"name\":\"$2\",\"email\":\"$2@t.co\",\"document\":\"$2\",\"userName\":\"$2\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}" -o /dev/null -w '%{http_code}'; }
-api_total(){ curl -sS "$1/users?onlyTotal=true" 2>/dev/null | jq -r '.pagination.total // .total // (.data|length) // "?"'; }
+api_total(){ curl -sS "$1/users?onlyTotal=true" 2>/dev/null | jq -r '.pagination.totalCount // .total // (.data|length) // "?"'; }
 # poll GET total until it reaches `want` (CDC is eventually consistent + cold on
 # first boot) — echoes the last observed total, returns non-zero on timeout.
 wait_total(){ local base="$1" want="$2" t="${3:-40}"; local d=$(( $(date +%s)+t )); local n=0; while [ "$(date +%s)" -lt "$d" ]; do n=$(api_total "$base"); [ -n "$n" ] && [ "$n" != "?" ] && [ "$n" -ge "$want" ] 2>/dev/null && { echo "$n"; return 0; }; sleep 1; done; echo "$n"; return 1; }
@@ -641,7 +641,7 @@ grep -q "boot rebuild failed" /tmp/omnicore-rs-D.log && { FAIL=$((FAIL+1)); echo
 # proof; this confirms every surviving pod answers 200 from the flipped view).
 title "endpoint proof: every surviving pod (A/C/D) serves the flipped view"
 for pod in A:$A_BASE C:$C_BASE D:$D_BASE; do
-  code=$(curl -s -o /dev/null -w '%{http_code}' "${pod#*:}/users?limit=1")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "${pod#*:}/users?first=1")
   assert_eq "GET /users on POD ${pod%%:*} → 200 (new slot)" "200" "$code"
 done
 

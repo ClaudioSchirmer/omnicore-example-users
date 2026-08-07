@@ -61,8 +61,8 @@ message UserFilters {
 
 message ListUsersRequest {
   omnicore.v1.PaginationRequest pagination = 1;
-  repeated omnicore.v1.SortField sort = 2;
-  google.protobuf.FieldMask read_mask = 3;
+  repeated omnicore.v1.OrderByField order_by = 2;
+  google.protobuf.FieldMask fields = 3;
   UserFilters filters = 4;
 }
 
@@ -73,7 +73,7 @@ message User {
   string document = 4;
   string user_name = 5;
   // Restricted leaf: projected only for users:admin (the query type's
-  // ToCriteria Restrict) — also the read_mask/sort path the authz suites
+  // ToCriteria Restrict) — also the fields/order_by path the authz suites
   // probe. optional: absent and empty are distinct.
   optional string phone = 6;
   // Value-object fields: the enum VOs surface as their underlying scalar

@@ -96,10 +96,11 @@ type FindGadgetsRequest struct {
 	Category *string `query:"category" filter:"eq,in,iin,inin,ieq"`
 	Status   *string `query:"status"   filter:"eq,ne,ieq,ine"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
@@ -107,6 +108,23 @@ type FindGadgetsRequest struct {
 }
 
 func (r FindGadgetsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetsQuery {
+	return &appqa.FindGadgetsQuery{Criteria: criteria}
+}
+
+// FindGadgetsBareRequest declares ONLY filter leaves — no reserved control
+// keys. It exists to prove the canonical control gateway end to end on every
+// surface: the DTO is the single source of truth for what an endpoint
+// exposes, so every reserved control arriving on this endpoint's wire must
+// reject (REST 400 / GraphQL unknown argument via the SDL cut / gRPC
+// INVALID_ARGUMENT) while plain filters keep working.
+type FindGadgetsBareRequest struct {
+	Code     *string `query:"code"     filter:"eq,startswith"`
+	Name     *string `query:"name"     filter:"eq,contains"`
+	Category *string `query:"category" filter:"eq"`
+	Status   *string `query:"status"   filter:"eq"`
+}
+
+func (r FindGadgetsBareRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetsQuery {
 	return &appqa.FindGadgetsQuery{Criteria: criteria}
 }
 
@@ -126,6 +144,16 @@ type FindGadgetsResponse struct {
 // ?includeArchived is recognized.
 type FindGadgetByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
+}
+
+// FindGadgetBareByIDRequest is the by-id half of the reserved-gate proof: it
+// declares NOTHING, so even `?includeArchived` — the one reserved control the
+// by-id surface speaks — rejects as the canonical NotDeclared 400 instead of
+// being silently ignored.
+type FindGadgetBareByIDRequest struct{}
+
+func (r FindGadgetBareByIDRequest) ToQuery() *appqa.FindGadgetByIDQuery {
+	return &appqa.FindGadgetByIDQuery{}
 }
 
 func (r FindGadgetByIDRequest) ToQuery() *appqa.FindGadgetByIDQuery {

@@ -53,7 +53,7 @@ func TestUserView_DeclaresExpectedIndexes(t *testing.T) {
 		t.Errorf("specs[1] = %+v, want ascending index on email", specs[1].Keys)
 	}
 
-	// Desc index on created_at — sort support for ?sort=-created_at
+	// Desc index on created_at — sort support for ?orderBy=-created_at
 	if specs[2].Keys[0].Field != "created_at" || specs[2].Keys[0].Order != query.IndexOrderDesc {
 		t.Errorf("specs[2] = %+v, want descending index on created_at", specs[2].Keys)
 	}

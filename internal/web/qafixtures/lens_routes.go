@@ -152,7 +152,7 @@ func MountLensParts(
 		listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List lens parts (filter/sort/fields INTO the materialized segment)",
-			Description: "Paged read of `qa_lens_parts_view`. A predicate on `gadget.*` SELECTS ROWS — the segment lives in the same document, unlike a composed leg filter which only shapes the segment. `?sort=gadget.code` is a first-class sort key; `?fields=label,gadget.name` prunes into the segment.",
+			Description: "Paged read of `qa_lens_parts_view`. A predicate on `gadget.*` SELECTS ROWS — the segment lives in the same document, unlike a composed leg filter which only shapes the segment. `?orderBy=gadget.code` is a first-class sort key; `?fields=label,gadget.name` prunes into the segment.",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("gadgets:read"))

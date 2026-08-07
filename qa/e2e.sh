@@ -975,7 +975,7 @@ show "12.1 GET /showcase/users-custom/10000000001 — reduced shape (id+name+ema
 show "12.2 GET /showcase/users-custom/99999999999 — RecordNotFound (404)" GET /showcase/users-custom/99999999999 "" 404
 show "12.3 GET /showcase/users-custom — list with pagination envelope top-level" GET /showcase/users-custom "" 200
 show "12.4 GET /showcase/users-custom?email=bob@example.com — filtered list" GET "/showcase/users-custom?email=bob@example.com" "" 200
-show "12.5 GET /showcase/users-custom?limit=1 — paged list (has_next:true expected)" GET "/showcase/users-custom?limit=1" "" 200
+show "12.5 GET /showcase/users-custom?first=1 — paged list (hasNextPage:true expected)" GET "/showcase/users-custom?first=1" "" 200
 show "12.6 GET /showcase/users-custom?role=admin — unknown query key rejected (400 via ParseCriteria allowlist)" GET "/showcase/users-custom?role=admin" "" 400
 show "12.7 GET /showcase/users-custom/10000000001?includeArchived=true — flag accepted, active row still surfaces" GET "/showcase/users-custom/10000000001?includeArchived=true" "" 200
 show "12.8 GET /showcase/users-custom?includeArchived=true — flag accepted on list" GET "/showcase/users-custom?includeArchived=true" "" 200
@@ -1158,21 +1158,21 @@ show_count "14.9 ?name.startswith=Anna&addresses.country=US — incompatible AND
 sec "15. GET /users — pagination + sort + reserved keys"
 ####################################
 # limit / sort / fields are reserved keys on FindUsersByParamsRequest.
-# Existing cases cover ?limit=1 implicitly (12.5 on the custom surface),
+# Existing cases cover ?first=1 implicitly (12.5 on the custom surface),
 # but the canonical paginator is unchecked.
 
 # limit smaller than total → bounded list + HasNext exposed.
-show_count "15.1 ?limit=2 returns at most 2 items" \
-  "/users?limit=2" 200 1
+show_count "15.1 ?first=2 returns at most 2 items" \
+  "/users?first=2" 200 1
 
-# Same as 15.1 but assert the pagination block — has_next must be true.
-title "15.2 ?limit=2 pagination envelope has has_next=true"
-PAG=$(curl -sS "$BASE/users?limit=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("has_next"))')
+# Same as 15.1 but assert the pagination block — hasNextPage must be true.
+title "15.2 ?first=2 pagination envelope has hasNextPage=true"
+PAG=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("hasNextPage"))')
 if [ "$PAG" = "True" ]; then
-  printf '\033[1;32mPASS\033[0m (has_next=true)\n'
+  printf '\033[1;32mPASS\033[0m (hasNextPage=true)\n'
   PASS=$((PASS+1))
 else
-  printf '\033[1;31mFAIL\033[0m (has_next=%s)\n' "$PAG"
+  printf '\033[1;31mFAIL\033[0m (hasNextPage=%s)\n' "$PAG"
   FAIL=$((FAIL+1))
 fi
 
@@ -1180,11 +1180,11 @@ fi
 # pagination over (_id) means page 2's first doc is strictly past page 1's
 # last doc; asserting content rather than status proves the cursor advances
 # the result set instead of silently re-returning page 1.
-title "15.3 Follow next_cursor — page 2 returns docs strictly past page 1"
-P1_LAST_ID=$(curl -sS "$BASE/users?limit=2" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[-1]["id"] if d else "")')
-CURSOR=$(curl -sS "$BASE/users?limit=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+title "15.3 Follow endCursor — page 2 returns docs strictly past page 1"
+P1_LAST_ID=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[-1]["id"] if d else "")')
+CURSOR=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
 if [ -n "$CURSOR" ] && [ -n "$P1_LAST_ID" ]; then
-  P2_FIRST_ID=$(curl -sS "$BASE/users?limit=2&after=$CURSOR" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
+  P2_FIRST_ID=$(curl -sS "$BASE/users?first=2&after=$CURSOR" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
   if [ -n "$P2_FIRST_ID" ] && [ "$P2_FIRST_ID" != "$P1_LAST_ID" ]; then
     printf '\033[1;32mPASS\033[0m (page1_last=%s, page2_first=%s — cursor advances)\n' "$P1_LAST_ID" "$P2_FIRST_ID"
     PASS=$((PASS+1))
@@ -1193,26 +1193,26 @@ if [ -n "$CURSOR" ] && [ -n "$P1_LAST_ID" ]; then
     FAIL=$((FAIL+1))
   fi
 else
-  printf '\033[1;31mFAIL\033[0m next_cursor or page1 last id was empty\n'
+  printf '\033[1;31mFAIL\033[0m endCursor or page1 last id was empty\n'
   FAIL=$((FAIL+1))
 fi
 
 # Default pagination (no limit) returns the configured default page size
 # (20 per framework default), but the suite never has 20+ users — assert
-# only that the list is non-empty and has_next is false (we never overflow).
+# only that the list is non-empty and hasNextPage is false (we never overflow).
 show_count "15.4 No-limit defaults to framework page size; current dataset fits" \
   "/users" 200 1
 
-# Invalid limit value — the framework rejects non-numeric ?limit= with 400
+# Invalid limit value — the framework rejects non-numeric ?first= with 400
 # SchemaViolationNotification. Strict validation prevents silently falling
 # back to the default page size on consumer-side typos.
-show "15.5 ?limit=abc rejected (schema violation)" \
-  GET "/users?limit=abc" "" 400
+show "15.5 ?first=abc rejected (schema violation)" \
+  GET "/users?first=abc" "" 400
 
 # Sort by name ascending — controlled by the `sort` reserved key. Pin the
 # first item under known sort.
-title "15.6 ?sort=name returns items sorted ascending"
-FIRST_NAME=$(curl -sS "$BASE/users?sort=name" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["name"] if d else "")')
+title "15.6 ?orderBy=name returns items sorted ascending"
+FIRST_NAME=$(curl -sS "$BASE/users?orderBy=name" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["name"] if d else "")')
 if [ "$FIRST_NAME" = "Anna Müller" ] || [ "$FIRST_NAME" = "Anna III" ]; then
   printf '\033[1;32mPASS\033[0m (first=%s; Anna sorts before Bob/Jane)\n' "$FIRST_NAME"
   PASS=$((PASS+1))
@@ -1222,8 +1222,8 @@ else
 fi
 
 # Sort descending via leading minus.
-title "15.7 ?sort=-name returns items sorted descending"
-FIRST_DESC=$(curl -sS "$BASE/users?sort=-name" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["name"] if d else "")')
+title "15.7 ?orderBy=-name returns items sorted descending"
+FIRST_DESC=$(curl -sS "$BASE/users?orderBy=-name" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["name"] if d else "")')
 if [ "$FIRST_DESC" = "Jane Doe (patch)" ] || [ "$FIRST_DESC" = "Jane Doe" ]; then
   printf '\033[1;32mPASS\033[0m (first=%s under desc order)\n' "$FIRST_DESC"
   PASS=$((PASS+1))
@@ -1234,7 +1234,7 @@ fi
 
 # Projection — only the named fields appear on each item.
 title "15.8 ?fields=email,name projects only the named columns"
-PROJ_KEYS=$(curl -sS "$BASE/users?fields=email,name&limit=1" \
+PROJ_KEYS=$(curl -sS "$BASE/users?fields=email,name&first=1" \
   | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(",".join(sorted(d[0].keys())) if d else "")')
 case "$PROJ_KEYS" in
   *email* )
@@ -1252,15 +1252,15 @@ case "$PROJ_KEYS" in
     ;;
 esac
 
-# Backward navigation via ?before= — page 2's prev_cursor takes the consumer
+# Backward navigation via ?before= — page 2's startCursor takes the consumer
 # back to page 1. Symmetric inverse of 15.3.
-title "15.9 ?before=<page2_prev_cursor> navigates back to page 1"
-P1_FIRST_ID=$(curl -sS "$BASE/users?limit=2" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
-P1_CURSOR=$(curl -sS "$BASE/users?limit=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+title "15.9 ?last=2&before=<page2_startCursor> navigates back to page 1 (backward pair)"
+P1_FIRST_ID=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
+P1_CURSOR=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
 if [ -n "$P1_CURSOR" ] && [ -n "$P1_FIRST_ID" ]; then
-  P2_PREV=$(curl -sS "$BASE/users?limit=2&after=$P1_CURSOR" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("prev_cursor",""))')
+  P2_PREV=$(curl -sS "$BASE/users?first=2&after=$P1_CURSOR" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("startCursor",""))')
   if [ -n "$P2_PREV" ]; then
-    BACK_FIRST_ID=$(curl -sS "$BASE/users?limit=2&before=$P2_PREV" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
+    BACK_FIRST_ID=$(curl -sS "$BASE/users?last=2&before=$P2_PREV" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["id"] if d else "")')
     if [ -n "$BACK_FIRST_ID" ] && [ "$BACK_FIRST_ID" = "$P1_FIRST_ID" ]; then
       printf '\033[1;32mPASS\033[0m (back=%s == page1=%s)\n' "$BACK_FIRST_ID" "$P1_FIRST_ID"
       PASS=$((PASS+1))
@@ -1269,7 +1269,7 @@ if [ -n "$P1_CURSOR" ] && [ -n "$P1_FIRST_ID" ]; then
       FAIL=$((FAIL+1))
     fi
   else
-    printf '\033[1;31mFAIL\033[0m page2 prev_cursor empty (envelope: %s)\n' "$(curl -sS "$BASE/users?limit=2&after=$P1_CURSOR")"
+    printf '\033[1;31mFAIL\033[0m page2 startCursor empty (envelope: %s)\n' "$(curl -sS "$BASE/users?first=2&after=$P1_CURSOR")"
     FAIL=$((FAIL+1))
   fi
 else
@@ -1277,8 +1277,27 @@ else
   FAIL=$((FAIL+1))
 fi
 
-# Conflict matrix — ?after= and ?before= cannot coexist; the wire envelope
-# surfaces "after,before" as the offending field.
+# `last` alone — the backward window from the END of the set (new
+# expressiveness the old `limit` could not state). The dataset is small, so
+# the last page is the whole tail: hasNextPage must be false (nothing past
+# the end) and the items must be the canonical-order tail.
+title "15.9b ?last=2 alone returns the tail (hasNextPage=false)"
+LASTPAG=$(curl -sS "$BASE/users?last=2" | python3 -c 'import sys,json;d=json.load(sys.stdin);pag=d.get("pagination",{});print(pag.get("hasNextPage"))')
+if [ "$LASTPAG" = "False" ]; then
+  printf '\033[1;32mPASS\033[0m (last=2 tail window, hasNextPage=false)\n'
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (hasNextPage=%s on a last-window read)\n' "$LASTPAG"
+  FAIL=$((FAIL+1))
+fi
+
+# Direction rule — forward (first/after) and backward (last/before) never
+# mix; the gateway reports the backward-side key.
+show "15.9c ?first=2&last=2 rejected (one direction at a time)" \
+  GET "/users?first=2&last=2" "" 400
+
+# Conflict matrix — ?after= and ?before= cannot coexist (forward × backward);
+# the gateway surfaces "before" (the backward side) as the offending field.
 show "15.10 ?after=<c>&before=<c> rejected (mutually exclusive)" \
   GET "/users?after=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D&before=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D" "" 400
 
@@ -1287,23 +1306,23 @@ show "15.11 ?after=not-base64 rejected (cursor schema violation)" \
   GET "/users?after=not-base64---" "" 400
 
 # Cursor↔Sort mismatch — cursor encoded against a 0-sort context, request
-# declares ?sort=name → tuple length disagrees → 400. Consumer must request
+# declares ?orderBy=name → tuple length disagrees → 400. Consumer must request
 # page 1 of the new sort before navigating.
-show "15.12 ?sort=name&after=<no-sort-cursor> rejected (tuple/sort mismatch)" \
-  GET "/users?sort=name&after=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D" "" 400
+show "15.12 ?orderBy=name&after=<no-sort-cursor> rejected (tuple/sort mismatch)" \
+  GET "/users?orderBy=name&after=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D" "" 400
 
 # Limit boundary — zero and negative both reject as schema violations.
-show "15.13 ?limit=0 rejected (schema violation)" \
-  GET "/users?limit=0" "" 400
-show "15.14 ?limit=-5 rejected (schema violation)" \
-  GET "/users?limit=-5" "" 400
+show "15.13 ?first=0 rejected (schema violation)" \
+  GET "/users?first=0" "" 400
+show "15.14 ?first=-5 rejected (schema violation)" \
+  GET "/users?first=-5" "" 400
 
 # Per-view ceiling — the framework default is 100; requesting more is
 # rejected with a translatable LimitExceededNotification (Schema → 400).
 # Consumers can opt into a per-view override via ViewDefinition.MaxLimit
 # (see omnicore/CLAUDE.md "Read-side wrappers").
-show "15.15 ?limit=999 rejected (above default ceiling 100)" \
-  GET "/users?limit=999" "" 400
+show "15.15 ?first=999 rejected (above default ceiling 100)" \
+  GET "/users?first=999" "" 400
 
 # Cursor↔context mismatch — the cursor binds the full listing context
 # (filter + sort + search + includeArchived) via a SHA-256 hash. Any change
@@ -1311,9 +1330,9 @@ show "15.15 ?limit=999 rejected (above default ceiling 100)" \
 # cannot silently navigate a stale keyset boundary across different result
 # sets.
 title "15.16 cursor issued without filter rejected when filter is added"
-NO_FILTER_CURSOR=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+NO_FILTER_CURSOR=$(curl -sS "$BASE/users?first=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
 if [ -n "$NO_FILTER_CURSOR" ]; then
-  STATUS=$(curl -sS -o /tmp/qa-e2e-filter-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?limit=1&after=$NO_FILTER_CURSOR&name.startswith=B")
+  STATUS=$(curl -sS -o /tmp/qa-e2e-filter-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?first=1&after=$NO_FILTER_CURSOR&name.startswith=B")
   if [ "$STATUS" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (status=%s — cursor↔filter mismatch rejected)\n' "$STATUS"
     PASS=$((PASS+1))
@@ -1327,11 +1346,11 @@ else
 fi
 
 title "15.17 cursor issued without sort rejected when sort is added"
-NO_SORT_CURSOR=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+NO_SORT_CURSOR=$(curl -sS "$BASE/users?first=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
 if [ -n "$NO_SORT_CURSOR" ]; then
-  # Adding ?sort=name AND keeping the same tuple shape — the tuple-length
+  # Adding ?orderBy=name AND keeping the same tuple shape — the tuple-length
   # check would now fail anyway, but the hash check catches it too.
-  STATUS=$(curl -sS -o /tmp/qa-e2e-sort-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?limit=1&after=$NO_SORT_CURSOR&sort=name")
+  STATUS=$(curl -sS -o /tmp/qa-e2e-sort-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?first=1&after=$NO_SORT_CURSOR&orderBy=name")
   if [ "$STATUS" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (status=%s — cursor↔sort mismatch rejected)\n' "$STATUS"
     PASS=$((PASS+1))
@@ -1345,9 +1364,9 @@ else
 fi
 
 title "15.18 cursor issued without includeArchived rejected when flag is flipped"
-DEFAULT_CTX_CURSOR=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+DEFAULT_CTX_CURSOR=$(curl -sS "$BASE/users?first=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
 if [ -n "$DEFAULT_CTX_CURSOR" ]; then
-  STATUS=$(curl -sS -o /tmp/qa-e2e-archived-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?limit=1&after=$DEFAULT_CTX_CURSOR&includeArchived=true")
+  STATUS=$(curl -sS -o /tmp/qa-e2e-archived-mismatch.body.${BACKEND:-default} -w "%{http_code}" "$BASE/users?first=1&after=$DEFAULT_CTX_CURSOR&includeArchived=true")
   if [ "$STATUS" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (status=%s — cursor↔includeArchived mismatch rejected)\n' "$STATUS"
     PASS=$((PASS+1))
@@ -1367,14 +1386,14 @@ sec "16. /showcase/users-custom/* — list-side operators (manual showcase parit
 # manual surface accepts via its own Request DTO allowlist.
 
 # Confirm /showcase/users-custom honors limit + has pagination envelope.
-title "16.1 ?limit=1 emits has_next=true on the custom list"
-CUSTOM_PAG=$(curl -sS "$BASE/showcase/users-custom?limit=1" \
-  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("has_next"))')
+title "16.1 ?first=1 emits hasNextPage=true on the custom list"
+CUSTOM_PAG=$(curl -sS "$BASE/showcase/users-custom?first=1" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("hasNextPage"))')
 if [ "$CUSTOM_PAG" = "True" ]; then
-  printf '\033[1;32mPASS\033[0m (has_next=true)\n'
+  printf '\033[1;32mPASS\033[0m (hasNextPage=true)\n'
   PASS=$((PASS+1))
 else
-  printf '\033[1;31mFAIL\033[0m (has_next=%s)\n' "$CUSTOM_PAG"
+  printf '\033[1;31mFAIL\033[0m (hasNextPage=%s)\n' "$CUSTOM_PAG"
   FAIL=$((FAIL+1))
 fi
 
@@ -1387,9 +1406,9 @@ show_count "16.3 ?name=NOMATCH returns empty data (200, not 404)" \
   "/showcase/users-custom?name=NOMATCH" 200 0
 
 ####################################
-sec "17. GET /users — ?onlyTotal=true (count-only mode)"
+sec "17. GET /users — ?onlyTotal=true (only-total mode)"
 ####################################
-# The FindUsersByParamsRequest opts into the count-only mode via
+# The FindUsersByParamsRequest opts into the only-total mode via
 #   OnlyTotal *bool `query:"onlyTotal"`
 # When ?onlyTotal=true the wire envelope flips: data is absent, pagination
 # carries solely { total }. The matrix below covers (a) envelope shape,
@@ -1398,7 +1417,7 @@ sec "17. GET /users — ?onlyTotal=true (count-only mode)"
 # (fields, sort, limit, after, before).
 
 # only_total_check <name> <url> <expected_min_total>
-#   Asserts: status 200, response.data absent, pagination.total >= expected_min_total.
+#   Asserts: status 200, response.data absent, pagination.totalCount >= expected_min_total.
 only_total_check() {
   local name="$1" path="$2" min_total="${3:-0}"
   title "$name"
@@ -1417,8 +1436,8 @@ try:
   d=json.load(open(sys.argv[1]))
   data_present=("data" in d)
   pag=d.get("pagination") or {}
-  total=pag.get("total", -1)
-  extras=[k for k in pag.keys() if k != "total"]
+  total=pag.get("totalCount", -1)
+  extras=[k for k in pag.keys() if k != "totalCount"]
   print(f"{int(data_present)}|{total}|{",".join(extras)}")
 except Exception as e:
   print(f"err:{e}")' "$tmp")
@@ -1437,14 +1456,14 @@ except Exception as e:
   rm -f "$tmp"
 }
 
-# 17.1 — Envelope shape: data absent, only pagination.total populated.
-only_total_check "17.1 ?onlyTotal=true returns count-only envelope (data absent, pagination={total})" \
+# 17.1 — Envelope shape: data absent, only pagination.totalCount populated.
+only_total_check "17.1 ?onlyTotal=true returns only-total envelope (data absent, pagination={total})" \
   "/users?onlyTotal=true" 1
 
 # 17.2 — Filter leaf still applies. At this point in the suite only Anna II
 # is active (Anna I was archived in 3.2 and stays archived; Anna III was
 # hard-deleted in 8.1 — see "post sec-8 delete: only Anna II remains" in
-# sec 14). The count-only mode must honor the prefix filter on the active
+# sec 14). The only-total mode must honor the prefix filter on the active
 # set.
 only_total_check "17.2 ?onlyTotal=true&name.startswith=Anna counts active Anna prefix matches (>=1, only Anna II survives sec 8.1 delete)" \
   "/users?onlyTotal=true&name.startswith=Anna" 1
@@ -1459,10 +1478,11 @@ only_total_check "17.4 ?onlyTotal=true&includeArchived=true includes archived ro
 
 # 17.5 — Conflict matrix: each listing-only key triggers 400 with onlyTotal[<key>].
 show "17.5 ?onlyTotal=true&fields=name rejected (onlyTotal[fields])"  GET "/users?onlyTotal=true&fields=name"     "" 400
-show "17.6 ?onlyTotal=true&sort=-name rejected (onlyTotal[sort])"     GET "/users?onlyTotal=true&sort=-name"      "" 400
-show "17.7 ?onlyTotal=true&limit=10 rejected (onlyTotal[limit])"      GET "/users?onlyTotal=true&limit=10"        "" 400
+show "17.6 ?onlyTotal=true&orderBy=-name rejected (onlyTotal[orderBy])"     GET "/users?onlyTotal=true&orderBy=-name"      "" 400
+show "17.7 ?onlyTotal=true&first=10 rejected (onlyTotal[first])"      GET "/users?onlyTotal=true&first=10"        "" 400
 show "17.8 ?onlyTotal=true&after=cur-xyz rejected (onlyTotal[after])" GET "/users?onlyTotal=true&after=cur-xyz"   "" 400
 show "17.9 ?onlyTotal=true&before=cur-xyz rejected (onlyTotal[before])" GET "/users?onlyTotal=true&before=cur-xyz" "" 400
+show "17.9b ?onlyTotal=true&last=10 rejected (onlyTotal[last])"       GET "/users?onlyTotal=true&last=10"        "" 400
 
 # 17.10 — onlyTotal=false acts as omitted: regular listing envelope returns.
 title "17.10 ?onlyTotal=false keeps listing envelope (data present)"
@@ -1699,11 +1719,11 @@ csv_assert "19.17 ?fields=addresses.city keeps the city, drops email" "?fields=a
 csv_assert "19.18 ?fields=email keeps the email, drops the name"      "?fields=email&name.icontains=Exportprobe" 200 "zelda.exp@example.com" "Exportprobe"
 
 # Sort — honored value accepted; undeclared value rejected; asc vs desc reversed.
-csv_assert "19.19 ?sort=email honored (200)" "?sort=email&name.icontains=Exportprobe" 200 "zelda.exp@example.com"
-csv_assert "19.20 ?sort=bogus rejected (400)" "?sort=bogus" 400
-title "19.21 ?sort=email ascending vs ?sort=-email descending — ordering is observable"
-ASC=$(curl -sS "$BASE/users.csv?fields=email&name.icontains=Exportprobe&sort=email"  -H "Accept-Language: en-US" | grep -F '@example.com' | head -1)
-DESC=$(curl -sS "$BASE/users.csv?fields=email&name.icontains=Exportprobe&sort=-email" -H "Accept-Language: en-US" | grep -F '@example.com' | head -1)
+csv_assert "19.19 ?orderBy=email honored (200)" "?orderBy=email&name.icontains=Exportprobe" 200 "zelda.exp@example.com"
+csv_assert "19.20 ?orderBy=bogus rejected (400)" "?orderBy=bogus" 400
+title "19.21 ?orderBy=email ascending vs ?orderBy=-email descending — ordering is observable"
+ASC=$(curl -sS "$BASE/users.csv?fields=email&name.icontains=Exportprobe&orderBy=email"  -H "Accept-Language: en-US" | grep -F '@example.com' | head -1)
+DESC=$(curl -sS "$BASE/users.csv?fields=email&name.icontains=Exportprobe&orderBy=-email" -H "Accept-Language: en-US" | grep -F '@example.com' | head -1)
 echo "asc_first=$ASC  desc_first=$DESC"
 if echo "$ASC" | grep -q "yuri.exp@example.com" && echo "$DESC" | grep -q "zelda.exp@example.com"; then
   printf '\033[1;32mPASS\033[0m (asc=yuri…, desc=zelda… — sort drives the order)\n'; PASS=$((PASS+1))
@@ -1735,10 +1755,10 @@ xlsx_status() {
 }
 xlsx_status "19.25 xlsx honors ?name.icontains (200)"       "?name.icontains=Exportprobe" 200
 xlsx_status "19.26 xlsx honors ?search (200)"               "?search=Exportprobe" 200
-xlsx_status "19.27 xlsx honors ?sort=email (200)"           "?sort=email" 200
+xlsx_status "19.27 xlsx honors ?orderBy=email (200)"           "?orderBy=email" 200
 xlsx_status "19.28 xlsx honors ?fields=email (200)"         "?fields=email" 200
 xlsx_status "19.29 xlsx honors ?includeArchived=true (200)" "?includeArchived=true" 200
-xlsx_status "19.30 xlsx rejects ?sort=bogus (400)"          "?sort=bogus" 400
+xlsx_status "19.30 xlsx rejects ?orderBy=bogus (400)"          "?orderBy=bogus" 400
 
 ####################################
 # 19.32+ — labelKey headers of the SHARED-BASE columns.
@@ -1969,7 +1989,7 @@ sec "24. List reads — ?search (JSON), composite sort, cursor tampering"
 ####################################
 # ?search rides the view's TextIndex(name,email) — 19.14-19.16 proved it on
 # the CSV export wrapper; this section pins the JSON list endpoint itself.
-# Composite sort (?sort=a,-b) and the cursor schema-version gate
+# Composite sort (?orderBy=a,-b) and the cursor schema-version gate
 # (DecodeCursor rejects v != CursorSchemaVersion) had no coverage anywhere.
 
 # show_count_eq — exact-count variant of show_count: negative cases must
@@ -2028,12 +2048,12 @@ show_count_eq "24.1 JSON list ?search=Zearchprobe surfaces the probe (TextIndex 
 show_count_eq "24.2 JSON list ?search=zzznomatchqqq matches nothing" \
   "/users?search=zzznomatchqqq" 200 0
 
-title "24.3 Composite sort ?sort=name,-email — secondary key descending"
-FIRST_DESC_EMAIL=$(curl -sS "$BASE/users?name.startswith=Sortprobe&sort=name,-email" \
+title "24.3 Composite sort ?orderBy=name,-email — secondary key descending"
+FIRST_DESC_EMAIL=$(curl -sS "$BASE/users?name.startswith=Sortprobe&orderBy=name,-email" \
   | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["email"] if d else "")')
-FIRST_ASC_EMAIL=$(curl -sS "$BASE/users?name.startswith=Sortprobe&sort=name,email" \
+FIRST_ASC_EMAIL=$(curl -sS "$BASE/users?name.startswith=Sortprobe&orderBy=name,email" \
   | python3 -c 'import sys,json;d=json.load(sys.stdin).get("data",[]);print(d[0]["email"] if d else "")')
-echo "sort=name,-email first=$FIRST_DESC_EMAIL   sort=name,email first=$FIRST_ASC_EMAIL"
+echo "orderBy=name,-email first=$FIRST_DESC_EMAIL   orderBy=name,email first=$FIRST_ASC_EMAIL"
 if [ "$FIRST_DESC_EMAIL" = "sortprobe.b.qa24@example.com" ] && [ "$FIRST_ASC_EMAIL" = "sortprobe.a.qa24@example.com" ]; then
   printf '\033[1;32mPASS\033[0m (secondary sort key drives the order both ways)\n'; PASS=$((PASS+1))
 else
@@ -2041,9 +2061,9 @@ else
 fi
 
 title "24.4 Cursor with tampered schema version (v=99) → 400"
-CURSOR_24=$(curl -sS "$BASE/users?limit=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
+CURSOR_24=$(curl -sS "$BASE/users?first=1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
 if [ -z "$CURSOR_24" ]; then
-  printf '\033[1;31mFAIL\033[0m (no next_cursor available to tamper)\n'; FAIL=$((FAIL+1))
+  printf '\033[1;31mFAIL\033[0m (no endCursor available to tamper)\n'; FAIL=$((FAIL+1))
 else
   TAMPERED_24=$(python3 -c '
 import base64, json, sys
@@ -2051,7 +2071,7 @@ raw = base64.urlsafe_b64decode(sys.argv[1])
 d = json.loads(raw)
 d["v"] = 99
 print(base64.urlsafe_b64encode(json.dumps(d).encode()).decode())' "$CURSOR_24")
-  ST_24=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users?limit=1&after=$TAMPERED_24")
+  ST_24=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users?first=1&after=$TAMPERED_24")
   echo "tampered cursor status=$ST_24"
   if [ "$ST_24" = "400" ]; then
     printf '\033[1;32mPASS\033[0m (unsupported cursor version rejected cleanly)\n'; PASS=$((PASS+1))
@@ -2061,7 +2081,7 @@ print(base64.urlsafe_b64encode(json.dumps(d).encode()).decode())' "$CURSOR_24")
 fi
 
 show_count_eq "24.5 ?after=<not even base64> → 400 (malformed cursor rejected)" \
-  "/users?limit=1&after=%%%not-base64%%%" 400 0
+  "/users?first=1&after=%%%not-base64%%%" 400 0
 
 title "24.6 Cleanup section-24 fixtures"
 curl -sS -o /dev/null -X DELETE "$BASE/users/$SRCH1"
@@ -2335,10 +2355,10 @@ sec "29. Value-object field coverage — in/out, filter, ?fields=, invalid, upda
 # filterable/projectable by its wire value, an out-of-set value is rejected on
 # write, and an update replaces it. Generated by looping over each enum's members.
 
-vo_total() { # vo_total <path-with-query> → the pagination.total for an onlyTotal read
+vo_total() { # vo_total <path-with-query> → the pagination.totalCount for an onlyTotal read
   curl -sS "$BASE$1&onlyTotal=true" -H "Accept-Language: en-US" \
     | python3 -c 'import sys,json
-try: print(json.load(sys.stdin).get("pagination",{}).get("total",-1))
+try: print(json.load(sys.stdin).get("pagination",{}).get("totalCount",-1))
 except: print(-1)' 2>/dev/null
 }
 vo_field() { # vo_field <userId> <pyexpr over d=data> → the value or ""
@@ -2433,7 +2453,7 @@ vo_invalid "freq" "white"       1  residential  99    UnknownNotificationFrequen
 # legitimately omitted under sparse projection).
 proj_has() { # proj_has <label> <queryTail>
   local keys
-  keys=$(curl -sS "$BASE/users?$2&limit=1" -H "Accept-Language: en-US" \
+  keys=$(curl -sS "$BASE/users?$2&first=1" -H "Accept-Language: en-US" \
     | python3 -c 'import sys,json
 try:
   d=json.load(sys.stdin)["data"]; print(",".join(sorted(d[0].keys())) if d else "")
@@ -2474,8 +2494,8 @@ vo_pf "29.7 PUT replaced addressType → commercial" "$(vo_field "$uvid" "d['add
 
 # ── 29.8 sort by a VO field is accepted ─────────────────────────────────────
 for sf in ethnicity userProfile; do
-  st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users?sort=$sf&limit=3" -H "Accept-Language: en-US")
-  vo_pf "29.8 sort ?sort=$sf accepted" "$st" "200"
+  st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users?orderBy=$sf&first=3" -H "Accept-Language: en-US")
+  vo_pf "29.8 sort ?orderBy=$sf accepted" "$st" "200"
 done
 
 # ── 29.9 CSV export carries the VO columns ──────────────────────────────────

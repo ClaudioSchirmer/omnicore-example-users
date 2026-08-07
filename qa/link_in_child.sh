@@ -218,8 +218,8 @@ lget "$BASE/qa/catalogs-full" "fields=catalogLines.note"
 ##############################################################################
 sec "5. Sort into a segment is rejected (order is the primary's)"
 ##############################################################################
-title "5.1 ?sort=catalogLines.liveItem.label → 400"
-CODE=$(http_code "$BASE/qa/catalogs-full" "sort=catalogLines.liveItem.label")
+title "5.1 ?orderBy=catalogLines.liveItem.label → 400"
+CODE=$(http_code "$BASE/qa/catalogs-full" "orderBy=catalogLines.liveItem.label")
 [ "$CODE" = "400" ] && ok "sort into the liveItem segment rejected with 400" || bad "expected 400, got $CODE"
 
 ##############################################################################

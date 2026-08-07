@@ -25,6 +25,10 @@ service QAService {
   // gRPC list envelope (PaginationInfo, the REST pagination block mirrored) is filled identically from a
   // relationally served page.
   rpc ListGadgetsRel(ListGadgetsRequest) returns (ListGadgetsResponse);
+  // ListGadgetsBare binds the same request message to a Request DTO with NO
+  // reserved control keys — the reserved-gate proof: every control set on
+  // the wire rejects INVALID_ARGUMENT; filters keep working.
+  rpc ListGadgetsBare(ListGadgetsRequest) returns (ListGadgetsResponse);
   rpc FlakyEcho(FlakyEchoRequest) returns (FlakyEchoResponse);
   rpc Boom(BoomRequest) returns (BoomResponse);
   rpc EchoTypes(EchoTypesRequest) returns (EchoTypesResponse);
@@ -49,8 +53,8 @@ message GadgetFilters {
 
 message ListGadgetsRequest {
   omnicore.v1.PaginationRequest pagination = 1;
-  repeated omnicore.v1.SortField sort = 2;
-  google.protobuf.FieldMask read_mask = 3;
+  repeated omnicore.v1.OrderByField order_by = 2;
+  google.protobuf.FieldMask fields = 3;
   GadgetFilters filters = 4;
 }
 

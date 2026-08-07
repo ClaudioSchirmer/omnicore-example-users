@@ -20,7 +20,7 @@
 #                                       Kafka → SyncEngine → Mongo projection).
 #   READ-BY-ID  GET /users/:id        — steady-state read of the projected
 #                                       documents (cycles the seeded ids).
-#   READ-LIST   GET /users?limit=N    — keyset-paginated listing.
+#   READ-LIST   GET /users?first=N    — keyset-paginated listing.
 #
 # Metrics come from vegeta (p50/p95/p99, throughput, status histogram) — a real
 # load generator, not bottlenecked by per-request process spawn.
@@ -193,12 +193,12 @@ attack_http "$WORK/r_id.http" "$WORK/rid.bin"
 record "READ   GET /users/:id" "$WORK/rid.bin"
 
 # ── 4) READ-LIST ────────────────────────────────────────────────────────────
-sec "4/4  READ-LIST — GET /users?limit=20"
-printf 'GET %s/users?limit=20\n' "$BASE" > "$WORK/r_list.http"
+sec "4/4  READ-LIST — GET /users?first=20"
+printf 'GET %s/users?first=20\n' "$BASE" > "$WORK/r_list.http"
 info "warming up (${WARMUP}s)…"; warm_http "$WORK/r_list.http"
 info "measuring (${DURATION}s)…"
 attack_http "$WORK/r_list.http" "$WORK/rlist.bin"
-record "READ   GET /users?limit=20" "$WORK/rlist.bin"
+record "READ   GET /users?first=20" "$WORK/rlist.bin"
 
 # ── Markdown report ─────────────────────────────────────────────────────────
 # Rows and detail accumulate in sidecar files so the summary table stays

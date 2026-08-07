@@ -128,7 +128,7 @@ except Exception: print(-1); sys.exit()
 x=d.get("data")
 print(len(x) if isinstance(x,list) else (0 if x is None else 1))'; }
 jtotal() { curl -sS "$1" | python3 -c 'import sys,json
-try: print(json.load(sys.stdin).get("pagination",{}).get("total",-1))
+try: print(json.load(sys.stdin).get("pagination",{}).get("totalCount",-1))
 except Exception: print(-1)'; }
 jkeys()  { curl -sS "$1" | python3 -c '
 import sys, json
@@ -407,11 +407,11 @@ GOT=$(seq_desc)
 ##############################################################################
 sec "6. Sort — a 1:1 segment field is a first-class sort key"
 ##############################################################################
-ASC=$(jlist "$BASE/qa/lens-parts?sort=slot" "slot")
+ASC=$(jlist "$BASE/qa/lens-parts?orderBy=slot" "slot")
 [ -n "$ASC" ] && ok "sort by a root field ($ASC)" || bad "root sort failed"
-FIRST_ASC=$(jpath "$BASE/qa/lens-parts?sort=gadget.code&gadget.code.startswith=VE-" "gadget.code")
-FIRST_DESC=$(jpath "$BASE/qa/lens-parts?sort=-gadget.code&gadget.code.startswith=VE-" "gadget.code")
-[ -n "$FIRST_ASC" ] && ok "sort=gadget.code accepted (asc first=$FIRST_ASC)" || bad "sort by a segment field rejected"
+FIRST_ASC=$(jpath "$BASE/qa/lens-parts?orderBy=gadget.code&gadget.code.startswith=VE-" "gadget.code")
+FIRST_DESC=$(jpath "$BASE/qa/lens-parts?orderBy=-gadget.code&gadget.code.startswith=VE-" "gadget.code")
+[ -n "$FIRST_ASC" ] && ok "orderBy=gadget.code accepted (asc first=$FIRST_ASC)" || bad "sort by a segment field rejected"
 [ "$FIRST_ASC" != "$FIRST_DESC" ] || [ "$(jcount "$BASE/qa/lens-parts?gadget.code.startswith=VE-")" = "1" ] \
   && ok "sort direction honored on the segment key" || bad "segment sort ignored the direction"
 
@@ -442,17 +442,17 @@ title "7.4 onlyTotal"
 ##############################################################################
 sec "8. Pagination over both hops"
 ##############################################################################
-FIRST_PAGE=$(curl -sS "$BASE/qa/lens-parts?limit=2&sort=slot")
+FIRST_PAGE=$(curl -sS "$BASE/qa/lens-parts?first=2&orderBy=slot")
 N=$(printf '%s' "$FIRST_PAGE" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("data") or []))')
-CURSOR=$(printf '%s' "$FIRST_PAGE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor") or "")')
-[ "$N" = "2" ] && ok "limit=2 honored" || bad "limit returned $N"
+CURSOR=$(printf '%s' "$FIRST_PAGE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor") or "")')
+[ "$N" = "2" ] && ok "first=2 honored" || bad "limit returned $N"
 if [ -n "$CURSOR" ]; then
-  N2=$(jcount "$BASE/qa/lens-parts?limit=2&sort=slot&after=$CURSOR")
+  N2=$(jcount "$BASE/qa/lens-parts?first=2&orderBy=slot&after=$CURSOR")
   [ "$N2" -ge 1 ] && ok "after cursor returns the next page ($N2)" || bad "after cursor returned $N2"
 else
-  bad "no next_cursor on a truncated page"
+  bad "no endCursor on a truncated page"
 fi
-[ "$(jcount "$BASE/qa/lens-kits?limit=1")" = "1" ] && ok "pagination on the 1:N hop" || bad "kit pagination wrong"
+[ "$(jcount "$BASE/qa/lens-kits?first=1")" = "1" ] && ok "pagination on the 1:N hop" || bad "kit pagination wrong"
 
 ##############################################################################
 sec "9. Archive / unarchive"

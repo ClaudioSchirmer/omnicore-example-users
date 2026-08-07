@@ -76,9 +76,9 @@ func MountUsersCustom(
 	// sparse-render contract — *T + ,omitempty recursively) when the
 	// Request opts into `?fields=`, sort-side advisory (slog.Warn listing
 	// every sortable wire path so the operator can compare against the
-	// view's index declaration) when the Request opts into `?sort=`. Both
+	// view's index declaration) when the Request opts into `?orderBy=`. Both
 	// parsers also build the wire→doc projection schema consumed by the
-	// per-request Parse call for ?fields= and ?sort= translation.
+	// per-request Parse call for ?fields= and ?orderBy= translation.
 	//
 	// The byDocument parser carries no fields/sort opt-in today and therefore
 	// runs in pass-through mode at construction (no guard, no warn) and
@@ -253,7 +253,7 @@ func MountUsersCustom(
 		fwopenapi.RouteSpecOfPaged[requests.FindUsersCustomRequest, requests.FindUsersCustomResponse](fiber.StatusOK),
 		fwopenapi.Doc{
 			Summary:     "List users (manual showcase)",
-			Description: "Manual paged list with a reduced wire shape (`{id, name, email, document}` only — phone and addresses are stripped at the projection step). Allowlisted query keys: `?includeArchived`, `?limit`, `?after`, `?before`, `?name`, `?email`; unknown keys return 400 (same `SchemaViolationNotification` envelope the canonical surface emits).",
+			Description: "Manual paged list with a reduced wire shape (`{id, name, email, document}` only — phone and addresses are stripped at the projection step). Allowlisted query keys: `?first`/`?last`, `?after`/`?before`, `?orderBy`, `?fields`, `?search`, `?includeArchived`, `?onlyTotal`, `?name`, `?email`; unknown keys return 400 (same `SchemaViolationNotification` envelope the canonical surface emits).",
 			Tags:        tags,
 		},
 		fwopenapi.RequirePermission("users:read"))
@@ -548,7 +548,7 @@ func customGetUserByDocument(
 // `query:` and `filter:` tags — same reflection-based allowlist
 // QueryWithParams uses internally — AND threads the wire→doc
 // projection schema built from FindUsersCustomResponse into ?fields=
-// + ?sort= translation. The Request DTO opts into both reserved keys, so
+// + ?orderBy= translation. The Request DTO opts into both reserved keys, so
 // the parser's construction ran the sparse-render boot guard on the
 // Response (every field *T + ,omitempty recursively) and emitted the
 // slog.Warn advisory listing the sortable wire paths. Chaves desconhecidas

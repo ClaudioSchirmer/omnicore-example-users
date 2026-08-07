@@ -164,13 +164,13 @@ sec "3. Span tree carries server + instrumented-subsystem child spans"
 # span operation/process names includes an HTTP server span AND at least one
 # child from the instrument list (pgx OR mongo OR kafka).
 title "3.0 Drive a few more requests (GET by id + list → pgx + mongo spans)"
-curl -sS -o /dev/null "$BASE/users?limit=5"
+curl -sS -o /dev/null "$BASE/users?first=5"
 curl -sS -o /dev/null "$BASE/livez"
 sleep 3   # async batched span export
 
 title "3.1 Recent traces carry server + a pgx/mongo/kafka child span"
 LOOKBACK_US=$(( 3600 * 1000000 ))   # 1h in microseconds (Jaeger wants micros)
-TRACES=$(curl -sf "$JAEGER/api/traces?service=$SERVICE_NAME&limit=40&lookback=1h" 2>/dev/null || echo "")
+TRACES=$(curl -sf "$JAEGER/api/traces?service=$SERVICE_NAME&first=40&lookback=1h" 2>/dev/null || echo "")
 ANALYSIS=$(printf '%s' "$TRACES" | python3 -c '
 import sys, json
 try:

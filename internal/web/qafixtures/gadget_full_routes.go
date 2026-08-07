@@ -113,7 +113,7 @@ func MountGadgetsFull(
 		listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List gadgets with mirror + notes (read-time composition)",
-			Description: "Paged read against the `gadgets_full` ComposedView — never materialized, never synced: the `gadgets` view drives rows/sort/pagination/total/cursors; `upstreamMirror` (1:1 external, null when absent) and `notes` (1:N internal, first 3 by text, empty when absent) are fetched by key at read time. Root filters select rows; `?notes.text=` / `?notes.kind=` filter the segment content only; `?sort=notes.*` is rejected with 400; `?includeArchived=true` lifts every leg's gate (the mirror has none — no-op).",
+			Description: "Paged read against the `gadgets_full` ComposedView — never materialized, never synced: the `gadgets` view drives rows/sort/pagination/total/cursors; `upstreamMirror` (1:1 external, null when absent) and `notes` (1:N internal, first 3 by text, empty when absent) are fetched by key at read time. Root filters select rows; `?notes.text=` / `?notes.kind=` filter the segment content only; `?orderBy=notes.*` is rejected with 400; `?includeArchived=true` lifts every leg's gate (the mirror has none — no-op).",
 			Tags:        []string{"QA Gadgets Full"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))

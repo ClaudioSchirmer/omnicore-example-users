@@ -18,9 +18,9 @@ func TestFindUsersCustomQueryHandler_HappyPath(t *testing.T) {
 				{"id": "u-1", "name": "Jane", "email": "jane@example.com"},
 				{"id": "u-2", "name": "Bob", "email": "bob@example.com"},
 			},
-			HasNext:    true,
-			NextCursor: "cursor-X",
-			Total:      42,
+			HasNextPage:    true,
+			EndCursor: "cursor-X",
+			TotalCount: 42,
 		},
 	}
 	h := &FindUsersCustomQueryHandler{Reader: reader, View: "users"}
@@ -42,7 +42,7 @@ func TestFindUsersCustomQueryHandler_HappyPath(t *testing.T) {
 	if len(page.Items) != 2 {
 		t.Errorf("expected 2 items, got %d", len(page.Items))
 	}
-	if !page.HasNext || page.NextCursor != "cursor-X" || page.Total != 42 {
+	if !page.HasNextPage || page.EndCursor != "cursor-X" || page.TotalCount != 42 {
 		t.Errorf("pagination metadata not preserved: %+v", page)
 	}
 }

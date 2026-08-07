@@ -262,6 +262,22 @@ func (f *GadgetFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) 
 		},
 		fwgraphql.RequirePermission("gadgets:read")))
 
+	// `gadgetsBare` is the reserved-gate proof on the GraphQL surface: its
+	// Request DTO declares NO reserved control keys, so the SDL cut removes
+	// every connection argument except `where` — introspection and the
+	// playground never advertise them, and gqlparser rejects them as unknown
+	// arguments before any resolver runs. The natural selections (projection,
+	// only-total shape) stay valid — they are the language, not arguments.
+	reg.Register(fwgraphql.QueryWithParams[
+		webqa.FindGadgetsBareRequest,
+		webqa.FindGadgetsResponse,
+	](
+		"gadgetsBare", "GadgetBare",
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+			Reader: d.ViewReader, View: f.view.Name(),
+		},
+		fwgraphql.RequirePermission("gadgets:read")))
+
 	if !declaresUpstreamCollection(d, "upstream_gadgets") {
 		return
 	}

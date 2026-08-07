@@ -73,7 +73,7 @@ func MountPersons(
 		csvH, csvSpec,
 		fwopenapi.Doc{
 			Summary:     "Export persons as CSV",
-			Description: "Streams the same `persons` view read as GET /persons — same filter allowlist, `?search`, `?sort`, `?includeArchived`, `?fields=` — as a hierarchical CSV: the shared identity at column A, addresses and each role branch one level in (role fields + siblings; the employee branch nests its dependents/jobHistories one level further). The role branches never repeat the shared columns. Pagination is ignored — the full filtered set streams capped at `query.maxExportRows`.",
+			Description: "Streams the same `persons` view read as GET /persons — same filter allowlist, `?search`, `?orderBy`, `?includeArchived`, `?fields=` — as a hierarchical CSV: the shared identity at column A, addresses and each role branch one level in (role fields + siblings; the employee branch nests its dependents/jobHistories one level further). The role branches never repeat the shared columns. Pagination is ignored — the full filtered set streams capped at `query.maxExportRows`.",
 			Tags:        []string{"Persons"},
 		},
 		fwopenapi.RequirePermission("persons:read"))
@@ -91,7 +91,7 @@ func MountPersons(
 		xlsxH, xlsxSpec,
 		fwopenapi.Doc{
 			Summary:     "Export persons as Excel (.xlsx)",
-			Description: "Same surface as `GET /persons.csv` — same filter allowlist, `?fields=`, `?search`, `?sort`, `?includeArchived`, same hierarchical layout — serialized as an Excel workbook.",
+			Description: "Same surface as `GET /persons.csv` — same filter allowlist, `?fields=`, `?search`, `?orderBy`, `?includeArchived`, same hierarchical layout — serialized as an Excel workbook.",
 			Tags:        []string{"Persons"},
 		},
 		fwopenapi.RequirePermission("persons:read"))

@@ -228,8 +228,8 @@ func (x *GadgetFilters) GetStatus() *pb.StringFilter {
 type ListGadgetsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Pagination    *pb.PaginationRequest  `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
-	Sort          []*pb.SortField        `protobuf:"bytes,2,rep,name=sort,proto3" json:"sort,omitempty"`
-	ReadMask      *fieldmaskpb.FieldMask `protobuf:"bytes,3,opt,name=read_mask,json=readMask,proto3" json:"read_mask,omitempty"`
+	OrderBy       []*pb.OrderByField     `protobuf:"bytes,2,rep,name=order_by,json=orderBy,proto3" json:"order_by,omitempty"`
+	Fields        *fieldmaskpb.FieldMask `protobuf:"bytes,3,opt,name=fields,proto3" json:"fields,omitempty"`
 	Filters       *GadgetFilters         `protobuf:"bytes,4,opt,name=filters,proto3" json:"filters,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -272,16 +272,16 @@ func (x *ListGadgetsRequest) GetPagination() *pb.PaginationRequest {
 	return nil
 }
 
-func (x *ListGadgetsRequest) GetSort() []*pb.SortField {
+func (x *ListGadgetsRequest) GetOrderBy() []*pb.OrderByField {
 	if x != nil {
-		return x.Sort
+		return x.OrderBy
 	}
 	return nil
 }
 
-func (x *ListGadgetsRequest) GetReadMask() *fieldmaskpb.FieldMask {
+func (x *ListGadgetsRequest) GetFields() *fieldmaskpb.FieldMask {
 	if x != nil {
-		return x.ReadMask
+		return x.Fields
 	}
 	return nil
 }
@@ -1042,13 +1042,13 @@ const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\x12-\n" +
 	"\x04code\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04code\x125\n" +
 	"\bcategory\x18\x03 \x01(\v2\x19.omnicore.v1.StringFilterR\bcategory\x121\n" +
-	"\x06status\x18\x04 \x01(\v2\x19.omnicore.v1.StringFilterR\x06status\"\xf1\x01\n" +
+	"\x06status\x18\x04 \x01(\v2\x19.omnicore.v1.StringFilterR\x06status\"\xf6\x01\n" +
 	"\x12ListGadgetsRequest\x12>\n" +
 	"\n" +
 	"pagination\x18\x01 \x01(\v2\x1e.omnicore.v1.PaginationRequestR\n" +
-	"pagination\x12*\n" +
-	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
-	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x126\n" +
+	"pagination\x124\n" +
+	"\border_by\x18\x02 \x03(\v2\x19.omnicore.v1.OrderByFieldR\aorderBy\x122\n" +
+	"\x06fields\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\x06fields\x126\n" +
 	"\afilters\x18\x04 \x01(\v2\x1c.qafixtures.v1.GadgetFiltersR\afilters\"t\n" +
 	"\x06Gadget\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
@@ -1143,11 +1143,12 @@ const file_qafixtures_v1_qa_proto_rawDesc = "" +
 	"\x06Flavor\x12\x16\n" +
 	"\x12FLAVOR_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fFLAVOR_SWEET\x10\x01\x12\x10\n" +
-	"\fFLAVOR_SALTY\x10\x022\xe5\x03\n" +
+	"\fFLAVOR_SALTY\x10\x022\xbf\x04\n" +
 	"\tQAService\x12H\n" +
 	"\aProvoke\x12\x1d.qafixtures.v1.ProvokeRequest\x1a\x1e.qafixtures.v1.ProvokeResponse\x12T\n" +
 	"\vListGadgets\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12W\n" +
-	"\x0eListGadgetsRel\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12N\n" +
+	"\x0eListGadgetsRel\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12X\n" +
+	"\x0fListGadgetsBare\x12!.qafixtures.v1.ListGadgetsRequest\x1a\".qafixtures.v1.ListGadgetsResponse\x12N\n" +
 	"\tFlakyEcho\x12\x1f.qafixtures.v1.FlakyEchoRequest\x1a .qafixtures.v1.FlakyEchoResponse\x12?\n" +
 	"\x04Boom\x12\x1a.qafixtures.v1.BoomRequest\x1a\x1b.qafixtures.v1.BoomResponse\x12N\n" +
 	"\tEchoTypes\x12\x1f.qafixtures.v1.EchoTypesRequest\x1a .qafixtures.v1.EchoTypesResponseBJZHgithub.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1b\x06proto3"
@@ -1183,7 +1184,7 @@ var file_qafixtures_v1_qa_proto_goTypes = []any{
 	(*EchoTypesResponse)(nil),     // 13: qafixtures.v1.EchoTypesResponse
 	(*pb.StringFilter)(nil),       // 14: omnicore.v1.StringFilter
 	(*pb.PaginationRequest)(nil),  // 15: omnicore.v1.PaginationRequest
-	(*pb.SortField)(nil),          // 16: omnicore.v1.SortField
+	(*pb.OrderByField)(nil),       // 16: omnicore.v1.OrderByField
 	(*fieldmaskpb.FieldMask)(nil), // 17: google.protobuf.FieldMask
 	(*pb.PaginationInfo)(nil),     // 18: omnicore.v1.PaginationInfo
 	(*timestamppb.Timestamp)(nil), // 19: google.protobuf.Timestamp
@@ -1194,8 +1195,8 @@ var file_qafixtures_v1_qa_proto_depIdxs = []int32{
 	14, // 2: qafixtures.v1.GadgetFilters.category:type_name -> omnicore.v1.StringFilter
 	14, // 3: qafixtures.v1.GadgetFilters.status:type_name -> omnicore.v1.StringFilter
 	15, // 4: qafixtures.v1.ListGadgetsRequest.pagination:type_name -> omnicore.v1.PaginationRequest
-	16, // 5: qafixtures.v1.ListGadgetsRequest.sort:type_name -> omnicore.v1.SortField
-	17, // 6: qafixtures.v1.ListGadgetsRequest.read_mask:type_name -> google.protobuf.FieldMask
+	16, // 5: qafixtures.v1.ListGadgetsRequest.order_by:type_name -> omnicore.v1.OrderByField
+	17, // 6: qafixtures.v1.ListGadgetsRequest.fields:type_name -> google.protobuf.FieldMask
 	3,  // 7: qafixtures.v1.ListGadgetsRequest.filters:type_name -> qafixtures.v1.GadgetFilters
 	5,  // 8: qafixtures.v1.ListGadgetsResponse.items:type_name -> qafixtures.v1.Gadget
 	18, // 9: qafixtures.v1.ListGadgetsResponse.pagination:type_name -> omnicore.v1.PaginationInfo
@@ -1210,17 +1211,19 @@ var file_qafixtures_v1_qa_proto_depIdxs = []int32{
 	1,  // 18: qafixtures.v1.QAService.Provoke:input_type -> qafixtures.v1.ProvokeRequest
 	4,  // 19: qafixtures.v1.QAService.ListGadgets:input_type -> qafixtures.v1.ListGadgetsRequest
 	4,  // 20: qafixtures.v1.QAService.ListGadgetsRel:input_type -> qafixtures.v1.ListGadgetsRequest
-	7,  // 21: qafixtures.v1.QAService.FlakyEcho:input_type -> qafixtures.v1.FlakyEchoRequest
-	9,  // 22: qafixtures.v1.QAService.Boom:input_type -> qafixtures.v1.BoomRequest
-	12, // 23: qafixtures.v1.QAService.EchoTypes:input_type -> qafixtures.v1.EchoTypesRequest
-	2,  // 24: qafixtures.v1.QAService.Provoke:output_type -> qafixtures.v1.ProvokeResponse
-	6,  // 25: qafixtures.v1.QAService.ListGadgets:output_type -> qafixtures.v1.ListGadgetsResponse
-	6,  // 26: qafixtures.v1.QAService.ListGadgetsRel:output_type -> qafixtures.v1.ListGadgetsResponse
-	8,  // 27: qafixtures.v1.QAService.FlakyEcho:output_type -> qafixtures.v1.FlakyEchoResponse
-	10, // 28: qafixtures.v1.QAService.Boom:output_type -> qafixtures.v1.BoomResponse
-	13, // 29: qafixtures.v1.QAService.EchoTypes:output_type -> qafixtures.v1.EchoTypesResponse
-	24, // [24:30] is the sub-list for method output_type
-	18, // [18:24] is the sub-list for method input_type
+	4,  // 21: qafixtures.v1.QAService.ListGadgetsBare:input_type -> qafixtures.v1.ListGadgetsRequest
+	7,  // 22: qafixtures.v1.QAService.FlakyEcho:input_type -> qafixtures.v1.FlakyEchoRequest
+	9,  // 23: qafixtures.v1.QAService.Boom:input_type -> qafixtures.v1.BoomRequest
+	12, // 24: qafixtures.v1.QAService.EchoTypes:input_type -> qafixtures.v1.EchoTypesRequest
+	2,  // 25: qafixtures.v1.QAService.Provoke:output_type -> qafixtures.v1.ProvokeResponse
+	6,  // 26: qafixtures.v1.QAService.ListGadgets:output_type -> qafixtures.v1.ListGadgetsResponse
+	6,  // 27: qafixtures.v1.QAService.ListGadgetsRel:output_type -> qafixtures.v1.ListGadgetsResponse
+	6,  // 28: qafixtures.v1.QAService.ListGadgetsBare:output_type -> qafixtures.v1.ListGadgetsResponse
+	8,  // 29: qafixtures.v1.QAService.FlakyEcho:output_type -> qafixtures.v1.FlakyEchoResponse
+	10, // 30: qafixtures.v1.QAService.Boom:output_type -> qafixtures.v1.BoomResponse
+	13, // 31: qafixtures.v1.QAService.EchoTypes:output_type -> qafixtures.v1.EchoTypesResponse
+	25, // [25:32] is the sub-list for method output_type
+	18, // [18:25] is the sub-list for method input_type
 	18, // [18:18] is the sub-list for extension type_name
 	18, // [18:18] is the sub-list for extension extendee
 	0,  // [0:18] is the sub-list for field type_name

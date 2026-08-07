@@ -31,7 +31,7 @@ func GadgetRelView(loader query.RelationalReader) *query.ViewDefinition {
 // GadgetCappedRelView is a SECOND relational twin over the same `gadgets` root
 // (same loader), carrying a small per-view MaxLimit(5) AND MaxExportRows(3). It
 // proves the relational reader honors BOTH read-side ceilings exactly like the
-// Mongo reader: a `?limit=` over 5 is rejected 400 LimitExceededNotification, and
+// Mongo reader: a `?first=` over 5 is rejected 400 LimitExceededNotification, and
 // a CSV/XLSX export truncates to 3 rows.
 func GadgetCappedRelView(loader query.RelationalReader) *query.ViewDefinition {
 	return query.View("gadgets_capped_rel").

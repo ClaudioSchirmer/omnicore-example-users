@@ -36,10 +36,11 @@ type FindUsersByParamsRequest struct {
 	UserProfile *int                `query:"userProfile" filter:"eq,in"`
 	Addresses   AddressFilterParams `query:"addresses"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`

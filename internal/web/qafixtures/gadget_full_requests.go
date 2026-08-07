@@ -41,7 +41,8 @@ type FindGadgetNotesRequest struct {
 	Text     *string `query:"text"     filter:"eq,contains"`
 	Kind     *string `query:"kind"     filter:"eq"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
 	IncludeArchived *bool   `query:"includeArchived"`
@@ -65,7 +66,7 @@ type FindGadgetNotesResponse struct {
 // FindGadgetsFullRequest is the wire allowlist of GET /qa/gadgets-full — the
 // paged COMPOSED read. Root leaves filter the PRIMARY (they select rows);
 // the nested `notes` group addresses the LinkMany segment (it filters what
-// enters each item's Notes array, never which gadgets appear — R2). A `?sort=`
+// enters each item's Notes array, never which gadgets appear — R2). A `?orderBy=`
 // into `notes.*` is rejected with 400: segment order is declared on the link.
 type FindGadgetsFullRequest struct {
 	Code *string `query:"code" filter:"eq,startswith"`
@@ -74,10 +75,11 @@ type FindGadgetsFullRequest struct {
 	Notes          GadgetFullNotesFilter  `query:"notes"`
 	UpstreamMirror GadgetFullMirrorFilter `query:"upstreamMirror"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`

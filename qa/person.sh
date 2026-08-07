@@ -95,7 +95,7 @@ ok "domain tables + view collections reset"
 title "0.1 CDC warm-up probe"
 req POST /users '{"name":"Cdc Probe","email":"probe@example.com","document":"70000000000","userName":"cdcprobe","ethnicity":"white","userProfile":1,"notificationEmail":null,"notificationFrequency":null}'
 if [ "$STATUS" = "201" ]; then
-  if wait_person "document=70000000000&onlyTotal=true" "d['pagination']['total'] == 1" 60; then
+  if wait_person "document=70000000000&onlyTotal=true" "d['pagination']['totalCount'] == 1" 60; then
     ok "CDC pipeline warm (probe person materialized)"
   else
     bad "CDC pipeline never delivered the probe person in 60s"
@@ -138,7 +138,7 @@ expect_status "2.1 POST /employees (same document)" 201
 wait_person "document=$D1" "'employee' in d['data'][0] and d['data'][0]['employee'].get('employeeNumber') == 'EMP-1'" && \
   ok "2.2 employee segment appeared on the SAME person doc" || bad "2.2 employee segment never appeared"
 req GET "/persons?document=$D1&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "2.3 still ONE person (dedup by document)" || bad "2.3 duplicated identity — $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "2.3 still ONE person (dedup by document)" || bad "2.3 duplicated identity — $RESP"
 req GET "/persons?document=$D1"
 [ "$(jsonq "len(d['data'][0]['addresses'])")" = "1" ] && ok "2.4 re-sent identical address deduped at the root" || bad "2.4 addresses duplicated — $RESP"
 [ "$(jsonq "d['data'][0]['employee']['bank']")" = "260" ] && ok "2.5 bank sibling FLAT inside the employee segment" || bad "2.5 bank sibling missing — $RESP"
@@ -182,13 +182,13 @@ sec "4. Role-path filters — the FULL declared vocabulary + the exact allowlist
 ####################################
 req POST /users "{\"name\":\"Beto Lima\",\"email\":\"beto@example.com\",\"document\":\"$D2\",\"userName\":\"beto\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "4.0 second person (user-only)" 201
-wait_person "document=$D2&onlyTotal=true" "d['pagination']['total'] == 1" || bad "4.0 second person never materialized"
+wait_person "document=$D2&onlyTotal=true" "d['pagination']['totalCount'] == 1" || bad "4.0 second person never materialized"
 
 # one(<label> <qs> [expected]) — the filtered list returns exactly N (default 1).
 one() {
   local label="$1" qs="$2" expected="${3:-1}"
   req GET "/persons?$qs&onlyTotal=true"
-  [ "$(jsonq "d['pagination']['total']")" = "$expected" ] && ok "$label" || bad "$label (total=$(jsonq "d['pagination']['total']"), want $expected) — $qs"
+  [ "$(jsonq "d['pagination']['totalCount']")" = "$expected" ] && ok "$label" || bad "$label (total=$(jsonq "d['pagination']['totalCount']"), want $expected) — $qs"
 }
 
 title "4.1 root fields — every declared operator"
@@ -244,7 +244,7 @@ one "4.5.1 non-matching role filter → 0"  "user.userName=nobody" 0
 one "4.5.2 non-matching child path → 0"   "employee.dependents.relationship=spouse" 0
 one "4.5.3 \$text search hits"            "search=Souza"
 req GET "/persons?document=$D1&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total'] == 1 and len(d.get('data', [])) == 0")" = "True" ] && \
+[ "$(jsonq "d['pagination']['totalCount'] == 1 and len(d.get('data', [])) == 0")" = "True" ] && \
   ok "4.5.4 onlyTotal returns the count with no data page" || bad "4.5.4 — $RESP"
 
 title "4.6 the exact allowlist"
@@ -262,12 +262,12 @@ sec "5. Sort + sparse render + KEYSET CURSOR pagination"
 ####################################
 req POST /users "{\"name\":\"Caio Prado\",\"email\":\"caio@example.com\",\"document\":\"70000000003\",\"userName\":\"caio\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
 expect_status "5.0 third person (for pagination)" 201
-wait_person "onlyTotal=true" "d['pagination']['total'] == 3" || bad "5.0 third person never materialized"
+wait_person "onlyTotal=true" "d['pagination']['totalCount'] == 3" || bad "5.0 third person never materialized"
 
-req GET "/persons?sort=name"
-[ "$(jsonq "[p['name'] for p in d['data']] == sorted([p['name'] for p in d['data']])")" = "True" ] && ok "5.1 ?sort=name ascending" || bad "5.1 — $RESP"
-req GET "/persons?sort=-name"
-[ "$(jsonq "[p['name'] for p in d['data']] == sorted([p['name'] for p in d['data']], reverse=True)")" = "True" ] && ok "5.2 ?sort=-name descending" || bad "5.2 — $RESP"
+req GET "/persons?orderBy=name"
+[ "$(jsonq "[p['name'] for p in d['data']] == sorted([p['name'] for p in d['data']])")" = "True" ] && ok "5.1 ?orderBy=name ascending" || bad "5.1 — $RESP"
+req GET "/persons?orderBy=-name"
+[ "$(jsonq "[p['name'] for p in d['data']] == sorted([p['name'] for p in d['data']], reverse=True)")" = "True" ] && ok "5.2 ?orderBy=-name descending" || bad "5.2 — $RESP"
 req GET "/persons?document=$D1&fields=name,user.userName"
 [ "$(jsonq "d['data'][0]['user']['userName'] == 'ana' and 'email' not in d['data'][0] and 'employee' not in d['data'][0]")" = "True" ] && \
   ok "5.3 ?fields= sparse render through the role segment" || bad "5.3 — $RESP"
@@ -275,29 +275,29 @@ req GET "/persons?document=$D1&fields=name,employee.dependents.name"
 [ "$(jsonq "d['data'][0]['employee']['dependents'][0]['name'] == 'Rita' and 'user' not in d['data'][0]")" = "True" ] && \
   ok "5.4 ?fields= narrows down to a role-CHILD subfield" || bad "5.4 — $RESP"
 
-title "5.5 forward cursor (limit=2 → follow next_cursor)"
-req GET "/persons?limit=2&sort=name"
-[ "$(jsonq "d['pagination']['has_next']")" = "True" ] && ok "5.5.1 page 1 has_next=true" || bad "5.5.1 — $RESP"
+title "5.5 forward cursor (first=2 → follow endCursor)"
+req GET "/persons?first=2&orderBy=name"
+[ "$(jsonq "d['pagination']['hasNextPage']")" = "True" ] && ok "5.5.1 page 1 hasNextPage=true" || bad "5.5.1 — $RESP"
 P1_LAST=$(jsonq "d['data'][-1]['id']")
-CURSOR=$(jsonq "d['pagination']['next_cursor']")
-req GET "/persons?limit=2&sort=name&after=$CURSOR"
+CURSOR=$(jsonq "d['pagination']['endCursor']")
+req GET "/persons?first=2&orderBy=name&after=$CURSOR"
 P2_FIRST=$(jsonq "d['data'][0]['id']")
 if [ -n "$P2_FIRST" ] && [ "$P2_FIRST" != "$P1_LAST" ] && [ "$(jsonq "len(d['data'])")" = "1" ]; then
-  ok "5.5.2 next_cursor advances (page 2 = the remaining 1 doc, no overlap)"
+  ok "5.5.2 endCursor advances (page 2 = the remaining 1 doc, no overlap)"
 else
   bad "5.5.2 cursor page wrong (p1_last=$P1_LAST p2_first=$P2_FIRST) — $RESP"
 fi
-[ "$(jsonq "d['pagination']['has_prev']")" = "True" ] && ok "5.5.3 page 2 has_prev=true" || bad "5.5.3 — $RESP"
-[ "$(jsonq "d['pagination']['has_next']")" = "False" ] && ok "5.5.4 page 2 has_next=false (end of set)" || bad "5.5.4 — $RESP"
+[ "$(jsonq "d['pagination']['hasPreviousPage']")" = "True" ] && ok "5.5.3 page 2 hasPreviousPage=true" || bad "5.5.3 — $RESP"
+[ "$(jsonq "d['pagination']['hasNextPage']")" = "False" ] && ok "5.5.4 page 2 hasNextPage=false (end of set)" || bad "5.5.4 — $RESP"
 
 title "5.6 backward cursor (?before= walks back to page 1)"
-PREV=$(jsonq "d['pagination']['prev_cursor']")
-req GET "/persons?limit=2&sort=name&before=$PREV"
+PREV=$(jsonq "d['pagination']['startCursor']")
+req GET "/persons?last=2&orderBy=name&before=$PREV"
 [ "$(jsonq "len(d['data']) == 2 and d['data'][-1]['id'] == '$P1_LAST'")" = "True" ] && \
   ok "5.6.1 before-cursor returns page 1 (canonical order preserved)" || bad "5.6.1 — $RESP"
 
 title "5.7 cursor context binding (changed criteria → 400)"
-req GET "/persons?limit=2&sort=-name&after=$CURSOR"
+req GET "/persons?first=2&orderBy=-name&after=$CURSOR"
 expect_status "5.7.1 reusing a cursor under a DIFFERENT sort → 400" 400
 
 ####################################
@@ -311,7 +311,7 @@ req GET "/persons?document=$D1&includeArchived=true"
 [ "$(jsonq "d['data'][0]['employee'].get('deletedAt') is not None")" = "True" ] && \
   ok "6.3 ?includeArchived surfaces the archived segment WITH deletedAt" || bad "6.3 — $RESP"
 req GET "/persons?document=$D1&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "6.4 person stays visible (user role still active)" || bad "6.4 — $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "6.4 person stays visible (user role still active)" || bad "6.4 — $RESP"
 
 req PATCH "/employees/$USER_ID/unarchive"
 expect_status "6.5 unarchive the employee role" 204
@@ -325,18 +325,18 @@ req PATCH "/employees/$USER_ID/archive"
 expect_status "7.1 archive employee again" 204
 req PATCH "/users/$USER_ID/archive"
 expect_status "7.2 archive the LAST active role (user)" 204
-wait_person "document=$D1&onlyTotal=true" "d['pagination']['total'] == 0" && \
+wait_person "document=$D1&onlyTotal=true" "d['pagination']['totalCount'] == 0" && \
   ok "7.3 person hidden at the root (base converged to archived)" || bad "7.3 person still listed"
 req GET "/persons/$USER_ID"
 expect_status "7.4 by-id hidden too" 404
 req GET "/persons?document=$D1&includeArchived=true&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "7.5 ?includeArchived surfaces the archived person" || bad "7.5 — $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "7.5 ?includeArchived surfaces the archived person" || bad "7.5 — $RESP"
 req GET "/persons/$USER_ID?includeArchived=true"
 expect_status "7.6 by-id with includeArchived" 200
 
 req PATCH "/users/$USER_ID/unarchive"
 expect_status "7.7 unarchive one role" 204
-wait_person "document=$D1&onlyTotal=true" "d['pagination']['total'] == 1" && \
+wait_person "document=$D1&onlyTotal=true" "d['pagination']['totalCount'] == 1" && \
   ok "7.8 person revived with its first active role" || bad "7.8 person did not revive"
 
 ####################################
@@ -351,14 +351,14 @@ expect_status "8.1 DELETE /employees (user still references the person)" 204
 wait_person "document=$D1&includeArchived=true" "'employee' not in d['data'][0]" && \
   ok "8.2 deleted role's segment gone even with includeArchived (row is GONE)" || bad "8.2 employee segment survived the delete"
 req GET "/persons?document=$D1&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "8.3 person survives through the user role" || bad "8.3 — $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "8.3 person survives through the user role" || bad "8.3 — $RESP"
 
 ####################################
 sec "9. Hard-delete of the LAST role: the identity purges, the doc is removed"
 ####################################
 req DELETE "/users/$USER_ID"
 expect_status "9.1 DELETE /users (last role → orphan purge)" 204
-wait_person "document=$D1&includeArchived=true&onlyTotal=true" "d['pagination']['total'] == 0" && \
+wait_person "document=$D1&includeArchived=true&onlyTotal=true" "d['pagination']['totalCount'] == 0" && \
   ok "9.2 person doc REMOVED (purge convergence — not archived, gone)" || bad "9.2 person doc survived the purge"
 
 ####################################
@@ -449,27 +449,27 @@ puser() { # puser <doc> <userName> <ethnicity> <userProfile> ; sets RESP; echoes
 for e in white black asian mixed indigenous not_declared; do
   PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pve$e" "$e" 1)
   [ -n "$pid" ] || { bad "person create ethnicity=$e (no id; status=$STATUS)"; continue; }
-  wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
+  wait_person "id=$pid" "d['pagination']['totalCount']==1" 15 >/dev/null 2>&1
   req GET "/persons/$pid"
   vpf "person ethnicity in/out ($e)" "$(jsonq "d['data'].get('ethnicity')")" "$e"
   req GET "/persons?ethnicity=$e&onlyTotal=true"
-  vpf "person filter ?ethnicity=$e ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+  vpf "person filter ?ethnicity=$e ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 done
 req GET "/persons?ethnicity=martian&onlyTotal=true"
-vpf "person filter ethnicity=martian → 0" "$(jsonq "d['pagination']['total']")" 0
+vpf "person filter ethnicity=martian → 0" "$(jsonq "d['pagination']['totalCount']")" 0
 
 # ── userProfile (user role segment) in/out + filter per member ─────────────
 for p in 1 2 3 4 5 6; do
   PVDOC=$((PVDOC+1)); pid=$(puser "$PVDOC" "pvp$p" white "$p")
   [ -n "$pid" ] || { bad "person create userProfile=$p (no id; status=$STATUS)"; continue; }
-  wait_person "id=$pid" "d['pagination']['total']==1" 15 >/dev/null 2>&1
+  wait_person "id=$pid" "d['pagination']['totalCount']==1" 15 >/dev/null 2>&1
   req GET "/persons/$pid"
   vpf "person user.userProfile in/out ($p)" "$(jsonq "(d['data'].get('user') or {}).get('userProfile')")" "$p"
   req GET "/persons?user.userProfile=$p&onlyTotal=true"
-  vpf "person filter ?user.userProfile=$p ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+  vpf "person filter ?user.userProfile=$p ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 done
 req GET "/persons?user.userProfile=99&onlyTotal=true"
-vpf "person filter user.userProfile=99 → 0" "$(jsonq "d['pagination']['total']")" 0
+vpf "person filter user.userProfile=99 → 0" "$(jsonq "d['pagination']['totalCount']")" 0
 
 # ── healthPlanType via the employee dependent role path ────────────────────
 PVDOC=$((PVDOC+1)); D_HP="$PVDOC"
@@ -482,14 +482,14 @@ req GET "/persons/$PHPID"
 vpf "person employee.dependents[0].healthPlanType in/out" "$(jsonq "((d['data'].get('employee') or {}).get('dependents') or [{}])[0].get('healthPlanType')")" "family"
 vpf "person employee.dependents[0].relationship in/out" "$(jsonq "((d['data'].get('employee') or {}).get('dependents') or [{}])[0].get('relationship')")" "daughter"
 req GET "/persons?employee.dependents.healthPlanType=family&onlyTotal=true"
-vpf "person filter ?employee.dependents.healthPlanType=family ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+vpf "person filter ?employee.dependents.healthPlanType=family ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 req GET "/persons?employee.dependents.relationship=daughter&onlyTotal=true"
-vpf "person filter ?employee.dependents.relationship=daughter ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+vpf "person filter ?employee.dependents.relationship=daughter ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 
 # ── ?fields= into the person view (root + role) ────────────────────────────
-req GET "/persons?fields=ethnicity&limit=1"
+req GET "/persons?fields=ethnicity&first=1"
 vpf "person ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" True
-req GET "/persons?fields=user.userProfile&limit=1"
+req GET "/persons?fields=user.userProfile&first=1"
 vpf "person ?fields=user.userProfile projects it" "$(jsonq "'userProfile' in ((d['data'][0].get('user') or {}) if d['data'] else {})")" True
 
 ####################################

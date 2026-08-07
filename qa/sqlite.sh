@@ -563,8 +563,8 @@ eq "email.eq selects 1 (JOIN on the base column)" "$(jsonq "len(d['data'])")" "1
 title "16.3 filter by the ROOT role field + sort by a base field (id tiebreak stays unambiguous)"
 get "/users-rel?userName.eq=relread"; status_is "userName.eq (root)" 200
 eq "userName.eq selects 1" "$(jsonq "len(d['data'])")" "1"
-get "/users-rel?document.eq=$RDOC&sort=name"; status_is "sort by a base field is accepted (ORDER BY joined col , id)" 200
-eq "sort=name still selects the seeded user" "$(jsonq "len(d['data'])")" "1"
+get "/users-rel?document.eq=$RDOC&orderBy=name"; status_is "sort by a base field is accepted (ORDER BY joined col , id)" 200
+eq "orderBy=name still selects the seeded user" "$(jsonq "len(d['data'])")" "1"
 
 title "16.4 a no-match base filter → empty page (200, not 404)"
 get "/users-rel?document.eq=00000000000"; status_is "no-match base filter" 200
@@ -575,9 +575,9 @@ get "/users-rel?search=rel"; status_is "?search= → 400" 400; note_has "search 
 get "/users-rel?addresses.city.eq=Portland"; status_is "1:N child filter → 400" 400; note_has "child filter rejected" "RelationalCapabilityNotification"
 
 ##############################################################################
-# 16.6 pagination.total on a NORMAL listing — the count must NOT depend on
-# ?onlyTotal. A relational listing used to serve `"total": 0` beside perfectly
-# correct items (Total was assigned only in the count-only short-circuit), so a
+# 16.6 pagination.totalCount on a NORMAL listing — the count must NOT depend on
+# ?onlyTotal. A relational listing used to serve `"totalCount": 0` beside perfectly
+# correct items (Total was assigned only in the only-total short-circuit), so a
 # consumer paging a 47-row result saw total=0 on every page and the right number
 # only when it asked for the count alone. These cases pin the whole contract:
 # total is the FULL match count (never the page size, never 0), it agrees with
@@ -594,30 +594,30 @@ for i in 1 2 3; do
 done
 
 title "16.6 a PAGED listing reports the FULL match count, not 0 and not the page size"
-get "/users-rel?ethnicity=indigenous&limit=2"; status_is "paged relational listing" 200
+get "/users-rel?ethnicity=indigenous&first=2"; status_is "paged relational listing" 200
 eq "the page carries 2 items (limit honored)"        "$(jsonq "len(d['data'])")" "2"
-eq "pagination.total is the full match count (3)"    "$(jsonq "d['pagination']['total']")" "3"
-eq "has_next true (a third row is ahead)"            "$(jsonq "d['pagination']['has_next']")" "True"
+eq "pagination.totalCount is the full match count (3)"    "$(jsonq "d['pagination']['totalCount']")" "3"
+eq "hasNextPage true (a third row is ahead)"            "$(jsonq "d['pagination']['hasNextPage']")" "True"
 
 title "16.6b total is the SAME number with and without ?onlyTotal (the parity that broke)"
-get "/users-rel?ethnicity=indigenous&limit=2"; TOT_LIST=$(jsonq "d['pagination']['total']")
-get "/users-rel?ethnicity=indigenous&onlyTotal=true"; TOT_ONLY=$(jsonq "d['pagination']['total']")
+get "/users-rel?ethnicity=indigenous&first=2"; TOT_LIST=$(jsonq "d['pagination']['totalCount']")
+get "/users-rel?ethnicity=indigenous&onlyTotal=true"; TOT_ONLY=$(jsonq "d['pagination']['totalCount']")
 eq "listing total == onlyTotal total" "$TOT_LIST" "$TOT_ONLY"
 
 title "16.6c total follows the FILTER — the count is taken under the same criteria as the items"
 get "/users-rel?document.eq=$RDOC"; status_is "single-match filter" 200
-eq "one row matches → total 1" "$(jsonq "d['pagination']['total']")" "1"
+eq "one row matches → total 1" "$(jsonq "d['pagination']['totalCount']")" "1"
 get "/users-rel?document.eq=00000000000"; status_is "no-match filter" 200
 eq "nothing matches → data empty" "$(jsonq "len(d['data'])")" "0"
-eq "nothing matches → total is an honest 0" "$(jsonq "d['pagination']['total']")" "0"
+eq "nothing matches → total is an honest 0" "$(jsonq "d['pagination']['totalCount']")" "0"
 
 title "16.6d total follows the ARCHIVED gate — archiving one drops it from the count"
 TOTARCH=$(echo "$TOTIDS" | awk '{print $1}')
 patch "/users/$TOTARCH/archive"; status_2xx "archive one of the group"
-get "/users-rel?ethnicity=indigenous&limit=2"; status_is "default read after archive" 200
-eq "default read counts the 2 ACTIVE rows" "$(jsonq "d['pagination']['total']")" "2"
-get "/users-rel?ethnicity=indigenous&limit=2&includeArchived=true"; status_is "?includeArchived read" 200
-eq "?includeArchived counts all 3 again"   "$(jsonq "d['pagination']['total']")" "3"
+get "/users-rel?ethnicity=indigenous&first=2"; status_is "default read after archive" 200
+eq "default read counts the 2 ACTIVE rows" "$(jsonq "d['pagination']['totalCount']")" "2"
+get "/users-rel?ethnicity=indigenous&first=2&includeArchived=true"; status_is "?includeArchived read" 200
+eq "?includeArchived counts all 3 again"   "$(jsonq "d['pagination']['totalCount']")" "3"
 
 for i in $TOTIDS; do patch "/users/$i/unarchive" >/dev/null 2>&1; delete "/users/$i" >/dev/null 2>&1; done
 
@@ -641,7 +641,7 @@ get "/users/$G10"; status_is "GET by id on empty view" 404; note_has "RecordNotF
 title "17.2 GET /users → 200 with an empty page (total 0)"
 get "/users"; status_is "GET list on empty view" 200
 eq "empty data array" "$(jsonq "len(d['data'])")" "0"
-eq "pagination total is 0" "$(jsonq "d['pagination']['total']")" "0"
+eq "pagination total is 0" "$(jsonq "d['pagination']['totalCount']")" "0"
 title "17.3 GET /employees and GET /persons → empty too"
 get "/employees"; status_is "GET /employees" 200; eq "empty employees" "$(jsonq "len(d['data'])")" "0"
 get "/persons"; status_is "GET /persons" 200; eq "empty persons" "$(jsonq "len(d['data'])")" "0"
@@ -691,10 +691,10 @@ vpf "relational read notificationFrequency" "$(jsonq "d['data'].get('notificatio
 vpf "relational read notificationEmail" "$(jsonq "d['data'].get('notificationEmail')")" "vo.n@example.com"
 
 # ── relational filter + ?fields= on the VO fields ──────────────────────────
-get "/users-rel?ethnicity=asian&onlyTotal=true"; vpf "relational filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
-get "/users-rel?userProfile=2&onlyTotal=true"; vpf "relational filter ?userProfile=2 ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
-get "/users-rel?ethnicity=martian&onlyTotal=true"; vpf "relational filter ?ethnicity=martian → 0" "$(jsonq "d['pagination']['total']")" "0"
-get "/users-rel?fields=ethnicity&limit=1"; vpf "relational ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" "True"
+get "/users-rel?ethnicity=asian&onlyTotal=true"; vpf "relational filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
+get "/users-rel?userProfile=2&onlyTotal=true"; vpf "relational filter ?userProfile=2 ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
+get "/users-rel?ethnicity=martian&onlyTotal=true"; vpf "relational filter ?ethnicity=martian → 0" "$(jsonq "d['pagination']['totalCount']")" "0"
+get "/users-rel?fields=ethnicity&first=1"; vpf "relational ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" "True"
 
 # ── invalid VO on write → 422 (relational path validates identically) ──────
 post /users "{\"name\":\"Bad\",\"email\":\"badrel@example.com\",\"document\":\"55000000009\",\"userName\":\"badrel\",\"ethnicity\":\"martian\",\"userProfile\":1,\"addresses\":[{\"street\":\"S\",\"number\":\"1\",\"neighborhood\":\"N\",\"city\":\"C\",\"state\":\"RS\",\"zipCode\":\"90000000\",\"country\":\"BR\",\"addressType\":\"commercial\"}]}"
