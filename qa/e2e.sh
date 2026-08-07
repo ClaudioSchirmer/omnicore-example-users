@@ -1740,7 +1740,65 @@ xlsx_status "19.28 xlsx honors ?fields=email (200)"         "?fields=email" 200
 xlsx_status "19.29 xlsx honors ?includeArchived=true (200)" "?includeArchived=true" 200
 xlsx_status "19.30 xlsx rejects ?sort=bogus (400)"          "?sort=bogus" 400
 
-title "19.31 Cleanup export fixtures (unarchive EXP2, delete both)"
+####################################
+# 19.32+ — labelKey headers of the SHARED-BASE columns.
+# The `users` view is rooted at the User ROLE, and the role's document merges the
+# `persons` SharedBase columns FLAT (name, email, phone, document, ethnicity).
+# That base is TYPE-LESS, so those columns carry no struct tag of their own —
+# their `labelKey` is declared on the User Go struct that holds them flat, and
+# the export must recover it from there (the same composition the audit timeline
+# performs). Asserted in pt-BR on purpose: the en-US catalog value coincides with
+# the Go field name ("Name", "Email", "Document", "Phone", "Ethnicity"), so
+# 19.2 above cannot tell a translated header from an untranslated one.
+# Header-only assertions — independent of the export fixtures.
+####################################
+title "19.32 pt-BR root header renders the SHARED-BASE columns' labelKey"
+HDR_PT=$(curl -sS "$BASE/users.csv" -H "Accept-Language: pt-BR" | head -n 1 | tr -d '\r')
+echo "root header (pt-BR): $HDR_PT"
+PT_OK=1
+for TOK in "Documento" "Telefone" "Etnia" "Nome"; do
+  echo "$HDR_PT" | grep -qF "$TOK" || { PT_OK=0; echo "  (missing translated label: $TOK)"; }
+done
+# The Go field names must be GONE. "Ethnicity"/"Phone" are not substrings of
+# "Etnia"/"Telefone", so they are exact discriminators for the fallback path.
+for TOK in "Ethnicity" "Phone"; do
+  if echo "$HDR_PT" | grep -qF "$TOK"; then PT_OK=0; echo "  (untranslated Go field name present: $TOK)"; fi
+done
+if [ "$PT_OK" = 1 ]; then
+  printf '\033[1;32mPASS\033[0m (base columns translated, no Go field name left)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (shared-base header not rendered from labelKey)\n'; FAIL=$((FAIL+1))
+fi
+
+title "19.33 en-US root header stays English (same columns, other catalog)"
+HDR_EN=$(curl -sS "$BASE/users.csv" -H "Accept-Language: en-US" | head -n 1 | tr -d '\r')
+echo "root header (en-US): $HDR_EN"
+if echo "$HDR_EN" | grep -qF "Document" && echo "$HDR_EN" | grep -qF "Ethnicity" \
+   && ! echo "$HDR_EN" | grep -qF "Documento"; then
+  printf '\033[1;32mPASS\033[0m (header follows Accept-Language, not a fixed fallback)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (en-US header = %s)\n' "$HDR_EN"; FAIL=$((FAIL+1))
+fi
+
+title "19.34 xlsx carries the same translated shared-base headers (pt-BR)"
+TMP=$(mktemp)
+curl -sS -o "$TMP" "$BASE/users.xlsx" -H "Accept-Language: pt-BR"
+# Read every XML part of the workbook (excelize may emit shared or inline
+# strings) and look for the translated labels there.
+XLSX_TEXT=$(python3 -c '
+import sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+print("".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml")))
+' "$TMP" 2>/dev/null)
+if echo "$XLSX_TEXT" | grep -qF "Documento" && echo "$XLSX_TEXT" | grep -qF "Etnia" \
+   && ! echo "$XLSX_TEXT" | grep -qF "Ethnicity"; then
+  printf '\033[1;32mPASS\033[0m (xlsx headers translated too — one plan, two encoders)\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (xlsx shared-base headers not translated)\n'; FAIL=$((FAIL+1))
+fi
+rm -f "$TMP"
+
+title "19.35 Cleanup export fixtures (unarchive EXP2, delete both)"
 curl -sS -o /dev/null -X PATCH  "$BASE/users/$EXP2/unarchive" -H "Content-Type: application/json"
 curl -sS -o /dev/null -X DELETE "$BASE/users/$EXP1"
 curl -sS -o /dev/null -X DELETE "$BASE/users/$EXP2"

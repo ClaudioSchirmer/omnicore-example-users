@@ -14,6 +14,17 @@
 #     (SemanticStateConflict) — asserted indirectly via the semantic
 #     metadata emitted with each ErrorInfo
 #   - ListUsers: equality filter, only_total, X-Request-ID echo
+#   - the only_total CONFLICT MATRIX (REST e2e §17 parity): count-only +
+#     each page-shaping control (limit/after/before/sort/read_mask) →
+#     invalid_argument with the onlyTotal[<key>] marker; filters, search
+#     and include_archived stay valid in count mode; only_total=false
+#     behaves as omitted
+#   - mask/sort vocabulary guards: an undeclared read_mask path or sort
+#     field → invalid_argument (the Fields allowlist, REST tag parity)
+#   - the WIRE-TYPE matrix (EchoTypes fixture): every proto scalar kind
+#     through the pb↔DTO bridge in both directions — the 64-bit integers
+#     protojson quotes (money as int64), at their extremes and past 2^53,
+#     scalar/repeated/nested, presence, and the rejections that must stay
 #
 # Self-managed; qa binary + microservice.qa.yaml. Dialect-driven via
 # _backend.sh. Run from anywhere:  bash qa/grpc.sh
@@ -76,6 +87,56 @@ deadline=$(( $(date +%s) + 30 )); healthy=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do curl -sf -o /dev/null "$BASE/livez" && { healthy=ok; break; }; sleep 0.5; done
 [ "$healthy" = ok ] && ok "http ready" || { bad "server not ready"; tail -n 30 "$SERVER_LOG"; exit 1; }
 grep -q "grpc listening" "$SERVER_LOG" && ok "grpc listener up (:9090)" || { bad "grpc listener missing in log"; tail -n 30 "$SERVER_LOG"; exit 1; }
+
+title "0.4 CDC warmup + clean gadget baseline"
+# This suite READS Mongo projections (GetUser by id, the ListUsers/ListGadgets
+# sections), so the pipeline must be hot BEFORE any per-step deadline starts
+# counting — the same posture every other projection-reading self-managed suite
+# takes. Non-fatal; the suite's own polls still apply.
+qa_cdc_warmup_gadget
+# 6e seeds three gadgets and asserts ABSOLUTE totals, so it needs an empty
+# baseline: qa_mongo_reset covers the canonical views only, and nothing else
+# clears the qa gadget family — without this, every re-run on a lane multiplies
+# the counts (and sweeps the warmup sentinel above).
+qa_db_exec "DELETE FROM gadget_notes;" 2>/dev/null || true
+qa_db_exec "DELETE FROM gadgets;" 2>/dev/null || true
+qa_view_clear gadgets
+sleep 1
+
+title "0.5 Ground the relay backlog on the USERS topic (sentinel drain)"
+# qa_broker_reset (0.2) moves the sync group to LATEST — it never deletes a
+# message and never touches the producer, so it can only ground what was
+# ALREADY produced. A lagging capture stage ships pre-wipe events into the
+# broker AFTER that reset (SQL Server's CDC capture job polls ~5s behind;
+# Oracle LogMiner ~2-3s), and those late events materialize ghost documents —
+# which is how 6c.4's `IN` counted 6 rows for 2 users on the sqlserver lane.
+# Same remedy the schema_evolution / rebuild_scale suites already carry, and it
+# must ride the USERS topic: the gadget warmup above proves nothing about this
+# one (ordering is per topic). When the sentinel's own document appears, every
+# earlier users event was consumed; when its delete propagates, the tail is
+# quiet — then the ghosts the backlog let through are swept.
+users_coll=$(qa_view_coll users)
+sentinel_doc="10000000998"
+curl -sS -o /tmp/qa-grpc-sentinel-${BACKEND}.json -X POST "$BASE/users" -H "Content-Type: application/json" \
+  --data "{\"name\":\"Drain Sentinel\",\"email\":\"drain.grpc@example.test\",\"phone\":\"14155552671\",\"document\":\"$sentinel_doc\",\"userName\":\"$sentinel_doc\",\"ethnicity\":\"white\",\"userProfile\":1,\"addresses\":[]}" >/dev/null 2>&1
+sentinel_id=$(grep -o '"id":"[^"]*"' "/tmp/qa-grpc-sentinel-${BACKEND}.json" 2>/dev/null | head -1 | cut -d'"' -f4)
+sentinel_count() {
+  docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet \
+    --eval "print(db.getCollection('$users_coll').countDocuments({_id:'$sentinel_id'}))" 2>/dev/null | tail -1 | tr -d ' '
+}
+if [ -n "$sentinel_id" ]; then
+  deadline=$(( $(date +%s) + QA_CDC_DEADLINE ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do [ "$(sentinel_count)" = "1" ] && break; sleep 1; done
+  curl -sS -o /dev/null -X DELETE "$BASE/users/$sentinel_id" 2>/dev/null
+  deadline=$(( $(date +%s) + QA_CDC_DEADLINE ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do [ "$(sentinel_count)" = "0" ] && break; sleep 1; done
+  ok "users relay backlog drained (sentinel $sentinel_id)"
+else
+  bad "sentinel user was not created — the backlog could not be drained"
+fi
+# Sweep whatever the late backlog materialized before the drain completed.
+qa_view_clear users
+rm -f "/tmp/qa-grpc-sentinel-${BACKEND}.json"
 
 ##############################################################################
 sec "1. CreateUser — happy path"
@@ -141,7 +202,7 @@ else
 fi
 
 title "4.2 only_total → total without items"
-rpc ListUsers '{"page":{"onlyTotal":true}}'
+rpc ListUsers '{"pagination":{"onlyTotal":true}}'
 if [ "$RPC_STATUS" = "200" ] && ! echo "$RPC_BODY" | grep -q '"items"'; then
   ok "only_total suppresses items"
 else
@@ -274,14 +335,14 @@ title "6c.1 seed dave (poll list until both project)"
 rpc CreateUser '{"name":"Grpc Dave","email":"grpc.dave@example.com","document":"99091000004","userName":"grpcqa_dave","ethnicity":"white","userProfile":1}'
 deadline=$(( $(date +%s) + 15 )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
-  rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"page":{"onlyTotal":true}}'
+  rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"onlyTotal":true}}'
   echo "$RPC_BODY" | grep -Eq '"total":"?2"?' && { seeded=ok; break; }
   sleep 0.5
 done
 [ "$seeded" = ok ] && ok "carol + dave projected (alice hidden as archived)" || { bad "seeding"; echo "$RPC_BODY" | head -c 200; }
 
 title "6c.2 page 1: sort userName asc, limit 1 → carol + nextCursor"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"sort":[{"field":"user_name"}],"page":{"limit":1}}'
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"sort":[{"field":"user_name"}],"pagination":{"limit":1}}'
 CURSOR=$(echo "$RPC_BODY" | grep -o '"nextCursor":"[^"]*"' | cut -d'"' -f4)
 if echo "$RPC_BODY" | grep -q '"userName":"grpcqa_carol"' && [ -n "$CURSOR" ]; then
   ok "page 1 = carol, cursor issued"
@@ -290,7 +351,7 @@ else
 fi
 
 title "6c.3 page 2: after=cursor → dave"
-rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"page\":{\"limit\":1,\"after\":\"$CURSOR\"}}"
+rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"pagination\":{\"limit\":1,\"after\":\"$CURSOR\"}}"
 if echo "$RPC_BODY" | grep -q '"userName":"grpcqa_dave"' && ! echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
   ok "cursor walk reaches dave only"
 else
@@ -298,11 +359,11 @@ else
 fi
 
 title "6c.4 IN filter with multiple values"
-rpc ListUsers '{"filters":{"email":{"conditions":[{"op":"STRING_OP_IN","values":["carol.renamed@example.com","grpc.dave@example.com"]}]}},"page":{"onlyTotal":true}}'
+rpc ListUsers '{"filters":{"email":{"conditions":[{"op":"STRING_OP_IN","values":["carol.renamed@example.com","grpc.dave@example.com"]}]}},"pagination":{"onlyTotal":true}}'
 if echo "$RPC_BODY" | grep -Eq '"total":"?2"?'; then ok "IN matches both"; else bad "IN"; echo "$RPC_BODY" | head -c 200; fi
 
 title "6c.5 include_archived resurfaces alice in the count"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"page":{"onlyTotal":true,"includeArchived":true}}'
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"onlyTotal":true,"includeArchived":true}}'
 if echo "$RPC_BODY" | grep -Eq '"total":"?3"?'; then ok "archived included on opt-in"; else bad "includeArchived"; echo "$RPC_BODY" | head -c 200; fi
 
 ##############################################################################
@@ -353,7 +414,7 @@ curl -sS -X POST "$BASE/qa/gadgets" -H "Content-Type: application/json" -d '{"co
 gtotal() { # gtotal <field> <op> <values-json>
   curl -sS -X POST -H "Content-Type: application/json" \
     "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
-    -d "{\"filters\":{\"$1\":{\"conditions\":[{\"op\":\"$2\",\"values\":$3}]}},\"page\":{\"onlyTotal\":true}}" \
+    -d "{\"filters\":{\"$1\":{\"conditions\":[{\"op\":\"$2\",\"values\":$3}]}},\"pagination\":{\"onlyTotal\":true}}" \
     | grep -o '"total":"\{0,1\}[0-9]*' | grep -o '[0-9]*$'
 }
 deadline=$(( $(date +%s) + 15 )); seeded=fail
@@ -386,7 +447,7 @@ check_op inin        category STRING_OP_ININ        '["TOOLS"]'             1
 title "6e.3 operator outside the leaf's filter: tag → invalid_argument (allowlist parity with REST)"
 REJ=$(curl -sS -o /tmp/grpc-optag.json -w "%{http_code}" -X POST -H "Content-Type: application/json" \
   "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
-  -d '{"filters":{"category":{"conditions":[{"op":"STRING_OP_NE","values":["tools"]}]}},"page":{"onlyTotal":true}}')
+  -d '{"filters":{"category":{"conditions":[{"op":"STRING_OP_NE","values":["tools"]}]}},"pagination":{"onlyTotal":true}}')
 if [ "$REJ" = "400" ] && grep -q '"code":"invalid_argument"' /tmp/grpc-optag.json && grep -q 'SchemaViolationNotification' /tmp/grpc-optag.json; then
   ok "ne on category (declared: eq,in,iin,inin,ieq) rejects with the allowlist"
 else
@@ -396,19 +457,19 @@ fi
 title "6e.4 two ops on the same field AND-combine (MultiClause)"
 RES=$(curl -sS -X POST -H "Content-Type: application/json" \
   "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
-  -d '{"filters":{"name":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["Rocket"]},{"op":"STRING_OP_ICONTAINS","values":["DRILL"]}]}},"page":{"onlyTotal":true}}')
+  -d '{"filters":{"name":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["Rocket"]},{"op":"STRING_OP_ICONTAINS","values":["DRILL"]}]}},"pagination":{"onlyTotal":true}}')
 echo "$RES" | grep -Eq '"total":"?1"?' && ok "AND-combined conditions" || { bad "MultiClause"; echo "$RES" | head -c 200; }
 
 ##############################################################################
 sec "6f. Backward pagination (before + prev_cursor)"
 ##############################################################################
 title "6f.1 walk forward to dave, then back to carol via prevCursor"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"sort":[{"field":"user_name"}],"page":{"limit":1}}'
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"sort":[{"field":"user_name"}],"pagination":{"limit":1}}'
 CUR_F=$(echo "$RPC_BODY" | grep -o '"nextCursor":"[^"]*"' | cut -d'"' -f4)
-rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"page\":{\"limit\":1,\"after\":\"$CUR_F\"}}"
+rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"pagination\":{\"limit\":1,\"after\":\"$CUR_F\"}}"
 CUR_B=$(echo "$RPC_BODY" | grep -o '"prevCursor":"[^"]*"' | cut -d'"' -f4)
 if [ -n "$CUR_B" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave'; then
-  rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"page\":{\"limit\":1,\"before\":\"$CUR_B\"}}"
+  rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"pagination\":{\"limit\":1,\"before\":\"$CUR_B\"}}"
   if echo "$RPC_BODY" | grep -q 'grpcqa_carol' && ! echo "$RPC_BODY" | grep -q 'grpcqa_dave'; then
     ok "before-cursor walks back to carol"
   else
@@ -416,6 +477,239 @@ if [ -n "$CUR_B" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave'; then
   fi
 else
   bad "prevCursor missing on page 2"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+##############################################################################
+sec "6g. The WIRE-TYPE matrix (EchoTypes fixture)"
+##############################################################################
+# protojson and encoding/json speak the same JSON for most kinds and disagree
+# on exactly one: the proto3 JSON mapping renders 64-bit integers (int64,
+# sint64, sfixed64, uint64, fixed64) as QUOTED strings. A DTO that declares
+# money as `int64` — the SAME seat REST and GraphQL bind — used to fail EVERY
+# gRPC request with a SchemaViolation, before the command handler was ever
+# reached. These cases walk every proto scalar kind through the bridge in
+# BOTH directions, over a real connection.
+#
+# Wire form: 64-bit fields come BACK quoted (that IS the proto3 JSON mapping,
+# and what a generated client expects) — the assertions match the wire
+# exactly. sumCents is computed by the HANDLER, so a green sum proves the
+# values arrived as numbers the domain can do arithmetic on, not as text.
+
+qarpc() { # qarpc <procedure> <json> ; body → $Q_BODY, status → $Q_STATUS
+  local tmp; tmp=$(mktemp)
+  Q_STATUS=$(curl -sS -o "$tmp" -w "%{http_code}" -X POST \
+    -H "Content-Type: application/json" \
+    "$GRPC_BASE/qafixtures.v1.QAService/$1" -d "$2")
+  Q_BODY=$(cat "$tmp"); rm -f "$tmp"
+}
+echoes() { # echoes <label> <request-json> <grep-pattern...>
+  local label="$1" body="$2"; shift 2
+  qarpc EchoTypes "$body"
+  if [ "$Q_STATUS" != "200" ]; then
+    bad "$label (HTTP $Q_STATUS)"; echo "$Q_BODY" | head -c 300; echo; return
+  fi
+  # protojson DELIBERATELY varies its whitespace between runs (an extra space
+  # after a separator, to discourage byte-comparing its output), so a pattern
+  # spanning a comma is unstable by construction. Match against the
+  # space-stripped body — no assertion below carries a meaningful space.
+  local norm; norm=$(printf '%s' "$Q_BODY" | tr -d ' ')
+  local missing="" pat
+  for pat in "$@"; do
+    printf '%s' "$norm" | grep -q -- "$pat" || missing="$missing [$pat]"
+  done
+  if [ -z "$missing" ]; then ok "$label"; else bad "$label — missing:$missing"; echo "$Q_BODY" | head -c 400; echo; fi
+}
+
+title "6g.1 money as int64 — the shape that used to break"
+echoes "quoted int64 (what a generated client sends) binds and sums" \
+  '{"priceCents":"1050"}' '"priceCents":"1050"' '"sumCents":"1050"'
+echoes "bare-number int64 is accepted too (protojson takes both forms)" \
+  '{"priceCents":1050}' '"priceCents":"1050"' '"sumCents":"1050"'
+echoes "negative money round-trips" \
+  '{"priceCents":"-2500"}' '"priceCents":"-2500"' '"sumCents":"-2500"'
+
+title "6g.2 all five 64-bit kinds, at their extremes, exact"
+echoes "int64 max / sint64 min / sfixed64 / uint64 max / fixed64" \
+  '{"priceCents":"9223372036854775807","signedDelta":"-9223372036854775808","fixedSigned":"-9007199254740993","hugeCount":"18446744073709551615","fixedUnsigned":"9007199254740993"}' \
+  '"priceCents":"9223372036854775807"' '"signedDelta":"-9223372036854775808"' \
+  '"fixedSigned":"-9007199254740993"' '"hugeCount":"18446744073709551615"' \
+  '"fixedUnsigned":"9007199254740993"'
+
+title "6g.3 the kinds the two dialects already agreed on"
+echoes "int32 (negative), uint32, double, float, bool, string" \
+  '{"quantity":-3,"unsignedQuantity":9,"weight":2.5,"ratio":0.5,"active":true,"label":"widget"}' \
+  '"quantity":-3' '"unsignedQuantity":9' '"weight":2.5' '"ratio":0.5' '"active":true' '"label":"widget"'
+echoes "bytes (base64 carrying + and /), enum member NAME, timestamp" \
+  '{"payload":"+/+/Pn0=","flavor":"FLAVOR_SALTY","occurredAt":"2026-08-06T12:30:00Z"}' \
+  '"payload":"+/+/Pn0="' '"flavor":"FLAVOR_SALTY"' '"occurredAt":"2026-08-06T12:30:00Z"'
+
+title "6g.4 repeated fields, including the quoted-element kind"
+echoes "repeated int64 (quoted elements) + repeated string, order kept" \
+  '{"amounts":["1","9223372036854775806","-7"],"tags":["a","b"]}' \
+  '"amounts":\["1","9223372036854775806","-7"\]' '"tags":\["a","b"\]' \
+  '"sumCents":"9223372036854775800"'
+
+title "6g.5 64-bit at depth — nested message and repeated nested"
+echoes "child + children carry their own int64 through the child plan" \
+  '{"child":{"childCents":"9007199254740993","childLabel":"kid"},"children":[{"childCents":"1","childLabel":"one"},{"childCents":"2","childLabel":"two"}]}' \
+  '"childCents":"9007199254740993"' '"childLabel":"kid"' \
+  '"childCents":"1"' '"childCents":"2"' '"sumCents":"9007199254740996"'
+
+title "6g.6 the float64 trap: arithmetic past 2^53 stays exact"
+# 9007199254740992 is 2^53; +1 is NOT representable as a float64 (it rounds
+# back to 2^53). A green case proves nothing on either leg was routed
+# through a float.
+echoes "2^53 + 1 == 9007199254740993, not 9007199254740992" \
+  '{"priceCents":"9007199254740992","amounts":["1"]}' '"sumCents":"9007199254740993"'
+echoes "uint64 above int64's ceiling survives unsigned" \
+  '{"hugeCount":"18446744073709551614"}' '"hugeCount":"18446744073709551614"'
+
+title "6g.7 presence: absent optional vs explicitly empty"
+qarpc EchoTypes '{"priceCents":"5"}'
+if [ "$Q_STATUS" = "200" ] && ! echo "$Q_BODY" | grep -q '"labelPresent":true'; then
+  ok "absent optional string stays absent (nil pointer at the DTO)"
+else
+  bad "absent-optional presence"; echo "$Q_BODY" | head -c 300; echo
+fi
+qarpc EchoTypes '{"label":""}'
+if [ "$Q_STATUS" = "200" ] && echo "$Q_BODY" | grep -q '"labelPresent":true'; then
+  ok "explicit empty string arrives SET (presence survives the rewrite)"
+else
+  bad "explicit-empty presence"; echo "$Q_BODY" | head -c 300; echo
+fi
+
+title "6g.8 the bridge stayed strict — a bad 64-bit value still rejects"
+# Not text, not fractional, not out of range, no stray whitespace. The
+# request is parsed into the proto FIRST, so these die at the wire contract,
+# exactly as they did before the bridge learned to unquote.
+for bogus in '"abc"' '"10.5"' '" 12"' '"9223372036854775808"' '"-9223372036854775809"'; do
+  qarpc EchoTypes "{\"priceCents\":$bogus}"
+  if [ "$Q_STATUS" = "400" ]; then
+    ok "priceCents=$bogus rejected (invalid_argument)"
+  else
+    bad "priceCents=$bogus should reject, got HTTP $Q_STATUS"; echo "$Q_BODY" | head -c 200; echo
+  fi
+done
+# The exponent form IS legal proto3 JSON for a numeric field when the value
+# is an exact integer — it must be accepted and normalized, not rejected.
+echoes "exponent notation for an int64 normalizes to 1000" \
+  '{"priceCents":"1e3"}' '"priceCents":"1000"' '"sumCents":"1000"'
+
+title "6g.8b non-finite floats reject — they must never bind as a silent zero"
+# protojson renders (and accepts) NaN/Infinity/-Infinity as STRINGS for
+# float/double. JSON has no literal for them, so the DTO's float64 seat cannot
+# receive one — the framework rejects naming the field (the message itself is
+# server-side; the wire contract asserted here is that it is a clean 400, never
+# a 200 with a zeroed field and never a 500).
+for special in NaN Infinity -Infinity; do
+  for field in weight ratio; do
+    qarpc EchoTypes "{\"$field\":\"$special\"}"
+    if [ "$Q_STATUS" = "400" ]; then
+      ok "$field=$special rejected (invalid_argument)"
+    else
+      bad "$field=$special should reject, got HTTP $Q_STATUS"; echo "$Q_BODY" | head -c 200; echo
+    fi
+  done
+done
+# …and the ordinary finite value on the SAME fields still round-trips, so the
+# guard cannot be satisfied by rejecting floats wholesale.
+echoes "finite double + float still bind after the guard" \
+  '{"weight":2.5,"ratio":0.5}' '"weight":2.5' '"ratio":0.5'
+
+title "6g.9 every kind at once, one request"
+echoes "the full matrix round-trips in a single call" \
+  '{"priceCents":"1050","signedDelta":"-42","fixedSigned":"-7","hugeCount":"18446744073709551615","fixedUnsigned":"4294967296","quantity":-3,"unsignedQuantity":9,"weight":2.5,"ratio":0.5,"active":true,"label":"widget","payload":"+/+/Pn0=","flavor":"FLAVOR_SWEET","occurredAt":"2026-08-06T12:30:00Z","amounts":["10","20"],"tags":["x","y"],"child":{"childCents":"100","childLabel":"kid"},"children":[{"childCents":"1000","childLabel":"one"}]}' \
+  '"priceCents":"1050"' '"signedDelta":"-42"' '"fixedSigned":"-7"' \
+  '"hugeCount":"18446744073709551615"' '"fixedUnsigned":"4294967296"' \
+  '"quantity":-3' '"unsignedQuantity":9' '"weight":2.5' '"ratio":0.5' \
+  '"active":true' '"label":"widget"' '"payload":"+/+/Pn0="' \
+  '"flavor":"FLAVOR_SWEET"' '"occurredAt":"2026-08-06T12:30:00Z"' \
+  '"amounts":\["10","20"\]' '"tags":\["x","y"\]' \
+  '"childCents":"100"' '"childCents":"1000"' \
+  '"sumCents":"2180"' '"labelPresent":true'
+
+##############################################################################
+sec "6h. The only_total conflict matrix + mask/sort vocabulary guards"
+##############################################################################
+# The REST wrapper rejects ?onlyTotal=true combined with any page-shaping
+# control (e2e §17.5-17.9: fields/sort/limit/after/before → 400 with the
+# onlyTotal[<key>] marker). The gRPC criteria builder carries the SAME matrix
+# — presence-based, since proto3 optional distinguishes absent from zero.
+# Filter leaves, search and include_archived stay valid in count mode
+# (counting a filtered subset is the canonical use case — 6c.1/6c.4/6c.5
+# already prove those legs); only_total=false must behave as omitted.
+# State here: carol + dave active, alice archived (all userName grpcqa_*).
+
+conflict() { # conflict <label> <request-json> <marker>
+  rpc ListUsers "$2"
+  if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification' \
+     && echo "$RPC_BODY" | grep -qF "$3"; then
+    ok "$1"
+  else
+    bad "$1 (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+  fi
+}
+
+title "6h.1 only_total + limit → invalid_argument (onlyTotal[limit])"
+conflict "count-only rejects limit" \
+  '{"pagination":{"onlyTotal":true,"limit":1}}' 'onlyTotal[limit]'
+
+title "6h.2 only_total + after → invalid_argument (onlyTotal[after])"
+conflict "count-only rejects after" \
+  '{"pagination":{"onlyTotal":true,"after":"cur-xyz"}}' 'onlyTotal[after]'
+
+title "6h.3 only_total + before → invalid_argument (onlyTotal[before])"
+conflict "count-only rejects before" \
+  '{"pagination":{"onlyTotal":true,"before":"cur-xyz"}}' 'onlyTotal[before]'
+
+title "6h.4 only_total + sort → invalid_argument (onlyTotal[sort])"
+conflict "count-only rejects sort" \
+  '{"sort":[{"field":"user_name"}],"pagination":{"onlyTotal":true}}' 'onlyTotal[sort]'
+
+title "6h.5 only_total + read_mask → invalid_argument (onlyTotal[read_mask])"
+conflict "count-only rejects read_mask" \
+  '{"readMask":"userName","pagination":{"onlyTotal":true}}' 'onlyTotal[read_mask]'
+
+title "6h.6 search stays valid in count mode (PaginationRequest.search)"
+rpc ListUsers '{"pagination":{"onlyTotal":true,"search":"Dave"}}'
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -Eq '"total":"?1"?' \
+   && ! echo "$RPC_BODY" | grep -q '"items"'; then
+  ok "search + only_total counts the text-index match"
+else
+  bad "search+onlyTotal (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.7 search in listing mode shapes the items"
+rpc ListUsers '{"pagination":{"limit":10,"search":"Dave"}}'
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave' \
+   && ! echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
+  ok "search selects dave only, items returned"
+else
+  bad "search listing (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.8 only_total=false behaves as omitted (listing envelope intact)"
+rpc ListUsers '{"pagination":{"onlyTotal":false,"limit":1}}'
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"items"'; then
+  ok "explicit false keeps the listing envelope (limit accepted)"
+else
+  bad "onlyTotal=false (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.9 undeclared read_mask path → invalid_argument (Fields allowlist)"
+rpc ListUsers '{"readMask":"nope"}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
+  ok "read_mask outside the vocabulary rejects"
+else
+  bad "undeclared mask (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.10 undeclared sort field → invalid_argument (Fields allowlist)"
+rpc ListUsers '{"sort":[{"field":"nope"}]}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
+  ok "sort outside the vocabulary rejects"
+else
+  bad "undeclared sort (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
 ##############################################################################
@@ -452,7 +746,7 @@ ST=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/users")
 if [ "$ST" = "401" ]; then ok "REST rejects without token"; else bad "REST expected 401, got $ST"; fi
 
 title "7.3 Internal plane: tokenless gRPC → passes (anonymous)"
-rpc ListUsers '{"page":{"onlyTotal":true}}'
+rpc ListUsers '{"pagination":{"onlyTotal":true}}'
 if [ "$RPC_STATUS" = "200" ]; then
   ok "gRPC anonymous internal call passes"
 else

@@ -60,7 +60,7 @@ message UserFilters {
 }
 
 message ListUsersRequest {
-  omnicore.v1.PageRequest page = 1;
+  omnicore.v1.PaginationRequest pagination = 1;
   repeated omnicore.v1.SortField sort = 2;
   google.protobuf.FieldMask read_mask = 3;
   UserFilters filters = 4;
@@ -87,7 +87,7 @@ message User {
 
 message ListUsersResponse {
   repeated User items = 1;
-  omnicore.v1.PageInfo page_info = 2;
+  omnicore.v1.PaginationInfo pagination = 2;
 }
 
 message GetUserRequest {

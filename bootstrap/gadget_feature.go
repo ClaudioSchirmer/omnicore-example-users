@@ -245,6 +245,23 @@ func (f *GadgetFeature) MountReceivers(reg *integration.Registry, d bootstrap.De
 // declares it), exactly like embeddedView — under the prd configs the leg is
 // absent so the field stays unmounted and the surface still boots.
 func (f *GadgetFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) {
+	// `gadgetsRel` is the RelationalSource twin on the GraphQL surface — the SAME
+	// DTO seats and query handler as the REST mirror, only the View name differs.
+	// It exists so the Relay connection envelope (edges/pageInfo/totalCount) is
+	// proven over a relationally served view and not only over a Mongo one: the
+	// two readers reach the surface through the same queries.Page, and totalCount
+	// reads Page.Total. Registered BEFORE the upstream gate below — a relational
+	// view carries no CDC/upstream dependency, so it mounts under every profile.
+	reg.Register(fwgraphql.QueryWithParams[
+		webqa.FindGadgetsRequest,
+		webqa.FindGadgetsResponse,
+	](
+		"gadgetsRel", "GadgetRel",
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+			Reader: d.ViewReader, View: f.relView.Name(),
+		},
+		fwgraphql.RequirePermission("gadgets:read")))
+
 	if !declaresUpstreamCollection(d, "upstream_gadgets") {
 		return
 	}

@@ -325,7 +325,7 @@ func (x *UserFilters) GetName() *pb.StringFilter {
 
 type ListUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Page          *pb.PageRequest        `protobuf:"bytes,1,opt,name=page,proto3" json:"page,omitempty"`
+	Pagination    *pb.PaginationRequest  `protobuf:"bytes,1,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	Sort          []*pb.SortField        `protobuf:"bytes,2,rep,name=sort,proto3" json:"sort,omitempty"`
 	ReadMask      *fieldmaskpb.FieldMask `protobuf:"bytes,3,opt,name=read_mask,json=readMask,proto3" json:"read_mask,omitempty"`
 	Filters       *UserFilters           `protobuf:"bytes,4,opt,name=filters,proto3" json:"filters,omitempty"`
@@ -363,9 +363,9 @@ func (*ListUsersRequest) Descriptor() ([]byte, []int) {
 	return file_users_v1_users_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ListUsersRequest) GetPage() *pb.PageRequest {
+func (x *ListUsersRequest) GetPagination() *pb.PaginationRequest {
 	if x != nil {
-		return x.Page
+		return x.Pagination
 	}
 	return nil
 }
@@ -516,7 +516,7 @@ func (x *User) GetNotificationFrequency() int32 {
 type ListUsersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Items         []*User                `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	PageInfo      *pb.PageInfo           `protobuf:"bytes,2,opt,name=page_info,json=pageInfo,proto3" json:"page_info,omitempty"`
+	Pagination    *pb.PaginationInfo     `protobuf:"bytes,2,opt,name=pagination,proto3" json:"pagination,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -558,9 +558,9 @@ func (x *ListUsersResponse) GetItems() []*User {
 	return nil
 }
 
-func (x *ListUsersResponse) GetPageInfo() *pb.PageInfo {
+func (x *ListUsersResponse) GetPagination() *pb.PaginationInfo {
 	if x != nil {
-		return x.PageInfo
+		return x.Pagination
 	}
 	return nil
 }
@@ -1207,9 +1207,11 @@ const file_users_v1_users_proto_rawDesc = "" +
 	"\x17_notification_frequency\"t\n" +
 	"\vUserFilters\x126\n" +
 	"\tuser_name\x18\x01 \x01(\v2\x19.omnicore.v1.StringFilterR\buserName\x12-\n" +
-	"\x04name\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\"\xd6\x01\n" +
-	"\x10ListUsersRequest\x12,\n" +
-	"\x04page\x18\x01 \x01(\v2\x18.omnicore.v1.PageRequestR\x04page\x12*\n" +
+	"\x04name\x18\x02 \x01(\v2\x19.omnicore.v1.StringFilterR\x04name\"\xe8\x01\n" +
+	"\x10ListUsersRequest\x12>\n" +
+	"\n" +
+	"pagination\x18\x01 \x01(\v2\x1e.omnicore.v1.PaginationRequestR\n" +
+	"pagination\x12*\n" +
 	"\x04sort\x18\x02 \x03(\v2\x16.omnicore.v1.SortFieldR\x04sort\x127\n" +
 	"\tread_mask\x18\x03 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\x12/\n" +
 	"\afilters\x18\x04 \x01(\v2\x15.users.v1.UserFiltersR\afilters\"\x81\x03\n" +
@@ -1227,10 +1229,12 @@ const file_users_v1_users_proto_rawDesc = "" +
 	" \x01(\x05H\x02R\x15notificationFrequency\x88\x01\x01B\b\n" +
 	"\x06_phoneB\x15\n" +
 	"\x13_notification_emailB\x19\n" +
-	"\x17_notification_frequency\"m\n" +
+	"\x17_notification_frequency\"v\n" +
 	"\x11ListUsersResponse\x12$\n" +
-	"\x05items\x18\x01 \x03(\v2\x0e.users.v1.UserR\x05items\x122\n" +
-	"\tpage_info\x18\x02 \x01(\v2\x15.omnicore.v1.PageInfoR\bpageInfo\"W\n" +
+	"\x05items\x18\x01 \x03(\v2\x0e.users.v1.UserR\x05items\x12;\n" +
+	"\n" +
+	"pagination\x18\x02 \x01(\v2\x1b.omnicore.v1.PaginationInfoR\n" +
+	"pagination\"W\n" +
 	"\x0eGetUserRequest\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tH\x00R\x02id\x88\x01\x01\x12)\n" +
 	"\x10include_archived\x18\x02 \x01(\bR\x0fincludeArchivedB\x05\n" +
@@ -1350,20 +1354,20 @@ var file_users_v1_users_proto_goTypes = []any{
 	(*UpdateUserRequest)(nil),     // 11: users.v1.UpdateUserRequest
 	(*UpdateUserResponse)(nil),    // 12: users.v1.UpdateUserResponse
 	(*pb.StringFilter)(nil),       // 13: omnicore.v1.StringFilter
-	(*pb.PageRequest)(nil),        // 14: omnicore.v1.PageRequest
+	(*pb.PaginationRequest)(nil),  // 14: omnicore.v1.PaginationRequest
 	(*pb.SortField)(nil),          // 15: omnicore.v1.SortField
 	(*fieldmaskpb.FieldMask)(nil), // 16: google.protobuf.FieldMask
-	(*pb.PageInfo)(nil),           // 17: omnicore.v1.PageInfo
+	(*pb.PaginationInfo)(nil),     // 17: omnicore.v1.PaginationInfo
 }
 var file_users_v1_users_proto_depIdxs = []int32{
 	13, // 0: users.v1.UserFilters.user_name:type_name -> omnicore.v1.StringFilter
 	13, // 1: users.v1.UserFilters.name:type_name -> omnicore.v1.StringFilter
-	14, // 2: users.v1.ListUsersRequest.page:type_name -> omnicore.v1.PageRequest
+	14, // 2: users.v1.ListUsersRequest.pagination:type_name -> omnicore.v1.PaginationRequest
 	15, // 3: users.v1.ListUsersRequest.sort:type_name -> omnicore.v1.SortField
 	16, // 4: users.v1.ListUsersRequest.read_mask:type_name -> google.protobuf.FieldMask
 	2,  // 5: users.v1.ListUsersRequest.filters:type_name -> users.v1.UserFilters
 	4,  // 6: users.v1.ListUsersResponse.items:type_name -> users.v1.User
-	17, // 7: users.v1.ListUsersResponse.page_info:type_name -> omnicore.v1.PageInfo
+	17, // 7: users.v1.ListUsersResponse.pagination:type_name -> omnicore.v1.PaginationInfo
 	10, // 8: users.v1.UpdateUserRequest.addresses:type_name -> users.v1.AddressInput
 	0,  // 9: users.v1.UsersService.CreateUser:input_type -> users.v1.CreateUserRequest
 	3,  // 10: users.v1.UsersService.ListUsers:input_type -> users.v1.ListUsersRequest

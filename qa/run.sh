@@ -546,6 +546,17 @@ run_lane() {
     grep -qw "$s" <<<"$SELF_SUITES"   && run_self_suites="$run_self_suites $s"
   done
 
+  # The relay is a LANE prerequisite, not a server-suite one: a wave brings the
+  # lane's containers up cold, and the SELF-managed suites read projections too
+  # (grpc, filter_operators, view_options, composed_view, …) while booting their
+  # own binaries. Registering it here — before either branch — is what keeps a
+  # run like SUITES="grpc" from silently reading a dead pipeline. Idempotent and
+  # blocking-until-streaming, so the server branch below inherits it hot.
+  if [ -n "$run_server_suites$run_self_suites" ] && ! stop_requested; then
+    relay_setup "$B" "$LOG_DIR/connector-$B.log" \
+      || echo "[$B] WARNING: relay (re)start failed (see $LOG_DIR/connector-$B.log)" >&2
+  fi
+
   if [ -n "$run_server_suites" ]; then
     APP_PROFILE=dev "$SRV_BIN" > "$LOG_DIR/server-$B.log" 2>&1 &
     local SRV_PID=$!
@@ -553,8 +564,6 @@ run_lane() {
       echo "[$B] server never became healthy (see $LOG_DIR/server-$B.log)" >&2
       kill "$SRV_PID" 2>/dev/null; abort_lane "$B" "server never became healthy"; return 1
     fi
-    relay_setup "$B" "$LOG_DIR/connector-$B.log" \
-      || echo "[$B] WARNING: relay (re)start failed (see $LOG_DIR/connector-$B.log)" >&2
     cdc_warmup
     for s in $run_server_suites; do
       stop_requested && break
