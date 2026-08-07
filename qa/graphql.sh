@@ -529,8 +529,100 @@ gql 'query { users { edges { node { id } } pageInfo { hasNextPage } totalCount }
 assert_jq_true "19b.14 no first/last → default page size, bounded listing (<=100)" \
     '(((.errors // []) | length) == 0) and ((.data.users.edges | length) <= 100)'
 
+# ── 20. The non-pagination control keys: search, includeArchived, orderBy ───
+# Of the nine reserved controls, this suite proved the five pagination ones and
+# `orderBy` only in its ascending form (as a helper for §19/§19b, never as the
+# subject). `search` had no case at all and `includeArchived` only appeared as a
+# cursor-context axis in §19b.8 — never once doing its actual job. REST pins all
+# three (e2e §24.1-24.3, §16.2, §17.4, §15.6-15.7); this is the GraphQL half.
+#
+# `fields` has no case here BY DESIGN, and that is not a gap: it is one of the
+# two graphqlNaturalControls (web/graphql/criteria.go) — the selection set IS
+# the projection on this surface, so there is no argument to exercise. Its real
+# consumer-visible contract is the restricted-field refusal, which needs an
+# Identity and therefore lives in authz.sh §15 beside the REST twin.
+
+# search — the framework's ?search= over the view's TextIndex(name, email).
+gql 'query { users(search: "Gqlop") { totalCount } }' >/dev/null
+assert_jq "20.1 search:Gqlop matches the three fixtures (TextIndex on name/email)" \
+    '.data.users.totalCount' "3"
+gql 'query { users(search: "zzznomatchqqq") { totalCount } }' >/dev/null
+assert_jq "20.2 search with no match returns an empty set (not everything)" \
+    '.data.users.totalCount' "0"
+# search AND-combines with a where filter rather than replacing it.
+gql 'query { users(search: "Gqlop", where: { name: { icontains: "Alpha" } }) { edges { node { name } } totalCount } }' >/dev/null
+assert_jq "20.3 search + where AND-combine (narrowed to one)" '.data.users.totalCount' "1"
+assert_jq "20.3 search + where returns the Alpha node" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+
+# includeArchived — the keep-by-default archive contract. Archive Charlie, let
+# CDC carry the state to the projection, then read the same listing three ways.
+gql "mutation { archiveUser(id: \"${GOP_ID_C}\") { success } }" >/dev/null
+assert_jq_true "20.4 archiveUser(Charlie) succeeds" '.data.archiveUser.success == true'
+echo "Waiting for the archive to reach the projection…"
+arch_ready=fail
+for _ in $(seq 1 40); do
+    gql 'query { users(where: { name: { icontains: "Gqlop" } }) { totalCount } }' >/dev/null
+    [ "$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)" = "2" ] && { arch_ready=ok; break; }
+    sleep 0.5
+done
+if [ "$arch_ready" = ok ]; then echo "${GREEN}PASS${RESET} (archived Charlie left the default read)"; PASS=$((PASS+1));
+else echo "${RED}FAIL${RESET} (archive never reached the projection)"; FAIL=$((FAIL+1)); fi
+
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, includeArchived: true) { totalCount } }' >/dev/null
+assert_jq "20.5 includeArchived:true resurfaces the archived node (3)" \
+    '.data.users.totalCount' "3"
+# Explicit false is presence WITHOUT activation — the default read, not a third
+# behavior (the GraphQL twin of REST's ?includeArchived=false, e2e §10.8c).
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, includeArchived: false) { totalCount } }' >/dev/null
+assert_jq "20.6 includeArchived:false behaves as the default read (2)" \
+    '.data.users.totalCount' "2"
+gql "mutation { unarchiveUser(id: \"${GOP_ID_C}\") { success } }" >/dev/null
+assert_jq_true "20.7 unarchiveUser(Charlie) restores the fixture" \
+    '.data.unarchiveUser.success == true'
+for _ in $(seq 1 40); do
+    gql 'query { users(where: { name: { icontains: "Gqlop" } }) { totalCount } }' >/dev/null
+    [ "$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)" = "3" ] && break
+    sleep 0.5
+done
+
+# orderBy — §19 only ever sorted ascending. Descending and the COMPOSITE form
+# (secondary key) are the legs REST pins at e2e §15.7 and §24.3.
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, orderBy: ["-name"], first: 1) { edges { node { name } } } }' >/dev/null
+assert_jq "20.8 orderBy:[-name] descending → Charlie leads" \
+    '.data.users.edges[0].node.name' "Gqlop Charlie"
+
+# The composite needs a TIE on the primary key for the secondary to be
+# observable, so seed two users sharing one name and differing only by email.
+GQS_A="gqlsort.a.${TS19}@omnicore.test"
+GQS_B="gqlsort.b.${TS19}@omnicore.test"
+GQS_ID_A=$(seed_gop "$GQS_A" 39000009004 gopsa "Gqlsort Pair")
+GQS_ID_B=$(seed_gop "$GQS_B" 39000009005 gopsb "Gqlsort Pair")
+echo "Waiting for the sort pair to materialize…"
+pair_ready=fail
+for _ in $(seq 1 40); do
+    gql 'query { users(where: { name: { icontains: "Gqlsort" } }) { totalCount } }' >/dev/null
+    [ "$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)" = "2" ] && { pair_ready=ok; break; }
+    sleep 0.5
+done
+if [ "$pair_ready" = ok ]; then echo "${GREEN}PASS${RESET} (sort pair visible)"; PASS=$((PASS+1));
+else echo "${RED}FAIL${RESET} (sort pair never materialized)"; FAIL=$((FAIL+1)); fi
+
+gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: ["name","email"], first: 1) { edges { node { email } } } }' >/dev/null
+assert_jq "20.9 composite orderBy [name,email] → the lower email leads" \
+    '.data.users.edges[0].node.email' "$GQS_A"
+gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: ["name","-email"], first: 1) { edges { node { email } } } }' >/dev/null
+assert_jq "20.9 composite orderBy [name,-email] → the SECONDARY key flips the pair" \
+    '.data.users.edges[0].node.email' "$GQS_B"
+
+# A non-sortable field is a wire-contract violation, not a silent no-op — the
+# GraphQL twin of REST's ?orderBy=bogus → 400 (e2e §19.20).
+gql 'query { users(orderBy: ["bogus"]) { edges { node { id } } } }' >/dev/null
+assert_jq_true "20.10 orderBy:[bogus] (undeclared field) → rejected, not ignored" \
+    '((.errors // []) | length) > 0'
+
 # Cleanup the GOP fixtures.
-for gid in "$GOP_ID_A" "$GOP_ID_B" "$GOP_ID_C"; do
+for gid in "$GOP_ID_A" "$GOP_ID_B" "$GOP_ID_C" "$GQS_ID_A" "$GQS_ID_B"; do
     [ -n "$gid" ] && [ "$gid" != "null" ] && gql "mutation { deleteUser(id: \"${gid}\") { success } }" >/dev/null
 done
 echo "cleaned up GOP fixtures"

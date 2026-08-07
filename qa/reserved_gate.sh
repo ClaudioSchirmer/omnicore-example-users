@@ -145,6 +145,29 @@ B=$(gql 'query { gadgetsBare(orderBy: ["-name"]) { totalCount } }')
 echo "$B" | grep -q '"errors"' && echo "$B" | grep -qi 'orderBy' \
   && ok "undeclared orderBy rejected" || bad "expected unknown-argument error, got: $(echo "$B" | head -c 200)"
 
+# The SDL cut is argument-by-argument (web/graphql/sdl.go emits one arg per
+# DECLARED control), so proving it for `first` and `orderBy` proves nothing
+# about the other five. SEVEN of the nine keys become GraphQL arguments; the
+# loop below closes the gap for the remaining five.
+#
+# `fields` and `onlyTotal` are deliberately NOT in this list and their absence
+# is not a hole: they are the two graphqlNaturalControls
+# (web/graphql/criteria.go) — the selection set IS the projection, and a
+# totalCount-only selection IS only-total — so neither is ever an argument to
+# cut. 3.3 below pins that natural half.
+gql_cut() { # gql_cut <name> <arg-expression> <arg-name>
+  local name="$1" arg="$2" key="$3"
+  title "$name"
+  local B; B=$(gql "query { gadgetsBare(${arg}) { totalCount } }")
+  echo "$B" | grep -q '"errors"' && echo "$B" | grep -qi "$key" \
+    && ok "$name" || bad "$name (got: $(echo "$B" | head -c 200))"
+}
+gql_cut "3.2a gadgetsBare(last: 1) → unknown argument"                'last: 1'                  'last'
+gql_cut "3.2b gadgetsBare(after: \"c\") → unknown argument"           'after: "c"'               'after'
+gql_cut "3.2c gadgetsBare(before: \"c\") → unknown argument"          'before: "c"'              'before'
+gql_cut "3.2d gadgetsBare(search: \"x\") → unknown argument"          'search: "x"'              'search'
+gql_cut "3.2e gadgetsBare(includeArchived: true) → unknown argument"  'includeArchived: true'    'includeArchived'
+
 title "3.3 gadgetsBare natural selections stay valid (totalCount + where)"
 B=$(gql 'query { gadgetsBare(where: { code: { startswith: "G" } }) { totalCount } }')
 echo "$B" | grep -q '"errors"' \
@@ -186,6 +209,8 @@ grpc_reject "4.2 pagination.last → invalid_argument"             '{"pagination
 grpc_reject "4.3 pagination.only_total → invalid_argument"       '{"pagination":{"onlyTotal":true}}'
 grpc_reject "4.4 pagination.include_archived → invalid_argument" '{"pagination":{"includeArchived":true}}'
 grpc_reject "4.5 pagination.search → invalid_argument"           '{"pagination":{"search":"x"}}'
+grpc_reject "4.5a pagination.after → invalid_argument"           '{"pagination":{"after":"cur"}}'
+grpc_reject "4.5b pagination.before → invalid_argument"          '{"pagination":{"before":"cur"}}'
 grpc_reject "4.6 order_by → invalid_argument"                    '{"orderBy":[{"field":"name"}]}'
 grpc_reject "4.7 fields mask → invalid_argument"                 '{"fields":"name"}'
 # The bools are proto3 optional: an explicitly-set FALSE carries presence on

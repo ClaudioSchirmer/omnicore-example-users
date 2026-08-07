@@ -366,6 +366,38 @@ title "6c.5 include_archived resurfaces alice in the count"
 rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"onlyTotal":true,"includeArchived":true}}'
 if echo "$RPC_BODY" | grep -Eq '"totalCount":"?3"?'; then ok "archived included on opt-in"; else bad "includeArchived"; echo "$RPC_BODY" | head -c 200; fi
 
+# 6c.5 proves include_archived on a COUNT. The flag's real job is reshaping a
+# LISTING, and the items path never exercised it here: a reader that honored the
+# flag only in count mode would pass 6c.5 untouched. REST pins both (e2e §16.2
+# count-side §17.4). Default first, so the contrast is in one place.
+title "6c.5b include_archived reshapes the ITEMS, not just the count"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"first":10}}'
+default_hides=no
+echo "$RPC_BODY" | grep -q 'grpcqa_carol' && ! echo "$RPC_BODY" | grep -q 'grpcqa_alice' && default_hides=yes
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"first":10,"includeArchived":true}}'
+if [ "$default_hides" = yes ] && [ "$RPC_STATUS" = "200" ] \
+   && echo "$RPC_BODY" | grep -q 'grpcqa_alice' && echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
+  ok "archived alice hidden by default, present in the items on opt-in"
+else
+  bad "include_archived listing (default_hides=$default_hides status=$RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+# Composite order_by — repeated OrderByField is the proto's multi-key form, but
+# every case so far sent a SINGLE term, so a reader that silently dropped every
+# term past the first would look correct. user_profile is 1 on all grpcqa
+# fixtures: a deliberate TIE, so the pair can only be separated by the SECOND
+# key. REST pins the same shape at e2e §24.3.
+title "6c.6 composite order_by: the secondary key breaks the user_profile tie"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_profile"},{"field":"user_name"}],"pagination":{"first":1}}'
+sec_asc=$(echo "$RPC_BODY" | grep -o 'grpcqa_[a-z]*' | head -1)
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_profile"},{"field":"user_name","desc":true}],"pagination":{"first":1}}'
+sec_desc=$(echo "$RPC_BODY" | grep -o 'grpcqa_[a-z]*' | head -1)
+if [ "$sec_asc" = "grpcqa_carol" ] && [ "$sec_desc" = "grpcqa_dave" ]; then
+  ok "secondary key honored in both directions (asc=$sec_asc, desc=$sec_desc)"
+else
+  bad "composite order_by (asc=$sec_asc, desc=$sec_desc)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
 ##############################################################################
 sec "6d. The FULL Semantic → code table (Provoke fixture)"
 ##############################################################################

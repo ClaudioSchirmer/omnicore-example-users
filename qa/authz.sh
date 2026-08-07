@@ -633,6 +633,26 @@ if capture_post "$TOK_BOB" "$FA_EMAIL" "10000000304"; then
     # alice ACTIVELY asking for the restricted field → 403.
     show_case "GET /users?fields=phone as alice (non-admin) → 403 FieldAccessForbiddenNotification" \
       GET "/users?fields=phone" "$TOK_ALICE" "" 403 FieldAccessForbiddenNotification
+
+    # The GraphQL twin of the three cases above. `fields` is not an argument on
+    # this surface — the SELECTION SET is the projection (one of the two
+    # graphqlNaturalControls), and projectionFromSelection feeds the very same
+    # ReadCriteria.Restrict active-reference check. So selecting `phone` in the
+    # node IS the GraphQL spelling of ?fields=phone, and it must refuse for the
+    # same principal, with the same notification key. Without these, the
+    # restricted-field contract was proven on exactly one of the two read
+    # surfaces that share the handler.
+    show_gql_case "GraphQL selecting phone as bob (admin) → resolves (no gate error)" \
+      "$TOK_BOB" "query { users(where: {email: {eq: \"$FA_EMAIL\"}}) { edges { node { name phone } } } }" \
+      ALLOW
+    show_gql_case "GraphQL selecting phone as alice (non-admin) → FieldAccessForbiddenNotification" \
+      "$TOK_ALICE" "query { users(where: {email: {eq: \"$FA_EMAIL\"}}) { edges { node { name phone } } } }" \
+      FieldAccessForbiddenNotification
+    # Passive omission: the same principal reading WITHOUT naming the restricted
+    # field is not refused — the field is scrubbed, the read still serves.
+    show_gql_case "GraphQL without phone in the selection as alice → resolves (passive omission)" \
+      "$TOK_ALICE" "query { users(where: {email: {eq: \"$FA_EMAIL\"}}) { edges { node { name } } } }" \
+      ALLOW
   else
     title "15 — CDC did not materialize the field-access user in time"
     printf '\033[1;31mFAIL\033[0m\n'; FAIL=$((FAIL+1))
