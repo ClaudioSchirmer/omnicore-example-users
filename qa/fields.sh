@@ -106,7 +106,7 @@ if isinstance(node, list): node = node[0] if node else {}
 print(",".join(sorted((node or {}).keys())))' "$2"
 }
 jtotal() { curl -sS "$1" | python3 -c 'import sys,json
-try: print(json.load(sys.stdin).get("pagination",{}).get("total",-1))
+try: print(json.load(sys.stdin).get("pagination",{}).get("totalCount",-1))
 except Exception: print(-1)'; }
 wait_for() {
   local url="$1" path="$2" want="$3" tries="${4:-60}" got=""

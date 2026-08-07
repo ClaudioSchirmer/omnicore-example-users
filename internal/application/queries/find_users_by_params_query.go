@@ -18,7 +18,7 @@ type FindUsersByParamsQuery struct {
 // ToCriteria showcases field-level read access: Phone is restricted to
 // principals carrying users:admin. Restrict removes the field from the read
 // (projection + sort + filter), so it surfaces in neither the JSON nor the
-// CSV/XLSX export for a non-admin; an active reference (?sort=phone /
+// CSV/XLSX export for a non-admin; an active reference (?orderBy=phone /
 // ?fields=phone) returns 403. Dev-safe: under auth-disabled dev the Identity is
 // nil and everyone is trusted, so Phone is not restricted there.
 func (q FindUsersByParamsQuery) ToCriteria(ctx *configuration.AppContext) (fwqueries.ReadCriteria, error) {

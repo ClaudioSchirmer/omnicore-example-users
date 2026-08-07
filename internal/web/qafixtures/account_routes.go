@@ -88,7 +88,7 @@ func MountAccounts(
 		listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List shared-base accounts (paged; filter/sort/fields into embeds)",
-			Description: "Paged read of `qa_accounts_view`. Root filters (`accountRef`, `displayName`), the role segment (`accountHolder.holderName`) AND the embed segments (`featuredItem.label`, `items.label`) all select ROWS over the materialized document; `?sort=`, `?fields=` (incl. into segments), `?limit`/`?after`/`?before`, `?onlyTotal` apply as on any view.",
+			Description: "Paged read of `qa_accounts_view`. Root filters (`accountRef`, `displayName`), the role segment (`accountHolder.holderName`) AND the embed segments (`featuredItem.label`, `items.label`) all select ROWS over the materialized document; `?orderBy=`, `?fields=` (incl. into segments), `?first`/`?last`/`?after`/`?before`, `?onlyTotal` apply as on any view.",
 			Tags:        []string{"QA Accounts (shared-base embed)"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
@@ -330,10 +330,11 @@ type FindAccountsRequest struct {
 	Items         ItemSegmentFilter   `query:"items"`
 	AccountLines  AccountLineFilter   `query:"accountLines"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`

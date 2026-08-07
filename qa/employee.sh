@@ -64,13 +64,13 @@ expect_status() {
 jsonq() { printf '%s' "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
 
 # wait_view_total <query-string> <expected-total> [timeout] — polls the list
-# endpoint until pagination.total matches (CDC is eventually consistent).
+# endpoint until pagination.totalCount matches (CDC is eventually consistent).
 wait_view_total() {
   local qs="$1" expected="$2" timeout="${3:-20}"
   local deadline=$(( $(date +%s) + timeout )) total
   while [ "$(date +%s)" -lt "$deadline" ]; do
     req GET "/employees?$qs&onlyTotal=true"
-    total=$(jsonq "d['pagination']['total']")
+    total=$(jsonq "d['pagination']['totalCount']")
     [ "$total" = "$expected" ] && return 0
     sleep 0.3
   done
@@ -236,19 +236,19 @@ BANK=$(jsonq "d['data'][0]['bank']")
 
 title "2.4 Filters by child path, child-SIBLING path, and root sibling field"
 req GET "/employees?dependents.relationship=daughter&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "?dependents.relationship=daughter → 1" || bad "child filter failed: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "?dependents.relationship=daughter → 1" || bad "child filter failed: $RESP"
 req GET "/employees?dependents.healthPlanProvider=Unimed&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "?dependents.healthPlanProvider=Unimed (child-sibling leaf) → 1" || bad "child-sibling filter failed: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "?dependents.healthPlanProvider=Unimed (child-sibling leaf) → 1" || bad "child-sibling filter failed: $RESP"
 req GET "/employees?jobHistories.department=Data&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "?jobHistories.department=Data → 1" || bad "second-child filter failed: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "?jobHistories.department=Data → 1" || bad "second-child filter failed: $RESP"
 req GET "/employees?dependents.relationship=mother&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "0" ] && ok "negative child filter → 0" || bad "negative filter: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "0" ] && ok "negative child filter → 0" || bad "negative filter: $RESP"
 req GET "/employees?bank=260&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "?bank=260 (root sibling field) → 1" || bad "sibling filter failed: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "?bank=260 (root sibling field) → 1" || bad "sibling filter failed: $RESP"
 
 title "2.5 Sort by child field is accepted"
-req GET "/employees?sort=dependents.name&fields=name"
-expect_status "GET ?sort=dependents.name" 200
+req GET "/employees?orderBy=dependents.name&fields=name"
+expect_status "GET ?orderBy=dependents.name" 200
 
 title "2.6 Unknown child key stays rejected by the allowlist"
 req GET "/employees?dependents.unknown=x"
@@ -366,9 +366,9 @@ title "5.3 Read-side: archived employee hidden by default, visible with includeA
 wait_view_total "document=$D5&includeArchived=true" 1 || true
 wait_view_total "document=$D5" 0 || true
 req GET "/employees?document=$D5&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "0" ] && ok "default read hides archived" || bad "archived doc still listed: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "0" ] && ok "default read hides archived" || bad "archived doc still listed: $RESP"
 req GET "/employees?document=$D5&includeArchived=true&onlyTotal=true"
-[ "$(jsonq "d['pagination']['total']")" = "1" ] && ok "?includeArchived=true surfaces it" || bad "includeArchived read: $RESP"
+[ "$(jsonq "d['pagination']['totalCount']")" = "1" ] && ok "?includeArchived=true surfaces it" || bad "includeArchived read: $RESP"
 
 title "5.4 Archive the USER too → the LAST active role goes, the base converges to archived"
 # CDC poll before extracting the id (the e2e suite's own by-id pattern): the
@@ -430,7 +430,7 @@ DEPN=$(jsonq "len(d['data']['employees']['edges'][0]['node']['dependents'])")
 [ "$TOTAL" = "1" ] && ok "GraphQL where-filter totalCount=1" || bad "GraphQL totalCount=$TOTAL — $RESP"
 [ "$DEPN" = "2" ] && ok "GraphQL renders nested dependents" || bad "GraphQL dependents=$DEPN"
 
-title "7.2 count-only (totalCount without edges)"
+title "7.2 only-total (totalCount without edges)"
 gql "{\"query\":\"{ employees(where: {dependents_relationship: {eq: \\\"daughter\\\"}}) { totalCount } }\"}"
 [ "$(jsonq "d['data']['employees']['totalCount']")" = "1" ] && ok "GraphQL child filter count" || bad "GraphQL child filter: $RESP"
 
@@ -866,10 +866,10 @@ for r in spouse son daughter father mother other; do
   vpf "8.1 relationship in/out ($r)" "$(emp_dep_field "$d" relationship)" "$r"
   wait_view_total "dependents.relationship=$r" 1 8 >/dev/null 2>&1
   req GET "/employees?dependents.relationship=$r&onlyTotal=true"
-  vpf "8.1 filter ?dependents.relationship=$r ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+  vpf "8.1 filter ?dependents.relationship=$r ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 done
 req GET "/employees?dependents.relationship=cousin&onlyTotal=true"
-vpf "8.1 filter relationship=cousin (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
+vpf "8.1 filter relationship=cousin (non-member) → 0" "$(jsonq "d['pagination']['totalCount']")" 0
 
 # ── 8.2 HealthPlanType (enum, CHILD-level sibling, nullable) ────────────────
 for h in individual family corporate; do
@@ -879,10 +879,10 @@ for h in individual family corporate; do
   vpf "8.2 healthPlanType in/out ($h)" "$(emp_dep_field "$d" healthPlanType)" "$h"
   wait_view_total "dependents.healthPlanType=$h" 1 8 >/dev/null 2>&1
   req GET "/employees?dependents.healthPlanType=$h&onlyTotal=true"
-  vpf "8.2 filter ?dependents.healthPlanType=$h ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+  vpf "8.2 filter ?dependents.healthPlanType=$h ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 done
 req GET "/employees?dependents.healthPlanType=platinum&onlyTotal=true"
-vpf "8.2 filter healthPlanType=platinum (non-member) → 0" "$(jsonq "d['pagination']['total']")" 0
+vpf "8.2 filter healthPlanType=platinum (non-member) → 0" "$(jsonq "d['pagination']['totalCount']")" 0
 
 # ── 8.3 HealthPlanCard (raw VO, digit regex) — in/out + invalid ────────────
 emp_create "EV-CARD" white daughter family; d="$LAST_DOC"
@@ -900,7 +900,7 @@ for e in black asian mixed; do
 done
 wait_view_total "ethnicity=asian" 1 8 >/dev/null 2>&1
 req GET "/employees?ethnicity=asian&onlyTotal=true"
-vpf "8.4 filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['total']")" -ge 1 ] && echo ok || echo no)" ok
+vpf "8.4 filter ?ethnicity=asian ≥1" "$([ "$(jsonq "d['pagination']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 
 # ── 8.5 Invalid enums on the dependent/role → 422 ──────────────────────────
 req POST /employees "{\"name\":\"Bad Rel\",\"email\":\"badrel@example.com\",\"document\":\"48900000002\",\"employeeNumber\":\"EV-BR\",\"ethnicity\":\"white\",\"dependents\":[{\"name\":\"D\",\"birthDate\":\"2015-01-01T00:00:00Z\",\"relationship\":\"cousin\"}]}"
@@ -909,9 +909,9 @@ req POST /employees "{\"name\":\"Bad HPT\",\"email\":\"badhpt@example.com\",\"do
 vpf "8.5 invalid healthPlanType → 422" "$([ "$STATUS" = "422" ] && echo "$(jsonq "d['errors'][0]['messages'][0]['notificationKey']")" || echo "$STATUS")" "UnknownHealthPlanTypeNotification"
 
 # ── 8.6 ?fields= projects VO fields (root + into the dependent) ─────────────
-req GET "/employees?fields=ethnicity&limit=1"
+req GET "/employees?fields=ethnicity&first=1"
 vpf "8.6 ?fields=ethnicity projects it" "$(jsonq "'ethnicity' in (d['data'][0] if d['data'] else {})")" True
-req GET "/employees?fields=dependents.relationship&limit=1"
+req GET "/employees?fields=dependents.relationship&first=1"
 vpf "8.6 ?fields=dependents.relationship projects it" "$(jsonq "'relationship' in (d['data'][0]['dependents'][0] if d['data'] and d['data'][0].get('dependents') else {})")" True
 
 # ── 8.7 GraphQL surfaces the VO fields ─────────────────────────────────────
@@ -919,8 +919,8 @@ gql "{\"query\":\"{ employees(where: {ethnicity: {eq: \\\"asian\\\"}}) { totalCo
 vpf "8.7 GraphQL filter ethnicity=asian + projects dependent VO" "$([ "$(jsonq "d['data']['employees']['totalCount']")" -ge 1 ] && echo ok || echo no)" ok
 
 # ── 8.8 sort by ethnicity accepted ─────────────────────────────────────────
-req GET "/employees?sort=ethnicity&limit=3"
-vpf "8.8 sort ?sort=ethnicity accepted" "$STATUS" 200
+req GET "/employees?orderBy=ethnicity&first=3"
+vpf "8.8 sort ?orderBy=ethnicity accepted" "$STATUS" 200
 
 ####################################
 sec "9. VO validation — dependent notification message + FIELD LABEL (EN & PT-BR)"

@@ -322,6 +322,19 @@ func MountQAGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
 			Reader: d.ViewReader, View: "gadgets",
 		}))
 
+	// ListGadgetsBare is the reserved-gate proof on the gRPC surface: the
+	// SAME shared request message, but bound to a Request DTO that declares
+	// NO reserved control keys — so every control set on the wire rejects
+	// as INVALID_ARGUMENT through the canonical gateway (the shared proto
+	// cannot narrow per RPC; the DTO decides what THIS endpoint honors).
+	reg.Register(fwgrpc.QueryWithParams[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse](
+		qafixturesv1connect.QAServiceListGadgetsBareProcedure,
+		FindGadgetsBareRequest{},
+		fwresponses.AutoFromDoc[FindGadgetsResponse],
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+			Reader: d.ViewReader, View: "gadgets",
+		}))
+
 	// The RelationalSource twin of the line above: identical DTO seats, handler
 	// and messages — only the View name differs. It exists so the gRPC list
 	// envelope (PaginationInfo, total included) is proven over a relationally served

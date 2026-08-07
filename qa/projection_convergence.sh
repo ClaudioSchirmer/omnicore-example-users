@@ -277,7 +277,7 @@ title "4.1 DELETE the last role → purge; person doc gone; registry base record
 UREV=$(qa_db_query "SELECT revision FROM users WHERE id = (SELECT id FROM persons WHERE document='$DP1')" | tr -d '[:space:]')
 req DELETE "/users/$UID1"
 expect_status "DELETE /users/:id (last role → purge)" 204
-wait_view "/persons?document=$DP1&onlyTotal=true" "d['pagination']['total'] == 0" && ok "person doc removed on purge" || bad "person doc survived the purge"
+wait_view "/persons?document=$DP1&onlyTotal=true" "d['pagination']['totalCount'] == 0" && ok "person doc removed on purge" || bad "person doc survived the purge"
 if wait_eq "-1" registry_base_rev "$BID1"; then
   ok "registry base record dropped by the purge"
 else
@@ -301,7 +301,7 @@ UID1B=$(jsonq "d['data']['id']")
 [ "$UID1B" = "$UID1" ] && ok "deterministic id returned (same UUIDv5 as the dead life)" || bad "reborn id differs: $UID1B vs $UID1"
 wait_view "/users?document=$DP1" "len(d['data']) == 1 and d['data'][0]['name'] == 'Reg One Reborn'" \
   && ok "reborn users doc materialized past the old tombstone" || bad "old tombstone killed the reborn document"
-wait_view "/persons?document=$DP1&onlyTotal=true" "d['pagination']['total'] == 1" \
+wait_view "/persons?document=$DP1&onlyTotal=true" "d['pagination']['totalCount'] == 1" \
   && ok "reborn person doc materialized" || bad "person doc missing after rebirth"
 # The old tombstone is still there (TTL owns its removal) — proof the doc
 # survived BECAUSE of the created_at scope, not because the tombstone vanished.

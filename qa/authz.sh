@@ -246,7 +246,7 @@ assert_phone_visibility() {
   local tmp status has
   tmp=$(mktemp)
   status=$(curl -sS -o "$tmp" -w "%{http_code}" -H "Accept-Language: en-US" \
-    -H "Authorization: Bearer $token" "$BASE/users?limit=100")
+    -H "Authorization: Bearer $token" "$BASE/users?first=100")
   has=$(python3 -c '
 import sys, json
 try:

@@ -45,9 +45,10 @@ type FindLensFieldsForeverRequest struct {
 
 	Brand LensFieldsForeverBrandFilter `query:"brand"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
@@ -63,9 +64,10 @@ type FindLensFieldsLifecycleRequest struct {
 
 	Brand LensFieldsLifecycleBrandFilter `query:"brand"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
@@ -111,9 +113,10 @@ type FindLensFieldsPartsResponse struct {
 type FindLensFieldsKitsRequest struct {
 	Name *string `query:"name" filter:"eq,contains"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`

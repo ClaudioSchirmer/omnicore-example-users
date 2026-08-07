@@ -14,12 +14,12 @@
 #     (SemanticStateConflict) — asserted indirectly via the semantic
 #     metadata emitted with each ErrorInfo
 #   - ListUsers: equality filter, only_total, X-Request-ID echo
-#   - the only_total CONFLICT MATRIX (REST e2e §17 parity): count-only +
-#     each page-shaping control (limit/after/before/sort/read_mask) →
+#   - the only_total CONFLICT MATRIX (REST e2e §17 parity): only-total +
+#     each page-shaping control (first/last/after/before/orderBy/fields) →
 #     invalid_argument with the onlyTotal[<key>] marker; filters, search
 #     and include_archived stay valid in count mode; only_total=false
 #     behaves as omitted
-#   - mask/sort vocabulary guards: an undeclared read_mask path or sort
+#   - fields/orderBy vocabulary guards: an undeclared fields path or orderBy
 #     field → invalid_argument (the Fields allowlist, REST tag parity)
 #   - the WIRE-TYPE matrix (EchoTypes fixture): every proto scalar kind
 #     through the pb↔DTO bridge in both directions — the 64-bit integers
@@ -191,7 +191,7 @@ title "4.1 ListUsers user_name=grpcqa_alice → total 1 (poll: projection is asy
 deadline=$(( $(date +%s) + 15 )); found=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_EQ","values":["grpcqa_alice"]}]}}}'
-  echo "$RPC_BODY" | grep -q '"total":"1"\|"total":1' && { found=ok; break; }
+  echo "$RPC_BODY" | grep -q '"totalCount":"1"\|"totalCount":1' && { found=ok; break; }
   sleep 0.5
 done
 echo "status=$RPC_STATUS body=${RPC_BODY:0:200}"
@@ -209,12 +209,12 @@ else
   bad "only_total (got $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
-title "4.3 icontains filter + sort + read_mask (shared omnicore.v1 components)"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_ICONTAINS","values":["GRPCQA"]}]}},"sort":[{"field":"user_name","desc":true}],"readMask":"id,userName"}'
+title "4.3 icontains filter + orderBy + fields (shared omnicore.v1 components)"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_ICONTAINS","values":["GRPCQA"]}]}},"orderBy":[{"field":"user_name","desc":true}],"fields":"id,userName"}'
 echo "status=$RPC_STATUS body=${RPC_BODY:0:200}"
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"userName":"grpcqa_alice"' \
    && ! echo "$RPC_BODY" | grep -q '"email"'; then
-  ok "contains + sort + read_mask projection (email masked out)"
+  ok "contains + orderBy + fields projection (email masked out)"
 else
   bad "typed criteria"; echo "$RPC_BODY" | head -c 400; echo
 fi
@@ -336,14 +336,14 @@ rpc CreateUser '{"name":"Grpc Dave","email":"grpc.dave@example.com","document":"
 deadline=$(( $(date +%s) + 15 )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
   rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"onlyTotal":true}}'
-  echo "$RPC_BODY" | grep -Eq '"total":"?2"?' && { seeded=ok; break; }
+  echo "$RPC_BODY" | grep -Eq '"totalCount":"?2"?' && { seeded=ok; break; }
   sleep 0.5
 done
 [ "$seeded" = ok ] && ok "carol + dave projected (alice hidden as archived)" || { bad "seeding"; echo "$RPC_BODY" | head -c 200; }
 
-title "6c.2 page 1: sort userName asc, limit 1 → carol + nextCursor"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"sort":[{"field":"user_name"}],"pagination":{"limit":1}}'
-CURSOR=$(echo "$RPC_BODY" | grep -o '"nextCursor":"[^"]*"' | cut -d'"' -f4)
+title "6c.2 page 1: orderBy userName asc, first 1 → carol + endCursor"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_name"}],"pagination":{"first":1}}'
+CURSOR=$(echo "$RPC_BODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
 if echo "$RPC_BODY" | grep -q '"userName":"grpcqa_carol"' && [ -n "$CURSOR" ]; then
   ok "page 1 = carol, cursor issued"
 else
@@ -351,7 +351,7 @@ else
 fi
 
 title "6c.3 page 2: after=cursor → dave"
-rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"pagination\":{\"limit\":1,\"after\":\"$CURSOR\"}}"
+rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"orderBy\":[{\"field\":\"user_name\"}],\"pagination\":{\"first\":1,\"after\":\"$CURSOR\"}}"
 if echo "$RPC_BODY" | grep -q '"userName":"grpcqa_dave"' && ! echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
   ok "cursor walk reaches dave only"
 else
@@ -360,11 +360,11 @@ fi
 
 title "6c.4 IN filter with multiple values"
 rpc ListUsers '{"filters":{"email":{"conditions":[{"op":"STRING_OP_IN","values":["carol.renamed@example.com","grpc.dave@example.com"]}]}},"pagination":{"onlyTotal":true}}'
-if echo "$RPC_BODY" | grep -Eq '"total":"?2"?'; then ok "IN matches both"; else bad "IN"; echo "$RPC_BODY" | head -c 200; fi
+if echo "$RPC_BODY" | grep -Eq '"totalCount":"?2"?'; then ok "IN matches both"; else bad "IN"; echo "$RPC_BODY" | head -c 200; fi
 
 title "6c.5 include_archived resurfaces alice in the count"
 rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"onlyTotal":true,"includeArchived":true}}'
-if echo "$RPC_BODY" | grep -Eq '"total":"?3"?'; then ok "archived included on opt-in"; else bad "includeArchived"; echo "$RPC_BODY" | head -c 200; fi
+if echo "$RPC_BODY" | grep -Eq '"totalCount":"?3"?'; then ok "archived included on opt-in"; else bad "includeArchived"; echo "$RPC_BODY" | head -c 200; fi
 
 ##############################################################################
 sec "6d. The FULL Semantic → code table (Provoke fixture)"
@@ -415,7 +415,7 @@ gtotal() { # gtotal <field> <op> <values-json>
   curl -sS -X POST -H "Content-Type: application/json" \
     "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
     -d "{\"filters\":{\"$1\":{\"conditions\":[{\"op\":\"$2\",\"values\":$3}]}},\"pagination\":{\"onlyTotal\":true}}" \
-    | grep -o '"total":"\{0,1\}[0-9]*' | grep -o '[0-9]*$'
+    | grep -o '"totalCount":"\{0,1\}[0-9]*' | grep -o '[0-9]*$'
 }
 deadline=$(( $(date +%s) + 15 )); seeded=fail
 while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -458,25 +458,25 @@ title "6e.4 two ops on the same field AND-combine (MultiClause)"
 RES=$(curl -sS -X POST -H "Content-Type: application/json" \
   "$GRPC_BASE/qafixtures.v1.QAService/ListGadgets" \
   -d '{"filters":{"name":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["Rocket"]},{"op":"STRING_OP_ICONTAINS","values":["DRILL"]}]}},"pagination":{"onlyTotal":true}}')
-echo "$RES" | grep -Eq '"total":"?1"?' && ok "AND-combined conditions" || { bad "MultiClause"; echo "$RES" | head -c 200; }
+echo "$RES" | grep -Eq '"totalCount":"?1"?' && ok "AND-combined conditions" || { bad "MultiClause"; echo "$RES" | head -c 200; }
 
 ##############################################################################
-sec "6f. Backward pagination (before + prev_cursor)"
+sec "6f. Backward pagination (before + startCursor)"
 ##############################################################################
-title "6f.1 walk forward to dave, then back to carol via prevCursor"
-rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"sort":[{"field":"user_name"}],"pagination":{"limit":1}}'
-CUR_F=$(echo "$RPC_BODY" | grep -o '"nextCursor":"[^"]*"' | cut -d'"' -f4)
-rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"pagination\":{\"limit\":1,\"after\":\"$CUR_F\"}}"
-CUR_B=$(echo "$RPC_BODY" | grep -o '"prevCursor":"[^"]*"' | cut -d'"' -f4)
+title "6f.1 walk forward to dave, then back to carol via startCursor"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_name"}],"pagination":{"first":1}}'
+CUR_F=$(echo "$RPC_BODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
+rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"orderBy\":[{\"field\":\"user_name\"}],\"pagination\":{\"first\":1,\"after\":\"$CUR_F\"}}"
+CUR_B=$(echo "$RPC_BODY" | grep -o '"startCursor":"[^"]*"' | cut -d'"' -f4)
 if [ -n "$CUR_B" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave'; then
-  rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"sort\":[{\"field\":\"user_name\"}],\"pagination\":{\"limit\":1,\"before\":\"$CUR_B\"}}"
+  rpc ListUsers "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_\"]}]}},\"orderBy\":[{\"field\":\"user_name\"}],\"pagination\":{\"last\":1,\"before\":\"$CUR_B\"}}"
   if echo "$RPC_BODY" | grep -q 'grpcqa_carol' && ! echo "$RPC_BODY" | grep -q 'grpcqa_dave'; then
     ok "before-cursor walks back to carol"
   else
     bad "backward walk"; echo "$RPC_BODY" | head -c 300; echo
   fi
 else
-  bad "prevCursor missing on page 2"; echo "$RPC_BODY" | head -c 300; echo
+  bad "startCursor missing on page 2"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
 ##############################################################################
@@ -629,10 +629,10 @@ echoes "the full matrix round-trips in a single call" \
   '"sumCents":"2180"' '"labelPresent":true'
 
 ##############################################################################
-sec "6h. The only_total conflict matrix + mask/sort vocabulary guards"
+sec "6h. The only_total conflict matrix + fields/orderBy vocabulary guards"
 ##############################################################################
 # The REST wrapper rejects ?onlyTotal=true combined with any page-shaping
-# control (e2e §17.5-17.9: fields/sort/limit/after/before → 400 with the
+# control (e2e §17.5-17.9: fields/orderBy/first/last/after/before → 400 with the
 # onlyTotal[<key>] marker). The gRPC criteria builder carries the SAME matrix
 # — presence-based, since proto3 optional distinguishes absent from zero.
 # Filter leaves, search and include_archived stay valid in count mode
@@ -650,29 +650,29 @@ conflict() { # conflict <label> <request-json> <marker>
   fi
 }
 
-title "6h.1 only_total + limit → invalid_argument (onlyTotal[limit])"
-conflict "count-only rejects limit" \
-  '{"pagination":{"onlyTotal":true,"limit":1}}' 'onlyTotal[limit]'
+title "6h.1 only_total + limit → invalid_argument (onlyTotal[first])"
+conflict "only-total rejects first" \
+  '{"pagination":{"onlyTotal":true,"first":1}}' 'onlyTotal[first]'
 
 title "6h.2 only_total + after → invalid_argument (onlyTotal[after])"
-conflict "count-only rejects after" \
+conflict "only-total rejects after" \
   '{"pagination":{"onlyTotal":true,"after":"cur-xyz"}}' 'onlyTotal[after]'
 
 title "6h.3 only_total + before → invalid_argument (onlyTotal[before])"
-conflict "count-only rejects before" \
+conflict "only-total rejects before" \
   '{"pagination":{"onlyTotal":true,"before":"cur-xyz"}}' 'onlyTotal[before]'
 
-title "6h.4 only_total + sort → invalid_argument (onlyTotal[sort])"
-conflict "count-only rejects sort" \
-  '{"sort":[{"field":"user_name"}],"pagination":{"onlyTotal":true}}' 'onlyTotal[sort]'
+title "6h.4 only_total + orderBy → invalid_argument (onlyTotal[orderBy])"
+conflict "only-total rejects orderBy" \
+  '{"orderBy":[{"field":"user_name"}],"pagination":{"onlyTotal":true}}' 'onlyTotal[orderBy]'
 
-title "6h.5 only_total + read_mask → invalid_argument (onlyTotal[read_mask])"
-conflict "count-only rejects read_mask" \
-  '{"readMask":"userName","pagination":{"onlyTotal":true}}' 'onlyTotal[read_mask]'
+title "6h.5 only_total + fields → invalid_argument (onlyTotal[fields])"
+conflict "only-total rejects fields" \
+  '{"fields":"userName","pagination":{"onlyTotal":true}}' 'onlyTotal[fields]'
 
 title "6h.6 search stays valid in count mode (PaginationRequest.search)"
 rpc ListUsers '{"pagination":{"onlyTotal":true,"search":"Dave"}}'
-if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -Eq '"total":"?1"?' \
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -Eq '"totalCount":"?1"?' \
    && ! echo "$RPC_BODY" | grep -q '"items"'; then
   ok "search + only_total counts the text-index match"
 else
@@ -680,7 +680,7 @@ else
 fi
 
 title "6h.7 search in listing mode shapes the items"
-rpc ListUsers '{"pagination":{"limit":10,"search":"Dave"}}'
+rpc ListUsers '{"pagination":{"first":10,"search":"Dave"}}'
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave' \
    && ! echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
   ok "search selects dave only, items returned"
@@ -689,27 +689,27 @@ else
 fi
 
 title "6h.8 only_total=false behaves as omitted (listing envelope intact)"
-rpc ListUsers '{"pagination":{"onlyTotal":false,"limit":1}}'
+rpc ListUsers '{"pagination":{"onlyTotal":false,"first":1}}'
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"items"'; then
   ok "explicit false keeps the listing envelope (limit accepted)"
 else
   bad "onlyTotal=false (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
-title "6h.9 undeclared read_mask path → invalid_argument (Fields allowlist)"
-rpc ListUsers '{"readMask":"nope"}'
+title "6h.9 undeclared fields path → invalid_argument (Fields allowlist)"
+rpc ListUsers '{"fields":"nope"}'
 if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
-  ok "read_mask outside the vocabulary rejects"
+  ok "fields mask outside the vocabulary rejects"
 else
   bad "undeclared mask (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
-title "6h.10 undeclared sort field → invalid_argument (Fields allowlist)"
-rpc ListUsers '{"sort":[{"field":"nope"}]}'
+title "6h.10 undeclared orderBy field → invalid_argument (Fields allowlist)"
+rpc ListUsers '{"orderBy":[{"field":"nope"}]}'
 if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
-  ok "sort outside the vocabulary rejects"
+  ok "orderBy outside the vocabulary rejects"
 else
-  bad "undeclared sort (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+  bad "undeclared orderBy (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
 ##############################################################################

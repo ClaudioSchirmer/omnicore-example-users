@@ -108,7 +108,7 @@ func MountGadgetsRel(
 		cListH, cListSpec,
 		fwopenapi.Doc{
 			Summary:     "List relational gadgets with a per-view MaxLimit(5)",
-			Description: "Relational twin carrying MaxLimit(5): `?limit=` over 5 returns 400 LimitExceededNotification, identical to the Mongo gadgets_capped view.",
+			Description: "Relational twin carrying MaxLimit(5): `?first=` over 5 returns 400 LimitExceededNotification, identical to the Mongo gadgets_capped view.",
 			Tags:        []string{"QA Relational Views"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))

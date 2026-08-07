@@ -87,6 +87,45 @@ func MountGadgets(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
+	// Bare list — the reserved-gate proof surface: same view, same handler,
+	// but the Request DTO declares NO reserved control keys, so every
+	// control (?first/?last/?after/?before/?orderBy/?fields/?search/
+	// ?includeArchived/?onlyTotal) must reject 400 through the canonical
+	// gateway while the two filter leaves keep working. Mounted BEFORE the
+	// /:id route so the literal segment wins the match.
+	bareH, bareSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
+		FindGadgetsBareRequest{},
+		fwresponses.AutoFromDoc[FindGadgetsResponse],
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/bare",
+		bareH, bareSpec,
+		fwopenapi.Doc{
+			Summary:     "List gadgets (bare DTO — no reserved controls declared)",
+			Description: "The reserved-gate proof: this endpoint's Request DTO declares only the `code`/`name` filter leaves. Every reserved control key on the wire rejects 400 (the DTO governs what an endpoint exposes); filters work normally.",
+			Tags:        []string{"QA Gadgets"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
+	// Bare by-id — the by-id half of the reserved-gate proof: the DTO declares
+	// nothing, so ?includeArchived (the by-id surface's one reserved control)
+	// rejects 400 through the same DTO gate.
+	bareByIDH, bareByIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
+		FindGadgetBareByIDRequest{},
+		fwresponses.AutoFromDoc[FindGadgetByIDResponse],
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/bare/:id",
+		bareByIDH, bareByIDSpec,
+		fwopenapi.Doc{
+			Summary:     "Get a gadget by id (bare DTO — no reserved controls declared)",
+			Description: "The by-id reserved-gate proof: `?includeArchived` rejects 400 because this endpoint's Request DTO does not declare it.",
+			Tags:        []string{"QA Gadgets"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
 	// By id.
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetByIDRequest{},

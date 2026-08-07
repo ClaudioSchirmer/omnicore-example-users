@@ -123,7 +123,7 @@ func MountGadgetShowcase(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	// MaxLimit — list over `gadgets_capped` (MaxLimit 5). ?limit>5 is rejected
+	// MaxLimit — list over `gadgets_capped` (MaxLimit 5). ?first>5 is rejected
 	// with 400 LimitExceededNotification at read time.
 	cappedH, cappedSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
@@ -135,7 +135,7 @@ func MountGadgetShowcase(
 		cappedH, cappedSpec,
 		fwopenapi.Doc{
 			Summary:     "List gadgets (MaxLimit(5) capped view)",
-			Description: "Paged read against the `gadgets_capped` Mongo view, declared with .MaxLimit(5). A ?limit greater than 5 is rejected with 400 LimitExceededNotification (per-view ceiling); the default `gadgets` view keeps the framework default of 100.",
+			Description: "Paged read against the `gadgets_capped` Mongo view, declared with .MaxLimit(5). A ?first greater than 5 is rejected with 400 LimitExceededNotification (per-view ceiling); the default `gadgets` view keeps the framework default of 100.",
 			Tags:        []string{"QA Gadgets"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))

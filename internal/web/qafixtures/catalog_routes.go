@@ -74,7 +74,7 @@ func MountCatalogs(
 		listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List catalogs (paged; filter/sort/fields into embeds)",
-			Description: "Paged read of `qa_catalog_view` (a normal view). Root filter (`name`) and embed-segment filters (`featuredItem.label`, `items.label`) select ROWS over the materialized document; `?sort=`, `?fields=` (incl. into segments), pagination and `?onlyTotal` apply as on any view.",
+			Description: "Paged read of `qa_catalog_view` (a normal view). Root filter (`name`) and embed-segment filters (`featuredItem.label`, `items.label`) select ROWS over the materialized document; `?orderBy=`, `?fields=` (incl. into segments), pagination and `?onlyTotal` apply as on any view.",
 			Tags:        []string{"QA Catalogs (normal-view embed)"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
@@ -218,10 +218,11 @@ type FindCatalogsRequest struct {
 	// nested one level deeper, the EmbedInChild enrichment (catalogLines.item.label).
 	CatalogLines CatalogLineFilter `query:"catalogLines"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`
@@ -273,7 +274,7 @@ func MountCatalogsFull(app *fiber.App, composed *query.ComposedViewDefinition, d
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/", listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List catalogs (read-time LinkInChild; filter/fields into liveItem)",
-			Description: "Paged read of `qa_catalog_full`. Root/segment filters and `?fields=` apply; `catalogLines.liveItem.label` filters the read-time enrichment per line; `?sort=` into a segment is 400 (order is the primary's).",
+			Description: "Paged read of `qa_catalog_full`. Root/segment filters and `?fields=` apply; `catalogLines.liveItem.label` filters the read-time enrichment per line; `?orderBy=` into a segment is 400 (order is the primary's).",
 			Tags:        []string{"QA Catalogs (read-time LinkInChild)"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))

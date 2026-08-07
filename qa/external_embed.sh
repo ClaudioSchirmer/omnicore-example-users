@@ -114,10 +114,10 @@ wait_child() {
   done
   echo "    (last seen: '$got', wanted: '$4')" >&2; return 1
 }
-# ── paged-list helpers (GET envelope: data:[...] + pagination.total) ─────────
+# ── paged-list helpers (GET envelope: data:[...] + pagination.totalCount) ─────────
 # lget URL [k=v ...] — GET the list with url-encoded query args into GET_TMP
 lget() { local url="$1"; shift; local a=(); local kv; for kv in "$@"; do a+=(--data-urlencode "$kv"); done; curl -sS -G -o "$GET_TMP" "$url" ${a[@]+"${a[@]}"}; }
-ltotal() { python3 -c 'import sys,json;print((json.load(open(sys.argv[1])).get("pagination") or {}).get("total",""))' "$GET_TMP"; }
+ltotal() { python3 -c 'import sys,json;print((json.load(open(sys.argv[1])).get("pagination") or {}).get("totalCount",""))' "$GET_TMP"; }
 lcount() { python3 -c 'import sys,json;d=json.load(open(sys.argv[1])).get("data");print(len(d) if isinstance(d,list) else 0)' "$GET_TMP"; }
 # lfield IDX DOTTED — data[IDX].<dotted> (arrays take the first element)
 lfield() { python3 -c '
@@ -346,8 +346,8 @@ lget "$CATLIST" "items.label=C1"; [ "$(lcount)" = "1" ] && ok "catalog ?items.la
 lget "$ACCLIST" "items.label=does-not-exist"; [ "$(lcount)" = "0" ] && ok "?items.label=does-not-exist → 0 rows (no false positives)" || bad "1:N segment filter should exclude non-matches"
 
 title "4.6 Sort on a root field (asc + desc)"
-lget "$ACCLIST" "sort=displayName"; [ "$(lfield 0 displayName)" = "Primary Account" ] && ok "?sort=displayName → Primary first" || bad "sort asc wrong (got '$(lfield 0 displayName)')"
-lget "$ACCLIST" "sort=-displayName"; [ "$(lfield 0 displayName)" = "Second Account" ] && ok "?sort=-displayName → Second first" || bad "sort desc wrong (got '$(lfield 0 displayName)')"
+lget "$ACCLIST" "orderBy=displayName"; [ "$(lfield 0 displayName)" = "Primary Account" ] && ok "?orderBy=displayName → Primary first" || bad "sort asc wrong (got '$(lfield 0 displayName)')"
+lget "$ACCLIST" "orderBy=-displayName"; [ "$(lfield 0 displayName)" = "Second Account" ] && ok "?orderBy=-displayName → Second first" || bad "sort desc wrong (got '$(lfield 0 displayName)')"
 
 title "4.7 Sparse projection (?fields=) — prunes the root AND into an embed segment"
 lget "$ACCLIST" "accountRef=acct-001" "fields=displayName"; { [ "$(lhaskey 0 displayName)" = y ] && [ "$(lhaskey 0 featuredItem)" = n ] && [ "$(lhaskey 0 items)" = n ]; } && ok "?fields=displayName drops the featuredItem + items segments" || bad "sparse root projection wrong"
@@ -633,8 +633,8 @@ title "14.3b Identity (id/parentId) obeys the SAME rules as any field — FILTER
 # --- root id: physical column → queryable AND strippable ---
 lget "$CATLIST" "id=$CAT_ID";          { [ "$(lcount)" -ge 1 ] && [ "$(lfield 0 id)" = "$CAT_ID" ]; } && ok "?id=<catId> → matches (root id is queryable)" || bad "root id not queryable (count=$(lcount))"
 lget "$CATLIST" "id=no-such-catalog";  [ "$(lcount)" = "0" ] && ok "?id=bogus → 0 rows (no false positive)" || bad "root id filter false positive (count=$(lcount))"
-lget "$CATLIST" "name=Summer Collection" "sort=id";  [ "$(lcount)" -ge 1 ] && ok "?sort=id accepted (root id is sortable)" || bad "?sort=id rejected/empty (count=$(lcount))"
-lget "$CATLIST" "name=Summer Collection" "sort=-id"; [ "$(lcount)" -ge 1 ] && ok "?sort=-id accepted (root id is sortable desc)" || bad "?sort=-id rejected/empty (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "orderBy=id";  [ "$(lcount)" -ge 1 ] && ok "?orderBy=id accepted (root id is sortable)" || bad "?orderBy=id rejected/empty (count=$(lcount))"
+lget "$CATLIST" "name=Summer Collection" "orderBy=-id"; [ "$(lcount)" -ge 1 ] && ok "?orderBy=-id accepted (root id is sortable desc)" || bad "?orderBy=-id rejected/empty (count=$(lcount))"
 lget "$CATLIST" "name=Summer Collection" "fields=name";    [ "$(lhaskey 0 id)" = n ] && ok "?fields=name DROPS root id (stripped like any field)" || bad "root id leaked past ?fields=name"
 lget "$CATLIST" "name=Summer Collection" "fields=id,name"; { [ "$(lhaskey 0 id)" = y ] && [ "$(lfield 0 id)" = "$CAT_ID" ]; } && ok "?fields=id,name KEEPS root id" || bad "root id dropped when explicitly requested"
 # --- child catalogLines: id + parentId are stored physical columns ---

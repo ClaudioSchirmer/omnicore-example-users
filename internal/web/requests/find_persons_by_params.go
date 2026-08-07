@@ -29,10 +29,11 @@ type FindPersonsByParamsRequest struct {
 	User      PersonUserFilterParams     `query:"user"`
 	Employee  PersonEmployeeFilterParams `query:"employee"`
 
-	Limit           *int64  `query:"limit"`
+	First           *int64  `query:"first"`
+	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	Sort            *string `query:"sort"`
+	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`

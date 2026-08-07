@@ -339,7 +339,7 @@ title "4.4 final drain — remove this suite's gadgets THROUGH the API so no unc
 # to reach zero and settling past one commit interval leaves the group's
 # offsets beyond every event this suite produced. The cleanup purge remains as
 # the backstop for aborted runs.
-IDS=$(curl -sS "$BASE/qa/gadgets?code.startswith=QA-TRANSPORT&limit=100" | python3 -c 'import sys,json
+IDS=$(curl -sS "$BASE/qa/gadgets?code.startswith=QA-TRANSPORT&first=100" | python3 -c 'import sys,json
 try:
   d=json.load(sys.stdin).get("data",[]); print(" ".join(x["id"] for x in d))
 except Exception: pass' 2>/dev/null)

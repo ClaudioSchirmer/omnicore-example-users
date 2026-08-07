@@ -85,7 +85,7 @@ fi
 
 title "2.2 List with equality filter through the chain"
 RES=$(curl -sS "$BASE/qa/showcase/grpcclient/users?userName=grpcqa_bob")
-if echo "$RES" | grep -q '"total":1' && echo "$RES" | grep -q 'grpcqa_bob'; then
+if echo "$RES" | grep -q '"totalCount":1' && echo "$RES" | grep -q 'grpcqa_bob'; then
   ok "ListUsers through the outbound chain"
 else
   bad "showcase list"; echo "$RES" | head -c 300; echo

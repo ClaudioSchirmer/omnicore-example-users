@@ -18,7 +18,7 @@
 #      so it stays 400 RelationalCapabilityNotification — the SAME query row-selects
 #      on the Mongo view, the contrast the suite asserts side by side. ?search= is
 #      likewise 400.
-#   4. CEILINGS — the relational reader honors MaxLimit (?limit over the cap → 400
+#   4. CEILINGS — the relational reader honors MaxLimit (?first over the cap → 400
 #      LimitExceededNotification) and MaxExportRows (CSV/XLSX truncates at the cap),
 #      exactly like the Mongo reader, plus CSV/XLSX content parity.
 #
@@ -65,12 +65,12 @@ try:
   print("\n".join(sorted(str(x.get("id") or x.get("_id") or "") for x in data)) if isinstance(data,list) else "ERR")
 except Exception: print("ERR")' "$1"; }
 
-# total_of <curl-args…> — the pagination.total of a listing. Prints "<absent>"
+# total_of <curl-args…> — the pagination.totalCount of a listing. Prints "<absent>"
 # when the key is missing, so an OMITTED total is never mistaken for a real 0 —
 # the distinction the relational listing bug turned on (it emitted a literal 0).
 total_of() { curl -sS "$@" | python3 -c 'import sys,json
 try:
-  print(json.load(sys.stdin).get("pagination",{}).get("total","<absent>"))
+  print(json.load(sys.stdin).get("pagination",{}).get("totalCount","<absent>"))
 except Exception: print("<err>")'; }
 
 # first notificationKey found anywhere in a JSON body file ("" if none).
@@ -253,9 +253,9 @@ sec "4. Gadgets parity — sort, fields, pagination, onlyTotal, includeArchived,
 ##############################################################################
 title "4.1 sort asc/desc — same first code on both backings"
 for dir in "code" "-code"; do
-  mf=$(curl -sS "$BASE/qa/gadgets?sort=$dir&limit=1" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["code"] if d else "")')
-  rf=$(curl -sS "$BASE/qa/rel/gadgets?sort=$dir&limit=1" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["code"] if d else "")')
-  [ -n "$mf" ] && [ "$mf" = "$rf" ] && ok "sort=$dir first code parity ($mf)" || bad "sort=$dir first code mongo=$mf rel=$rf"
+  mf=$(curl -sS "$BASE/qa/gadgets?orderBy=$dir&first=1" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["code"] if d else "")')
+  rf=$(curl -sS "$BASE/qa/rel/gadgets?orderBy=$dir&first=1" | python3 -c 'import sys,json;d=json.load(sys.stdin)["data"];print(d[0]["code"] if d else "")')
+  [ -n "$mf" ] && [ "$mf" = "$rf" ] && ok "orderBy=$dir first code parity ($mf)" || bad "orderBy=$dir first code mongo=$mf rel=$rf"
 done
 
 title "4.2 ?fields= projection parity — relational twin prunes to the SAME keys as Mongo"
@@ -272,22 +272,22 @@ echo "fields=code,status → mongo=[$mfields2] rel=[$rfields2]"
 [ -n "$mfields2" ] && [ "$mfields2" = "$rfields2" ] && ok "?fields=code,status parity ($rfields2)" || bad "?fields=code,status mongo=[$mfields2] rel=[$rfields2]"
 
 title "4.3 ?onlyTotal — count parity, no items"
-mt=$(curl -sS "$BASE/qa/gadgets?onlyTotal=true" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("total"))')
-rt=$(curl -sS "$BASE/qa/rel/gadgets?onlyTotal=true" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("total"))')
+mt=$(curl -sS "$BASE/qa/gadgets?onlyTotal=true" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("totalCount"))')
+rt=$(curl -sS "$BASE/qa/rel/gadgets?onlyTotal=true" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("totalCount"))')
 [ "$mt" = "4" ] && [ "$rt" = "4" ] && ok "onlyTotal parity (mongo=$mt rel=$rt)" || bad "onlyTotal mongo=$mt rel=$rt"
 
 title "4.3b total on a NORMAL listing — the count must NOT depend on ?onlyTotal"
 # 4.3 above compares the two backings in COUNT-ONLY mode — the one mode that
 # always worked. The relational reader used to assign Total only in that
 # short-circuit, so an ordinary listing served its items beside a literal
-# "total": 0, and a consumer paging a 47-row result read 0 on every page while
+# "totalCount": 0, and a consumer paging a 47-row result read 0 on every page while
 # ?onlyTotal=true answered 47. These three assertions pin the listing path: the
 # count is the FULL match set (not the page size, not 0), it matches the Mongo
-# twin, and it matches what the same backing reports in count-only mode.
-mlt=$(total_of "$BASE/qa/gadgets?sort=code&limit=2")
-rlt=$(total_of "$BASE/qa/rel/gadgets?sort=code&limit=2")
-rln=$(curl -sS "$BASE/qa/rel/gadgets?sort=code&limit=2" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
-echo "limit=2 → mongo total=$mlt  rel total=$rlt  rel items=$rln"
+# twin, and it matches what the same backing reports in only-total mode.
+mlt=$(total_of "$BASE/qa/gadgets?orderBy=code&first=2")
+rlt=$(total_of "$BASE/qa/rel/gadgets?orderBy=code&first=2")
+rln=$(curl -sS "$BASE/qa/rel/gadgets?orderBy=code&first=2" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
+echo "first=2 → mongo total=$mlt  rel total=$rlt  rel items=$rln"
 [ "$rln" = "2" ] && [ "$rlt" = "4" ] && ok "relational listing reports the FULL count (total=$rlt over a 2-row page)" || bad "relational listing total=$rlt items=$rln (want total 4 over 2 items)"
 [ "$mlt" = "$rlt" ] && ok "listing total parity (mongo=$mlt rel=$rlt)" || bad "listing total mongo=$mlt rel=$rlt"
 [ "$rlt" = "$rt" ] && ok "relational listing total == its own onlyTotal ($rlt)" || bad "relational listing total=$rlt but its onlyTotal=$rt"
@@ -303,33 +303,33 @@ frt=$(total_of "$BASE/qa/rel/gadgets?category.eq=cat-a")
 emt=$(total_of "$BASE/qa/gadgets?code.eq=NOPE-99")
 ert=$(total_of "$BASE/qa/rel/gadgets?code.eq=NOPE-99")
 [ "$ert" = "0" ] && [ "$emt" = "$ert" ] && ok "empty result set → an honest total 0 (mongo=$emt rel=$ert)" || bad "empty-set total mongo=$emt rel=$ert (want 0 both)"
-pmt=$(total_of "$BASE/qa/gadgets?fields=code&limit=1")
-prt=$(total_of "$BASE/qa/rel/gadgets?fields=code&limit=1")
+pmt=$(total_of "$BASE/qa/gadgets?fields=code&first=1")
+prt=$(total_of "$BASE/qa/rel/gadgets?fields=code&first=1")
 [ "$prt" = "4" ] && [ "$pmt" = "$prt" ] && ok "?fields= prunes the doc, not the count (total=$prt)" || bad "?fields= total mongo=$pmt rel=$prt (want 4 both)"
 
 title "4.4 pagination — limit + after walks the full set once, no dups"
-cur=$(curl -sS "$BASE/qa/rel/gadgets?sort=code&limit=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("next_cursor",""))')
-echo "page1 next_cursor: ${cur:0:16}…"
+cur=$(curl -sS "$BASE/qa/rel/gadgets?orderBy=code&first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
+echo "page1 endCursor: ${cur:0:16}…"
 # The cursor is base64 (may carry +/=), so pass it through --data-urlencode.
-p2=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "sort=code" --data-urlencode "limit=2" --data-urlencode "after=$cur" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
+p2=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "orderBy=code" --data-urlencode "first=2" --data-urlencode "after=$cur" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
 [ -n "$cur" ] && [ "$p2" = "2" ] && ok "relational after-cursor returns the second page (2)" || bad "after-cursor page2 got $p2 (cursor=${cur:0:12})"
 # total is a property of the MATCH SET, not of the window — it must not drift as
 # the cursor walks. (The `after` branch takes a different path through the window
 # resolver than the default first page.)
-p2t=$(total_of -G "$BASE/qa/rel/gadgets" --data-urlencode "sort=code" --data-urlencode "limit=2" --data-urlencode "after=$cur")
+p2t=$(total_of -G "$BASE/qa/rel/gadgets" --data-urlencode "orderBy=code" --data-urlencode "first=2" --data-urlencode "after=$cur")
 [ "$p2t" = "4" ] && ok "the after-cursor page still reports the full total (4)" || bad "after-cursor page total=$p2t (want 4)"
 
 title "4.4b before the FIRST row (offset-0 cursor) → EMPTY page, never a full-table dump"
-# Page 1 hands out a prev_cursor pointing at offset 0. Paging `before` it must
+# Page 1 hands out a startCursor pointing at offset 0. Paging `before` it must
 # return an EMPTY page — a regression guard for the zero-fetch window that would
 # otherwise emit no LIMIT clause and stream the whole table (bypassing MaxLimit).
-prev=$(curl -sS "$BASE/qa/rel/gadgets?sort=code&limit=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("prev_cursor",""))')
-bcount=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "sort=code" --data-urlencode "limit=2" --data-urlencode "before=$prev" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
+prev=$(curl -sS "$BASE/qa/rel/gadgets?orderBy=code&first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("startCursor",""))')
+bcount=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "orderBy=code" --data-urlencode "last=2" --data-urlencode "before=$prev" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
 [ -n "$prev" ] && [ "$bcount" = "0" ] && ok "before-first-row returns an empty page (0)" || bad "before-first-row expected 0 items, got ${bcount:-?} (prev=${prev:0:12})"
 # That zero-width window returns WITHOUT issuing the row query — its own early
 # return. An empty PAGE is not an empty RESULT SET, so it must still carry the
 # count: 4, not 0.
-bt=$(total_of -G "$BASE/qa/rel/gadgets" --data-urlencode "sort=code" --data-urlencode "limit=2" --data-urlencode "before=$prev")
+bt=$(total_of -G "$BASE/qa/rel/gadgets" --data-urlencode "orderBy=code" --data-urlencode "last=2" --data-urlencode "before=$prev")
 [ "$bt" = "4" ] && ok "the zero-width window still reports the full total (4)" || bad "zero-width window total=$bt (want 4 — an empty page is not an empty set)"
 
 title "4.5 by-id parity — same document from both backings"
@@ -372,8 +372,8 @@ status_is "5.2 mongo ?search= runs the text search (200)" "$BASE/qa/gadgets?sear
 ##############################################################################
 sec "6. Ceilings — MaxLimit + MaxExportRows on the capped twin, CSV parity"
 ##############################################################################
-status_is "6.1 capped ?limit=100 → 400 LimitExceeded"    "$BASE/qa/rel/gadgets-capped?limit=100" 400 "LimitExceededNotification"
-status_is "6.2 capped ?limit=5 (at the cap) → 200"        "$BASE/qa/rel/gadgets-capped?limit=5"   200
+status_is "6.1 capped ?first=100 → 400 LimitExceeded"    "$BASE/qa/rel/gadgets-capped?first=100" 400 "LimitExceededNotification"
+status_is "6.2 capped ?first=5 (at the cap) → 200"        "$BASE/qa/rel/gadgets-capped?first=5"   200
 title "6.3 CSV export content parity (data rows) + MaxExportRows truncation"
 full=$(curl -sS "$BASE/qa/rel/gadgets.csv?code.startswith=GADGET&includeArchived=true" | tail -n +2 | grep -c GADGET)
 cap=$(curl -sS "$BASE/qa/rel/gadgets-capped.csv?code.startswith=GADGET&includeArchived=true" | tail -n +2 | grep -c GADGET)
@@ -401,7 +401,7 @@ title "8.2 a root-level 1:1 sibling filter/sort now reaches parity (LEFT JOIN)"
 # the relational twin filters AND sorts by it identically to the Mongo view (the
 # id tiebreak is qualified to qa_widgets under the join, no ambiguity).
 parity "8.2a material.eq (root sibling → 1:1 JOIN)" "/qa/widgets" "/qa/rel/widgets" "material.eq=steel" 1
-parity "8.2b sort=material (root sibling)"          "/qa/widgets" "/qa/rel/widgets" "sort=material"     2
+parity "8.2b orderBy=material (root sibling)"       "/qa/widgets" "/qa/rel/widgets" "orderBy=material"     2
 
 title "8.2c total under a SIBLING filter/sort — the COUNT joins the satellite too"
 # The count runs the same scoped criteria as the row query, so it crosses the same
@@ -409,14 +409,14 @@ title "8.2c total under a SIBLING filter/sort — the COUNT joins the satellite 
 # join would report both widgets under a sibling filter (2, not 1), and a count
 # that merely echoed the window would report the page size (1, not 2) under a
 # sibling sort. Both are checked against the Mongo twin.
-smt=$(total_of "$BASE/qa/widgets?material.eq=steel&limit=1")
-srt=$(total_of "$BASE/qa/rel/widgets?material.eq=steel&limit=1")
-echo "material.eq=steel&limit=1 → mongo total=$smt  rel total=$srt"
+smt=$(total_of "$BASE/qa/widgets?material.eq=steel&first=1")
+srt=$(total_of "$BASE/qa/rel/widgets?material.eq=steel&first=1")
+echo "material.eq=steel&first=1 → mongo total=$smt  rel total=$srt"
 [ "$srt" = "1" ] && ok "sibling FILTER shapes total (1, not the unfiltered 2)" || bad "sibling-filtered total=$srt (want 1)"
 [ "$smt" = "$srt" ] && ok "sibling-filtered total parity (mongo=$smt rel=$srt)" || bad "sibling-filtered total mongo=$smt rel=$srt"
-omt=$(total_of "$BASE/qa/widgets?sort=material&limit=1")
-ort=$(total_of "$BASE/qa/rel/widgets?sort=material&limit=1")
-echo "sort=material&limit=1 → mongo total=$omt  rel total=$ort"
+omt=$(total_of "$BASE/qa/widgets?orderBy=material&first=1")
+ort=$(total_of "$BASE/qa/rel/widgets?orderBy=material&first=1")
+echo "orderBy=material&first=1 → mongo total=$omt  rel total=$ort"
 [ "$ort" = "2" ] && ok "sibling SORT keeps total at the full set (2, not the 1-row page)" || bad "sibling-sorted total=$ort (want 2)"
 [ "$omt" = "$ort" ] && ok "sibling-sorted total parity (mongo=$omt rel=$ort)" || bad "sibling-sorted total mongo=$omt rel=$ort"
 
@@ -425,7 +425,7 @@ title "8.3 a 1:N child field (or a child-level sibling) is still 400 on the twin
 # root SELECT cannot push those down, so the relational twin rejects them 400 …
 reject4xx "8.3a widgetParts.label (1:N child field)"     "/qa/rel/widgets" "widgetParts.label.eq=lens"
 reject4xx "8.3b widgetParts.tag (child-level sibling)"   "/qa/rel/widgets" "widgetParts.tag.eq=optical"
-reject4xx "8.3c sort=widgetParts.label (1:N child)"      "/qa/rel/widgets" "sort=widgetParts.label"
+reject4xx "8.3c orderBy=widgetParts.label (1:N child)"   "/qa/rel/widgets" "orderBy=widgetParts.label"
 # … while the SAME queries row-select on the Mongo view (the contrast).
 status_is "8.3d mongo widgetParts.label.eq → 200"  "$BASE/qa/widgets?widgetParts.label.eq=lens" 200
 mn=$(curl -sS "$BASE/qa/widgets?widgetParts.tag.eq=optical" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("data",[])))')
@@ -505,16 +505,16 @@ rel "9.2c accountRef.eq (base natural key)"          "/qa/rel/account-holders" "
 rel "9.2d no match on a base field → empty page"     "/qa/rel/account-holders" "displayName.eq=Nope"          0
 
 title "9.3 sort by a SHARED-BASE field is accepted (ORDER BY the joined column + id tiebreak)"
-rel "9.3a sort=displayName asc"  "/qa/rel/account-holders" "sort=displayName"  2
-rel "9.3b sort=-displayName desc" "/qa/rel/account-holders" "sort=-displayName" 2
+rel "9.3a orderBy=displayName asc"  "/qa/rel/account-holders" "orderBy=displayName"  2
+rel "9.3b orderBy=-displayName desc" "/qa/rel/account-holders" "orderBy=-displayName" 2
 
 title "9.3c total under a SHARED-BASE filter — the count crosses the base JOIN too"
 # 8.2c proved the count joins a 1:1 SIBLING; this proves the other satellite kind.
 # displayName lives in the qa_accounts base, so a count that skipped the join
 # would report both holders (2) instead of the one that matches.
-bmt=$(total_of -G "$BASE/qa/rel/account-holders" --data-urlencode "displayName.eq=ACME Corp" --data-urlencode "limit=1")
+bmt=$(total_of -G "$BASE/qa/rel/account-holders" --data-urlencode "displayName.eq=ACME Corp" --data-urlencode "first=1")
 [ "$bmt" = "1" ] && ok "shared-base FILTER shapes total (1, not the unfiltered 2)" || bad "shared-base-filtered total=$bmt (want 1)"
-bst=$(total_of "$BASE/qa/rel/account-holders?sort=displayName&limit=1")
+bst=$(total_of "$BASE/qa/rel/account-holders?orderBy=displayName&first=1")
 [ "$bst" = "2" ] && ok "shared-base SORT keeps total at the full set (2, not the 1-row page)" || bad "shared-base-sorted total=$bst (want 2)"
 
 title "9.4 by-id surfaces the base fields flat on the role-rooted doc"
@@ -530,7 +530,7 @@ sec "10. GraphQL totalCount over a RELATIONAL view — the non-REST surface"
 # `gadgetsRel` field resolves the RelationalSource view through the same handler
 # the REST mirror uses, so this proves the count reaches a surface that never
 # passes through handle_query.go's envelope. A totalCount-ONLY selection flips
-# the reader into count-only mode, so both branches are asserted side by side.
+# the reader into only-total mode, so both branches are asserted side by side.
 # GADGET-04 was archived back in 4.6, so the active set here is 3.
 gql() { curl -sS -X POST "$BASE/graphql" -H "Content-Type: application/json" \
   --data "{\"query\":$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")}"; }
@@ -547,18 +547,18 @@ echo "graphql gadgetsRel(first:2) → totalCount=$gtot edges=$gedges"
 
 title "10.2 a totalCount-ONLY selection agrees with the paged one"
 read -r gonly _ <<<"$(gql 'query { gadgetsRel { totalCount } }' | gql_pick)"
-[ "$gonly" = "$gtot" ] && ok "GraphQL count-only selection agrees with the listing ($gonly)" || bad "GraphQL count-only totalCount=$gonly but the paged selection said $gtot"
+[ "$gonly" = "$gtot" ] && ok "GraphQL only-total selection agrees with the listing ($gonly)" || bad "GraphQL only-total totalCount=$gonly but the paged selection said $gtot"
 
 title "10.3 the REST mirror of the same view agrees with the GraphQL connection"
 # The Mongo gadgets view is not exposed on GraphQL (only `users` and these two
 # qa fields are), so the cross-backing parity check stays on REST, where 4.3b
 # already proves it. What is worth pinning here is cross-SURFACE agreement: the
 # same relational view, read through two different envelopes, reports one number.
-rest_tot=$(total_of "$BASE/qa/rel/gadgets?sort=code&limit=2")
+rest_tot=$(total_of "$BASE/qa/rel/gadgets?orderBy=code&first=2")
 [ "$rest_tot" = "$gtot" ] && ok "same view, both surfaces agree (REST=$rest_tot GraphQL=$gtot)" || bad "surface disagreement: REST=$rest_tot GraphQL=$gtot"
 
 ##############################################################################
-sec "11. gRPC PaginationInfo.total over a RELATIONAL view — the THIRD surface"
+sec "11. gRPC PaginationInfo.total_count over a RELATIONAL view — the THIRD surface"
 ##############################################################################
 # The last reader of queries.Page.Total. ListGadgetsRel is ListGadgets against
 # gadgets_rel — same messages, same DTO seats, same handler, only the View name
@@ -569,13 +569,13 @@ grpc_total() { curl -sS -X POST -H "Content-Type: application/json" \
   "$GRPC_BASE/qafixtures.v1.QAService/$1" -d "$2" | python3 -c 'import sys,json
 try:
   d=json.load(sys.stdin); pi=d.get("pagination") or {}
-  print(pi.get("total","<absent>"), len(d.get("items") or []))
+  print(pi.get("totalCount","<absent>"), len(d.get("items") or []))
 except Exception: print("<err> <err>")'; }
 
 title "11.1 a paged gRPC list reports the FULL count, not the item count"
-read -r ptot pitems <<<"$(grpc_total ListGadgetsRel '{"pagination":{"limit":2}}')"
+read -r ptot pitems <<<"$(grpc_total ListGadgetsRel '{"pagination":{"first":2}}')"
 echo "grpc ListGadgetsRel(limit:2) → total=$ptot items=$pitems"
-[ "$pitems" = "2" ] && [ "$ptot" = "3" ] && ok "gRPC PaginationInfo.total over a relational view = full count ($ptot over $pitems items)" || bad "gRPC relational total=$ptot items=$pitems (want 3 over 2)"
+[ "$pitems" = "2" ] && [ "$ptot" = "3" ] && ok "gRPC PaginationInfo.total_count over a relational view = full count ($ptot over $pitems items)" || bad "gRPC relational total=$ptot items=$pitems (want 3 over 2)"
 
 title "11.2 the gRPC only_total mode agrees with the paged list"
 read -r ponly _ <<<"$(grpc_total ListGadgetsRel '{"pagination":{"only_total":true}}')"

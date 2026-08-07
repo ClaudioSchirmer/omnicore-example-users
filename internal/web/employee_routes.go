@@ -153,7 +153,7 @@ func MountEmployees(
 		csvH, csvSpec,
 		fwopenapi.Doc{
 			Summary:     "Export employees as CSV",
-			Description: "Streams the same `employees` view read as GET /employees — same filter allowlist, `?search`, `?sort`, `?includeArchived`, `?fields=` — as a hierarchical CSV: root (with the flat bank sibling) at column A, addresses/dependents/jobHistories one level in; the dependent rows include the flat plan-sibling columns. Headers come from the fields' `labelKey` catalog entries rendered per Accept-Language. Pagination is ignored — the full filtered set streams capped at `query.maxExportRows`.",
+			Description: "Streams the same `employees` view read as GET /employees — same filter allowlist, `?search`, `?orderBy`, `?includeArchived`, `?fields=` — as a hierarchical CSV: root (with the flat bank sibling) at column A, addresses/dependents/jobHistories one level in; the dependent rows include the flat plan-sibling columns. Headers come from the fields' `labelKey` catalog entries rendered per Accept-Language. Pagination is ignored — the full filtered set streams capped at `query.maxExportRows`.",
 			Tags:        []string{"Employees"},
 		},
 		fwopenapi.RequirePermission("employees:read"))
@@ -171,7 +171,7 @@ func MountEmployees(
 		xlsxH, xlsxSpec,
 		fwopenapi.Doc{
 			Summary:     "Export employees as Excel (.xlsx)",
-			Description: "Same surface as `GET /employees.csv` — same filter allowlist, `?fields=`, `?search`, `?sort`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook.",
+			Description: "Same surface as `GET /employees.csv` — same filter allowlist, `?fields=`, `?search`, `?orderBy`, `?includeArchived`, same hierarchical layout and labelKey headers — serialized as an Excel workbook.",
 			Tags:        []string{"Employees"},
 		},
 		fwopenapi.RequirePermission("employees:read"))
