@@ -320,10 +320,27 @@ p2t=$(total_of -G "$BASE/qa/rel/gadgets" --data-urlencode "orderBy=code" --data-
 [ "$p2t" = "4" ] && ok "the after-cursor page still reports the full total (4)" || bad "after-cursor page total=$p2t (want 4)"
 
 title "4.4b before the FIRST row (offset-0 cursor) → EMPTY page, never a full-table dump"
-# Page 1 hands out a startCursor pointing at offset 0. Paging `before` it must
-# return an EMPTY page — a regression guard for the zero-fetch window that would
-# otherwise emit no LIMIT clause and stream the whole table (bypassing MaxLimit).
-prev=$(curl -sS "$BASE/qa/rel/gadgets?orderBy=code&first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("startCursor",""))')
+# Paging `before` a cursor that points at offset 0 must return an EMPTY page — a
+# regression guard for the zero-fetch window that would otherwise emit no LIMIT
+# clause and stream the whole table (bypassing MaxLimit).
+#
+# The offset-0 cursor is sourced from the GraphQL connection's edges[].cursor,
+# NOT from a page-level startCursor. Page 1 no longer carries one: an edge cursor
+# is emitted only where its neighbouring page exists, and nothing sits before the
+# head. Per-ROW cursors are not gated by that rule — that is exactly the split
+# between ItemCursors (addresses a row) and the page edges (address boundaries) —
+# so edges[0].cursor still addresses the first row and remains the honest way to
+# ask for "the page before this row". It round-trips into ?before= because both
+# requests carry the same listing context (no filter, orderBy=code), which is
+# what the cursor's context hash binds.
+prev=$(curl -sS -X POST "$BASE/graphql" -H "Content-Type: application/json" \
+  --data '{"query":"query { gadgetsRel(orderBy: [\"code\"], first: 1) { edges { cursor } } }"}' \
+  | python3 -c 'import sys,json
+try:
+  c=(json.load(sys.stdin).get("data") or {}).get("gadgetsRel") or {}
+  e=c.get("edges") or []
+  print(e[0].get("cursor","") if e else "")
+except Exception: print("")')
 bcount=$(curl -sS -G "$BASE/qa/rel/gadgets" --data-urlencode "orderBy=code" --data-urlencode "last=2" --data-urlencode "before=$prev" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["data"]))')
 [ -n "$prev" ] && [ "$bcount" = "0" ] && ok "before-first-row returns an empty page (0)" || bad "before-first-row expected 0 items, got ${bcount:-?} (prev=${prev:0:12})"
 # That zero-width window returns WITHOUT issuing the row query — its own early
@@ -583,6 +600,254 @@ read -r ponly _ <<<"$(grpc_total ListGadgetsRel '{"pagination":{"only_total":tru
 
 title "11.3 all THREE surfaces report one number for one view"
 [ "$ptot" = "$gtot" ] && [ "$ptot" = "$rest_tot" ] && ok "REST=$rest_tot GraphQL=$gtot gRPC=$ptot — one view, one total" || bad "surface disagreement: REST=$rest_tot GraphQL=$gtot gRPC=$ptot"
+
+##############################################################################
+sec "12. The FULL reserved-control matrix on a relational view — all 3 surfaces"
+##############################################################################
+# Sections 10 and 11 proved ONE field (totalCount) reaches the non-REST surfaces.
+# The rest of the reserved vocabulary was never exercised on this backing at all:
+# no cursor walk, no envelope, no rejection matrix, no composite sort. That gap
+# matters more here than on Mongo, because a RelationalSource view is a different
+# READER (offset windows, a JOINed root SELECT) wearing the same wire contract —
+# so parity is a claim about two implementations, not one.
+#
+# Active set at this point: GADGET-01/02/03 (04 was archived in 4.6). 01 and 02
+# share category cat-a, which is the deliberate TIE the composite-sort cases need.
+# ?search= stays a 400 here by design (section 5) — a capability limit of a root
+# SELECT, not a bug, and the one control that must NOT reach parity.
+RVB=$(mktemp)
+rel_get() { local args=() p; for p in "$@"; do args+=(--data-urlencode "$p"); done
+  RVS=$(curl -sS -o "$RVB" -w "%{http_code}" -G "$BASE/qa/rel/gadgets" "${args[@]}"); }
+rvq()    { python3 -c "import sys,json; d=json.load(open('$RVB')); print($1)" 2>/dev/null; }
+rv_eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (got '$2' want '$3')"; fi; }
+rv_400() { local l="$1"; shift; rel_get "$@"
+  if [ "$RVS" = "400" ]; then ok "$l"; else bad "$l (got $RVS)"; head -c 160 "$RVB"; echo; fi; }
+
+title "12.1 REST head page — endCursor emitted, startCursor NOT (edge-cursor rule)"
+# The rule: an edge cursor exists only where its neighbour does. The relational
+# reader used to emit BOTH on every non-empty page, so the head advertised a
+# startCursor beside hasPreviousPage:false and the tail an endCursor beside
+# hasNextPage:false. omitempty means an unemitted cursor is ABSENT, so presence
+# IS the assertion — and this is the case that pins the fix on this backing.
+rel_get "code.startswith=GADGET" "orderBy=code" "first=1"
+rv_eq "head page is GADGET-01"        "$(rvq "d['data'][0]['code']")" "GADGET-01"
+rv_eq "head hasNextPage"              "$(rvq "d['pagination']['hasNextPage']")" "True"
+rv_eq "head hasPreviousPage false"    "$(rvq "d['pagination']['hasPreviousPage']")" "False"
+rv_eq "head emits endCursor"          "$(rvq "'endCursor' in d['pagination']")" "True"
+rv_eq "head OMITS startCursor"        "$(rvq "'startCursor' in d['pagination']")" "False"
+RC1=$(rvq "d['pagination']['endCursor']")
+
+title "12.2 REST page 2 — the window advances, both edges live"
+rel_get "code.startswith=GADGET" "orderBy=code" "first=1" "after=$RC1"
+rv_eq "page 2 is GADGET-02 (advanced)" "$(rvq "d['data'][0]['code']")" "GADGET-02"
+rv_eq "page 2 hasPreviousPage"         "$(rvq "d['pagination']['hasPreviousPage']")" "True"
+rv_eq "page 2 emits startCursor"       "$(rvq "'startCursor' in d['pagination']")" "True"
+rv_eq "page 2 emits endCursor"         "$(rvq "'endCursor' in d['pagination']")" "True"
+RC2S=$(rvq "d['pagination']['startCursor']"); RC2E=$(rvq "d['pagination']['endCursor']")
+
+title "12.3 REST tail page — endCursor OMITTED beside hasNextPage:false"
+rel_get "code.startswith=GADGET" "orderBy=code" "first=1" "after=$RC2E"
+rv_eq "tail is GADGET-03"           "$(rvq "d['data'][0]['code']")" "GADGET-03"
+rv_eq "tail hasNextPage false"      "$(rvq "d['pagination']['hasNextPage']")" "False"
+rv_eq "tail OMITS endCursor"        "$(rvq "'endCursor' in d['pagination']")" "False"
+rv_eq "tail still emits startCursor" "$(rvq "'startCursor' in d['pagination']")" "True"
+
+title "12.4 REST ?last= alone (tail window) and ?before= (round trip)"
+rel_get "code.startswith=GADGET" "orderBy=code" "last=1"
+rv_eq "last=1 lands on GADGET-03" "$(rvq "d['data'][0]['code']")" "GADGET-03"
+rel_get "code.startswith=GADGET" "orderBy=code" "last=1" "before=$RC2S"
+rv_eq "before page-2 startCursor returns to GADGET-01" "$(rvq "d['data'][0]['code']")" "GADGET-01"
+
+title "12.5 REST direction rule — all four mixes reject"
+rv_400 "first+last"   "first=1" "last=1"
+rv_400 "after+before" "after=$RC1" "before=$RC1"
+rv_400 "last+after"   "last=1" "after=$RC1"
+rv_400 "first+before" "first=1" "before=$RC1"
+
+title "12.6 REST page size positivity, both directions"
+rv_400 "first=0"  "first=0"
+rv_400 "first=-5" "first=-5"
+rv_400 "last=0"   "last=0"
+rv_400 "last=-5"  "last=-5"
+
+title "12.7 REST cursor shape + the three cursor↔context guards"
+rv_400 "malformed cursor" "after=not-base64---"
+rel_get "code.startswith=GADGET" "orderBy=code" "first=1"; RCTX=$(rvq "d['pagination']['endCursor']")
+rv_400 "cursor↔filter mismatch"          "orderBy=code" "first=1" "after=$RCTX" "category.eq=cat-a"
+rv_400 "cursor↔sort mismatch"            "code.startswith=GADGET" "first=1" "after=$RCTX"
+rv_400 "cursor↔includeArchived mismatch" "code.startswith=GADGET" "orderBy=code" "first=1" "after=$RCTX" "includeArchived=true"
+
+title "12.8 REST only-total conflict matrix — all six page-shaping keys"
+rv_400 "onlyTotal+first"   "onlyTotal=true" "first=1"
+rv_400 "onlyTotal+last"    "onlyTotal=true" "last=1"
+rv_400 "onlyTotal+after"   "onlyTotal=true" "after=$RC1"
+rv_400 "onlyTotal+before"  "onlyTotal=true" "before=$RC1"
+rv_400 "onlyTotal+orderBy" "onlyTotal=true" "orderBy=code"
+rv_400 "onlyTotal+fields"  "onlyTotal=true" "fields=code"
+
+title "12.9 REST orderBy — COMPOSITE secondary key (cat-a tie) + invalid field"
+# 01 and 02 both sit in cat-a, so only the SECOND term can order them: a reader
+# that honored just the first term would look correct on every case above.
+rel_get "category.eq=cat-a" "orderBy=category,code" "first=1"
+rv_eq "composite [category,code] → GADGET-01"  "$(rvq "d['data'][0]['code']")" "GADGET-01"
+rel_get "category.eq=cat-a" "orderBy=category,-code" "first=1"
+rv_eq "composite [category,-code] → the secondary key FLIPS to GADGET-02" \
+  "$(rvq "d['data'][0]['code']")" "GADGET-02"
+rv_400 "orderBy=bogus" "orderBy=bogus"
+rv_400 "fields=bogus"  "fields=bogus"
+
+##############################################################################
+# GraphQL over the SAME relational view. gql() is defined in section 10.
+##############################################################################
+gqlc() { gql "$1" | python3 -c "import sys,json
+try:
+  c=(json.load(sys.stdin).get('data') or {}).get('gadgetsRel') or {}
+  print($2)
+except Exception: print('<err>')"; }
+# gqlk prints the first error's notificationKey, or "<untyped>" when the error
+# carries none (a gqlparser SCHEMA validation error — e.g. an unknown argument —
+# never reaches the framework's notification layer). "<none>" means the query
+# was ACCEPTED. Rejection is "errors[] is non-empty", so an untyped validation
+# error still counts: the case asserts the request was refused, and which layer
+# refused it is not the subject here.
+gqlk() { gql "$1" | python3 -c "import sys,json
+d=json.load(sys.stdin); e=d.get('errors') or []
+print(((e[0].get('extensions') or {}).get('notificationKey') or '<untyped>') if e else '<none>')"; }
+gql_rej() { local l="$1" q="$2" k; k=$(gqlk "$q")
+  if [ "$k" != "<none>" ]; then ok "$l (rejected: $k)"; else bad "$l (accepted — no error surfaced)"; fi; }
+GPI='pageInfo { hasNextPage hasPreviousPage startCursor endCursor }'
+
+title "12.10 GraphQL head page over the relational view — same edge-cursor rule"
+Q="query { gadgetsRel(orderBy: [\"code\"], first: 1) { edges { cursor node { code } } $GPI } }"
+rv_eq "GraphQL head is GADGET-01"     "$(gqlc "$Q" "c['edges'][0]['node']['code']")" "GADGET-01"
+rv_eq "GraphQL head hasNextPage"      "$(gqlc "$Q" "c['pageInfo']['hasNextPage']")" "True"
+rv_eq "GraphQL head startCursor null" "$(gqlc "$Q" "c['pageInfo']['startCursor'] is None")" "True"
+rv_eq "GraphQL head endCursor set"    "$(gqlc "$Q" "c['pageInfo']['endCursor'] is not None")" "True"
+GC1=$(gqlc "$Q" "c['pageInfo']['endCursor']")
+
+title "12.11 GraphQL walk to the tail — endCursor goes null at the end"
+Q2="query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC1\") { edges { node { code } } $GPI } }"
+rv_eq "GraphQL page 2 is GADGET-02"   "$(gqlc "$Q2" "c['edges'][0]['node']['code']")" "GADGET-02"
+GC2E=$(gqlc "$Q2" "c['pageInfo']['endCursor']")
+Q3="query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC2E\") { edges { cursor node { code } } $GPI } }"
+rv_eq "GraphQL tail is GADGET-03"        "$(gqlc "$Q3" "c['edges'][0]['node']['code']")" "GADGET-03"
+rv_eq "GraphQL tail hasNextPage false"   "$(gqlc "$Q3" "c['pageInfo']['hasNextPage']")" "False"
+rv_eq "GraphQL tail endCursor null"      "$(gqlc "$Q3" "c['pageInfo']['endCursor'] is None")" "True"
+# edges[].cursor addresses ROWS, not boundaries — the final row keeps its cursor
+# even though the page-level endCursor is gone. That distinction is the whole
+# reason ItemCursors is not gated alongside the edges.
+rv_eq "GraphQL tail row still carries edges[].cursor" \
+  "$(gqlc "$Q3" "bool(c['edges'][0]['cursor'])")" "True"
+
+title "12.12 GraphQL backward + rejection matrix on the relational view"
+rv_eq "GraphQL last:1 is the tail (GADGET-03)" \
+  "$(gqlc "query { gadgetsRel(orderBy: [\"code\"], last: 1) { edges { node { code } } } }" "c['edges'][0]['node']['code']")" "GADGET-03"
+gql_rej "GraphQL first:0"        'query { gadgetsRel(first: 0) { edges { node { code } } } }'
+gql_rej "GraphQL first:101 (ceiling)" 'query { gadgetsRel(first: 101) { edges { node { code } } } }'
+gql_rej "GraphQL first+last"     'query { gadgetsRel(first: 1, last: 1) { edges { node { code } } } }'
+gql_rej "GraphQL malformed cursor" 'query { gadgetsRel(first: 1, after: "not-base64---") { edges { node { code } } } }'
+gql_rej "GraphQL search (unsupported on this backing)" 'query { gadgetsRel(search: "Alpha") { edges { node { code } } } }'
+
+title "12.12b GraphQL cursor↔context guards on the relational view"
+# The same three axes REST pins at 12.7. GraphQL has no pre-dispatch cursor
+# check, so these come from the READER — which is exactly the path that used to
+# answer 500 before the cursor rejections were typed.
+gql_rej "GraphQL cursor↔filter mismatch" \
+  "query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC1\", where: { category: { eq: \"cat-a\" } }) { edges { node { code } } } }"
+gql_rej "GraphQL cursor↔sort mismatch" \
+  "query { gadgetsRel(first: 1, after: \"$GC1\") { edges { node { code } } } }"
+gql_rej "GraphQL cursor↔includeArchived mismatch" \
+  "query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC1\", includeArchived: true) { edges { node { code } } } }"
+
+title "12.12c GraphQL orderBy + includeArchived over the relational view"
+rv_eq "GraphQL orderBy [-code] leads with GADGET-03" \
+  "$(gqlc 'query { gadgetsRel(orderBy: ["-code"], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-03"
+# cat-a holds GADGET-01 and GADGET-02, so only the SECOND term can order them.
+rv_eq "GraphQL composite [category,code] → GADGET-01" \
+  "$(gqlc 'query { gadgetsRel(where: { category: { eq: "cat-a" } }, orderBy: ["category","code"], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-01"
+rv_eq "GraphQL composite [category,-code] → the secondary key flips to GADGET-02" \
+  "$(gqlc 'query { gadgetsRel(where: { category: { eq: "cat-a" } }, orderBy: ["category","-code"], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-02"
+gql_rej "GraphQL orderBy [bogus]" 'query { gadgetsRel(orderBy: ["bogus"]) { edges { node { code } } } }'
+# GADGET-04 was archived in 4.6: the default read hides it, the flag brings it back.
+rv_eq "GraphQL default read hides the archived row (3)" \
+  "$(gqlc 'query { gadgetsRel { totalCount } }' "c['totalCount']")" "3"
+rv_eq "GraphQL includeArchived resurfaces it (4)" \
+  "$(gqlc 'query { gadgetsRel(includeArchived: true) { totalCount } }' "c['totalCount']")" "4"
+
+##############################################################################
+# gRPC over the SAME relational view. Connect JSON omits false bools and empty
+# strings, so on this surface ABSENCE is how an unemitted edge cursor reads.
+##############################################################################
+grpc_rel() { GRB=$(curl -sS -o /tmp/qa-relgrpc-${BACKEND}.json -w "%{http_code}" -X POST \
+  -H "Content-Type: application/json" "$GRPC_BASE/qafixtures.v1.QAService/ListGadgetsRel" -d "$1"); GRBODY=$(cat /tmp/qa-relgrpc-${BACKEND}.json); }
+grpc_rej() { local l="$1"; grpc_rel "$2"
+  if [ "$GRB" = "400" ]; then ok "$l"; else bad "$l (got $GRB: $(echo "$GRBODY" | head -c 140))"; fi; }
+
+title "12.13 gRPC head/tail envelope over the relational view"
+grpc_rel '{"orderBy":[{"field":"code"}],"pagination":{"first":1}}'
+if echo "$GRBODY" | grep -q 'GADGET-01' && echo "$GRBODY" | grep -q '"hasNextPage":true' \
+   && echo "$GRBODY" | grep -q '"endCursor"' && ! echo "$GRBODY" | grep -q '"startCursor"'; then
+  ok "gRPC head: GADGET-01, endCursor present, startCursor absent"
+else
+  bad "gRPC head envelope"; echo "$GRBODY" | head -c 240; echo
+fi
+GRC1=$(echo "$GRBODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
+grpc_rel "{\"orderBy\":[{\"field\":\"code\"}],\"pagination\":{\"first\":1,\"after\":\"$GRC1\"}}"
+GRC2=$(echo "$GRBODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
+grpc_rel "{\"orderBy\":[{\"field\":\"code\"}],\"pagination\":{\"first\":1,\"after\":\"$GRC2\"}}"
+if echo "$GRBODY" | grep -q 'GADGET-03' && ! echo "$GRBODY" | grep -q 'hasNextPage' \
+   && ! echo "$GRBODY" | grep -q '"endCursor"' && echo "$GRBODY" | grep -q '"startCursor"'; then
+  ok "gRPC tail: GADGET-03, endCursor absent, startCursor present"
+else
+  bad "gRPC tail envelope"; echo "$GRBODY" | head -c 240; echo
+fi
+
+title "12.14 gRPC last-alone + rejection matrix on the relational view"
+grpc_rel '{"orderBy":[{"field":"code"}],"pagination":{"last":1}}'
+echo "$GRBODY" | grep -q 'GADGET-03' && ok "gRPC last:1 is the tail" || { bad "gRPC last:1"; echo "$GRBODY" | head -c 200; echo; }
+grpc_rej "gRPC first:0"          '{"pagination":{"first":0}}'
+grpc_rej "gRPC first:101 (ceiling)" '{"pagination":{"first":101}}'
+grpc_rej "gRPC first+last"       '{"pagination":{"first":1,"last":1}}'
+grpc_rej "gRPC after+before"     '{"pagination":{"after":"cur","before":"cur"}}'
+grpc_rej "gRPC malformed cursor" '{"pagination":{"first":1,"after":"not-base64---"}}'
+grpc_rej "gRPC onlyTotal+first"  '{"pagination":{"onlyTotal":true,"first":1}}'
+grpc_rej "gRPC search (unsupported on this backing)" '{"pagination":{"search":"Alpha"}}'
+
+title "12.15 gRPC cursor↔context guards on the relational view"
+# GRC1 is the head cursor from 12.13 (orderBy code, no filter, default gate).
+grpc_rej "gRPC cursor↔filter mismatch" \
+  "{\"filters\":{\"category\":{\"conditions\":[{\"op\":\"STRING_OP_EQ\",\"values\":[\"cat-a\"]}]}},\"orderBy\":[{\"field\":\"code\"}],\"pagination\":{\"first\":1,\"after\":\"$GRC1\"}}"
+grpc_rej "gRPC cursor↔orderBy mismatch" \
+  "{\"pagination\":{\"first\":1,\"after\":\"$GRC1\"}}"
+grpc_rej "gRPC cursor↔include_archived mismatch" \
+  "{\"orderBy\":[{\"field\":\"code\"}],\"pagination\":{\"first\":1,\"after\":\"$GRC1\",\"includeArchived\":true}}"
+
+title "12.16 gRPC orderBy, include_archived and fields over the relational view"
+grpc_rel '{"orderBy":[{"field":"code","desc":true}],"pagination":{"first":1}}'
+echo "$GRBODY" | grep -q 'GADGET-03' && ok "gRPC orderBy desc leads with GADGET-03" || { bad "gRPC orderBy desc"; echo "$GRBODY" | head -c 200; echo; }
+# cat-a ties GADGET-01/02 on the first term, so the second term is the only
+# thing that can order them — the multi-term leg a single-key case cannot prove.
+grpc_rel '{"filters":{"category":{"conditions":[{"op":"STRING_OP_EQ","values":["cat-a"]}]}},"orderBy":[{"field":"category"},{"field":"code"}],"pagination":{"first":1}}'
+echo "$GRBODY" | grep -q 'GADGET-01' && ok "gRPC composite [category,code] → GADGET-01" || { bad "gRPC composite asc"; echo "$GRBODY" | head -c 200; echo; }
+grpc_rel '{"filters":{"category":{"conditions":[{"op":"STRING_OP_EQ","values":["cat-a"]}]}},"orderBy":[{"field":"category"},{"field":"code","desc":true}],"pagination":{"first":1}}'
+echo "$GRBODY" | grep -q 'GADGET-02' && ok "gRPC composite [category,-code] → secondary key flips to GADGET-02" || { bad "gRPC composite desc"; echo "$GRBODY" | head -c 200; echo; }
+grpc_rej "gRPC orderBy bogus" '{"orderBy":[{"field":"bogus"}]}'
+grpc_rej "gRPC fields bogus"  '{"fields":"bogus"}'
+# include_archived must reshape the ITEMS, not only the count (GADGET-04 was
+# archived in 4.6).
+grpc_rel '{"orderBy":[{"field":"code"}],"pagination":{"first":10}}'
+! echo "$GRBODY" | grep -q 'GADGET-04' && ok "gRPC default read hides the archived row" || { bad "gRPC default read leaked GADGET-04"; echo "$GRBODY" | head -c 200; echo; }
+grpc_rel '{"orderBy":[{"field":"code"}],"pagination":{"first":10,"includeArchived":true}}'
+echo "$GRBODY" | grep -q 'GADGET-04' && ok "gRPC include_archived surfaces it IN THE ITEMS" || { bad "gRPC include_archived items"; echo "$GRBODY" | head -c 200; echo; }
+# The fields mask projects: asking for code alone must drop the other leaves.
+grpc_rel '{"fields":"code","orderBy":[{"field":"code"}],"pagination":{"first":1}}'
+if echo "$GRBODY" | grep -q 'GADGET-01' && ! echo "$GRBODY" | grep -q '"category"'; then
+  ok "gRPC fields mask projects (category masked out)"
+else
+  bad "gRPC fields projection"; echo "$GRBODY" | head -c 200; echo
+fi
+
+rm -f "$RVB"
 
 ##############################################################################
 sec "Summary"

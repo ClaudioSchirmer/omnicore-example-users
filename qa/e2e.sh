@@ -1291,6 +1291,27 @@ else
   FAIL=$((FAIL+1))
 fi
 
+# hasPreviousPage — the one Relay boundary flag no case above ever read. It is
+# not a mirror of hasNextPage: the reader derives it from the WALK, not from the
+# data (false on the head of a forward walk, true on any page reached through a
+# cursor), so a listing that always reported one or the other would pass every
+# other pagination case in this section untouched.
+title "15.9d hasPreviousPage: false on page 1, true on the cursor-reached page 2"
+PP1=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("hasPreviousPage"))')
+PPC=$(curl -sS "$BASE/users?first=2" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("endCursor",""))')
+if [ -n "$PPC" ]; then
+  PP2=$(curl -sS "$BASE/users?first=2&after=$PPC" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pagination",{}).get("hasPreviousPage"))')
+else
+  PP2=""
+fi
+if [ "$PP1" = "False" ] && [ "$PP2" = "True" ]; then
+  printf '\033[1;32mPASS\033[0m (page1=%s, page2=%s — the flag tracks the walk)\n' "$PP1" "$PP2"
+  PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m (page1 hasPreviousPage=%s, page2=%s)\n' "$PP1" "$PP2"
+  FAIL=$((FAIL+1))
+fi
+
 # Direction rule — forward (first/after) and backward (last/before) never
 # mix; the gateway reports the backward-side key.
 show "15.9c ?first=2&last=2 rejected (one direction at a time)" \
@@ -1300,6 +1321,14 @@ show "15.9c ?first=2&last=2 rejected (one direction at a time)" \
 # the gateway surfaces "before" (the backward side) as the offending field.
 show "15.10 ?after=<c>&before=<c> rejected (mutually exclusive)" \
   GET "/users?after=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D&before=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D" "" 400
+
+# The direction rule has FOUR mixes (size × cursor on each side); 15.9c and
+# 15.10 cover the two same-kind pairs, these are the two crossed ones — a size
+# from one direction with a cursor from the other.
+show "15.10b ?first=2&before=<c> rejected (forward size, backward cursor)" \
+  GET "/users?first=2&before=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D" "" 400
+show "15.10c ?last=2&after=<c> rejected (backward size, forward cursor)" \
+  GET "/users?last=2&after=eyJ2IjoxLCJrIjpbInRlc3QiXX0%3D" "" 400
 
 # Malformed cursor — strict shape rejection (base64 garbage).
 show "15.11 ?after=not-base64 rejected (cursor schema violation)" \

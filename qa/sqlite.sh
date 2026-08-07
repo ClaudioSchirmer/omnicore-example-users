@@ -621,6 +621,182 @@ eq "?includeArchived counts all 3 again"   "$(jsonq "d['pagination']['totalCount
 
 for i in $TOTIDS; do patch "/users/$i/unarchive" >/dev/null 2>&1; delete "/users/$i" >/dev/null 2>&1; done
 
+##############################################################################
+# 16.7 The FULL reserved-control matrix on the relational read side.
+#
+# Everything above proves the relational reader can FILTER, SORT and COUNT. What
+# it never exercised is the reserved-control vocabulary as a contract: the
+# cursor walk and its envelope, the rejection matrix, and the controls beyond
+# ?first=. On SQLite this is not a nice-to-have — RelationalSource is the ONLY
+# read path (section 17 proves Mongo stays empty by construction), so an
+# untested control here is an untested control on the whole MVP posture.
+#
+# The three deliberate NON-cases, so nobody "fixes" them later:
+#   - ?search= is a typed 400 on this backing (16.5) — a root SELECT has no text
+#     index; it is a capability limit, not a bug.
+#   - a 1:N child filter/sort is likewise 400 (16.5).
+#   - pagination is offset-in-cursor here, not keyset. The WIRE contract is
+#     identical, which is exactly what this block pins.
+#
+# Fixtures: four users under one userName prefix. userName is UNIQUE across them
+# (ctl1..ctl4) so the walk is deterministic, while ctl3/ctl4 deliberately SHARE a
+# name so the composite-sort case has a tie only its secondary key can break.
+##############################################################################
+CTLDOC=90000000300
+CTLIDS=""
+for i in 1 2 3 4; do
+  case $i in 1) cname="Ctl Alpha";   cmail="ctl.a@example.com";; \
+             2) cname="Ctl Bravo";   cmail="ctl.b@example.com";; \
+             3) cname="Ctl Charlie"; cmail="ctl.c@example.com";; \
+             4) cname="Ctl Charlie"; cmail="ctl.d@example.com";; esac
+  post /users "{\"name\":\"$cname\",\"email\":\"$cmail\",\"document\":\"$((CTLDOC+i))\",\"userName\":\"ctl$i\",\"ethnicity\":\"white\",\"userProfile\":1,\"notificationEmail\":null,\"notificationFrequency\":null}"
+  status_is "seed control-matrix user ctl$i" 201
+  CTLIDS="$CTLIDS $(jsonq "d['data']['id']")"
+done
+
+# get_q <path> <name=value>... — GET with URL-ENCODED query params. The plain
+# get() appends a raw query string, which CORRUPTS a base64 cursor: `+` means
+# SPACE in a query string, so a cursor carrying one would decode to garbage and
+# the reader would reject it for the wrong reason (a false green on the guard
+# cases below, which must fail for the RIGHT reason).
+get_q() {
+  local path="$1"; shift
+  local args=() p
+  for p in "$@"; do args+=(--data-urlencode "$p"); done
+  STATUS=$(curl -sS -m 10 -o "$BODY" -w "%{http_code}" -G "$BASE$path" "${args[@]}")
+}
+CTLF="userName.startswith=ctl"
+# rel_400 <label> <param>... — the request must reject 400; used for the whole
+# rejection matrix so each line stays one readable case.
+rel_400() {
+  local label="$1"; shift
+  get_q /users-rel "$CTLF" "$@"
+  if [ "$STATUS" = "400" ]; then ok "$label"; else bad "$label (got $STATUS)"; head -c 200 "$BODY"; echo; fi
+}
+
+title "16.7a forward page 1 — the head emits endCursor and NO startCursor"
+get_q /users-rel "$CTLF" "orderBy=userName" "first=1"
+status_is "page 1" 200
+eq "page 1 is ctl1"                    "$(jsonq "d['data'][0]['userName']")" "ctl1"
+eq "page 1 hasNextPage"                "$(jsonq "d['pagination']['hasNextPage']")" "True"
+eq "page 1 hasPreviousPage is false"   "$(jsonq "d['pagination']['hasPreviousPage']")" "False"
+# The edge-cursor rule: an edge exists only where its neighbour does. omitempty
+# means an unemitted cursor is ABSENT from the JSON, so presence IS the assertion.
+eq "page 1 emits endCursor"            "$(jsonq "'endCursor' in d['pagination']")" "True"
+eq "page 1 omits startCursor (nothing behind the head)" \
+   "$(jsonq "'startCursor' in d['pagination']")" "False"
+C1=$(jsonq "d['pagination']['endCursor']")
+
+title "16.7b page 2 via ?after= — the window ADVANCES and both edges are live"
+get_q /users-rel "$CTLF" "orderBy=userName" "first=1" "after=$C1"
+status_is "page 2" 200
+eq "page 2 is ctl2 (not a repeat of page 1)" "$(jsonq "d['data'][0]['userName']")" "ctl2"
+eq "page 2 hasPreviousPage"                  "$(jsonq "d['pagination']['hasPreviousPage']")" "True"
+eq "page 2 hasNextPage"                      "$(jsonq "d['pagination']['hasNextPage']")" "True"
+eq "page 2 emits startCursor"                "$(jsonq "'startCursor' in d['pagination']")" "True"
+eq "page 2 emits endCursor"                  "$(jsonq "'endCursor' in d['pagination']")" "True"
+C2S=$(jsonq "d['pagination']['startCursor']")
+C2E=$(jsonq "d['pagination']['endCursor']")
+
+title "16.7c walk to the tail — the last page omits endCursor"
+get_q /users-rel "$CTLF" "orderBy=userName" "first=1" "after=$C2E"
+C3E=$(jsonq "d['pagination']['endCursor']")
+get_q /users-rel "$CTLF" "orderBy=userName" "first=1" "after=$C3E"
+status_is "page 4 (the tail)" 200
+eq "page 4 is ctl4"                    "$(jsonq "d['data'][0]['userName']")" "ctl4"
+eq "page 4 hasNextPage is false"       "$(jsonq "d['pagination']['hasNextPage']")" "False"
+eq "page 4 omits endCursor (nothing ahead of the last row)" \
+   "$(jsonq "'endCursor' in d['pagination']")" "False"
+eq "page 4 still emits startCursor"    "$(jsonq "'startCursor' in d['pagination']")" "True"
+
+title "16.7d ?last= alone is the tail window (backward with no cursor)"
+get_q /users-rel "$CTLF" "orderBy=userName" "last=1"
+status_is "last=1" 200
+eq "last=1 lands on ctl4"              "$(jsonq "d['data'][0]['userName']")" "ctl4"
+eq "last=1 hasNextPage is false (it IS the end)" "$(jsonq "d['pagination']['hasNextPage']")" "False"
+
+title "16.7e ?before= walks BACK to page 1 (round trip closed)"
+get_q /users-rel "$CTLF" "orderBy=userName" "last=1" "before=$C2S"
+status_is "before page-2 startCursor" 200
+eq "back at ctl1"                      "$(jsonq "d['data'][0]['userName']")" "ctl1"
+
+title "16.7f direction rule — all four mixes reject"
+rel_400 "first+last rejected"    "first=1" "last=1"
+rel_400 "after+before rejected"  "after=$C1" "before=$C1"
+rel_400 "last+after rejected"    "last=1"  "after=$C1"
+rel_400 "first+before rejected"  "first=1" "before=$C1"
+
+title "16.7g page size must be positive, on both directions"
+rel_400 "first=0 rejected"  "first=0"
+rel_400 "first=-5 rejected" "first=-5"
+rel_400 "last=0 rejected"   "last=0"
+rel_400 "last=-5 rejected"  "last=-5"
+
+title "16.7h the page-size ceiling (microservice.sqlite.yaml query.maxLimit: 100)"
+get_q /users-rel "$CTLF" "first=101"
+if [ "$STATUS" = "400" ] && grep -q "LimitExceededNotification" "$BODY"; then
+  ok "first=101 (one past the ceiling) rejects with LimitExceededNotification"
+else
+  bad "first=101 (got $STATUS)"; head -c 200 "$BODY"; echo
+fi
+get_q /users-rel "$CTLF" "first=100"
+status_is "first=100 (exactly AT the ceiling) accepted" 200
+
+title "16.7i cursor SHAPE and cursor↔CONTEXT guards"
+rel_400 "malformed cursor (not base64) rejected" "after=not-base64---"
+# The reader hashes (filter, orderBy, search, includeArchived) into every cursor,
+# so a cursor is spendable ONLY inside the listing that issued it. Changing any
+# axis mid-walk must reject rather than silently seek into a different set.
+get_q /users-rel "$CTLF" "orderBy=userName" "first=1"
+CTX=$(jsonq "d['pagination']['endCursor']")
+rel_400 "cursor↔filter mismatch rejected"          "orderBy=userName" "first=1" "after=$CTX" "name.eq=Ctl Alpha"
+rel_400 "cursor↔sort mismatch rejected"            "first=1" "after=$CTX"
+rel_400 "cursor↔includeArchived mismatch rejected" "orderBy=userName" "first=1" "after=$CTX" "includeArchived=true"
+
+title "16.7j the only-total conflict matrix — all six page-shaping keys"
+rel_400 "onlyTotal+first rejected"   "onlyTotal=true" "first=1"
+rel_400 "onlyTotal+last rejected"    "onlyTotal=true" "last=1"
+rel_400 "onlyTotal+after rejected"   "onlyTotal=true" "after=$C1"
+rel_400 "onlyTotal+before rejected"  "onlyTotal=true" "before=$C1"
+rel_400 "onlyTotal+orderBy rejected" "onlyTotal=true" "orderBy=userName"
+rel_400 "onlyTotal+fields rejected"  "onlyTotal=true" "fields=name"
+
+title "16.7k orderBy — descending, COMPOSITE secondary key, and the invalid field"
+get_q /users-rel "$CTLF" "orderBy=-userName" "first=1"
+eq "orderBy=-userName leads with ctl4" "$(jsonq "d['data'][0]['userName']")" "ctl4"
+# ctl3 and ctl4 share the name "Ctl Charlie", so only the SECOND term can order
+# them — a reader that dropped every term past the first would look correct on
+# every single-key case above.
+get_q /users-rel "userName.startswith=ctl" "name.eq=Ctl Charlie" "orderBy=name,email" "first=1"
+eq "composite [name,email] → the lower email first" "$(jsonq "d['data'][0]['email']")" "ctl.c@example.com"
+get_q /users-rel "userName.startswith=ctl" "name.eq=Ctl Charlie" "orderBy=name,-email" "first=1"
+eq "composite [name,-email] → the secondary key FLIPS the tie" "$(jsonq "d['data'][0]['email']")" "ctl.d@example.com"
+rel_400 "orderBy=bogus (undeclared field) rejected" "orderBy=bogus"
+
+title "16.7l fields — projection, a NESTED path, and the invalid leaf"
+get_q /users-rel "$CTLF" "orderBy=userName" "first=1" "fields=userName,email"
+status_is "?fields= projection" 200
+eq "projected doc keeps userName" "$(jsonq "'userName' in d['data'][0]")" "True"
+eq "projected doc keeps email"    "$(jsonq "'email' in d['data'][0]")" "True"
+eq "projected doc DROPS name (not asked for)" "$(jsonq "'name' in d['data'][0]")" "False"
+get_q /users-rel "document.eq=$((CTLDOC+1))" "fields=addresses.city"
+status_is "?fields= into a 1:N child (projection, not a filter) " 200
+rel_400 "fields=bogus (undeclared leaf) rejected" "fields=bogus"
+
+title "16.7m includeArchived reshapes the ITEMS, not just the count"
+CTL1=$(echo "$CTLIDS" | awk '{print $1}')
+patch "/users/$CTL1/archive"; status_2xx "archive ctl1"
+get_q /users-rel "$CTLF" "orderBy=userName" "first=10"
+eq "default read hides the archived row"   "$(jsonq "any(u['userName']=='ctl1' for u in d['data'])")" "False"
+eq "default read still serves the other 3" "$(jsonq "len(d['data'])")" "3"
+get_q /users-rel "$CTLF" "orderBy=userName" "first=10" "includeArchived=true"
+eq "includeArchived surfaces the archived row IN THE ITEMS" \
+   "$(jsonq "any(u['userName']=='ctl1' for u in d['data'])")" "True"
+eq "includeArchived serves all 4"          "$(jsonq "len(d['data'])")" "4"
+patch "/users/$CTL1/unarchive" >/dev/null 2>&1
+
+for i in $CTLIDS; do delete "/users/$i" >/dev/null 2>&1; done
+
 delete "/users/$RID" >/dev/null 2>&1
 
 ##############################################################################

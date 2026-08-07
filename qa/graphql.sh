@@ -403,8 +403,226 @@ gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"
 assert_jq "backward last:1 (orderBy name) → Charlie (the maximum)" \
     '.data.users.edges[0].node.name' "Gqlop Charlie"
 
+# ── 19b. Walk with SERVER-ISSUED cursors + the cursor↔context guards ────────
+# Every `after:` up to here carried STALE_CURSOR (§17 / §17b / §18): those cases
+# pin the REJECTIONS and never the walk. A server that silently re-returned page
+# 1 forever would pass all of them intact. This section spends the cursors the
+# connection itself hands back, over the three GOP fixtures ordered by name
+# (Alpha < Bravo < Charlie) — the GraphQL twin of REST e2e §15.3 / §15.9.
+#
+# Envelope contract of the framework reader: endCursor is emitted ONLY when
+# hasNextPage, startCursor ONLY when hasPreviousPage — so page 1 of a forward
+# walk carries no startCursor, and the last page carries no endCursor. The
+# assertions below encode that contract; they do not work around it.
+GOP_CTX='where: { name: { icontains: "Gqlop" } }, orderBy: ["name"]'
+GOP_PI='pageInfo { hasNextPage hasPreviousPage startCursor endCursor }'
+gop_pi() { jq -r ".data.users.pageInfo.${1} // \"\"" ${GQL_TMP}.body 2>/dev/null; }
+
+gql "query { users(${GOP_CTX}, first: 1) { edges { cursor node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.1 page 1 (first:1) → Alpha (the minimum)" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+assert_jq "19b.1 page 1 → hasNextPage=true" '.data.users.pageInfo.hasNextPage' "true"
+assert_jq "19b.1 page 1 → hasPreviousPage=false (nothing behind the head)" \
+    '.data.users.pageInfo.hasPreviousPage' "false"
+assert_jq_true "19b.1 page 1 → no startCursor (the backward half stays unemitted)" \
+    '(.data.users.pageInfo.startCursor == null)'
+assert_jq_true "19b.2 edges[0].cursor == pageInfo.endCursor on a one-row page" \
+    '(.data.users.pageInfo.endCursor != "") and (.data.users.edges[0].cursor == .data.users.pageInfo.endCursor)'
+GOP_C1=$(gop_pi endCursor)
+
+gql "query { users(${GOP_CTX}, first: 1, after: \"${GOP_C1}\") { edges { node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.3 page 2 (after:<page1 endCursor>) → Bravo (the window ADVANCED)" \
+    '.data.users.edges[0].node.name' "Gqlop Bravo"
+assert_jq "19b.3 page 2 → hasPreviousPage=true" '.data.users.pageInfo.hasPreviousPage' "true"
+assert_jq "19b.3 page 2 → hasNextPage=true (Charlie still ahead)" \
+    '.data.users.pageInfo.hasNextPage' "true"
+GOP_C2S=$(gop_pi startCursor)
+GOP_C2E=$(gop_pi endCursor)
+
+gql "query { users(${GOP_CTX}, first: 1, after: \"${GOP_C2E}\") { edges { node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.4 page 3 (after:<page2 endCursor>) → Charlie (the tail)" \
+    '.data.users.edges[0].node.name' "Gqlop Charlie"
+assert_jq "19b.4 page 3 → hasNextPage=false (end of the set)" \
+    '.data.users.pageInfo.hasNextPage' "false"
+assert_jq_true "19b.4 page 3 → no endCursor past the last row (empty ⇒ null on the wire)" \
+    '(.data.users.pageInfo.endCursor == null)'
+
+# Round trip: page 2's startCursor takes the consumer BACK to page 1 — the
+# inverse of 19b.3, and the GraphQL twin of REST e2e §15.9. hasNextPage is true
+# on a before-walk because the page we left still sits ahead.
+gql "query { users(${GOP_CTX}, last: 1, before: \"${GOP_C2S}\") { edges { node { name } } ${GOP_PI} } }" >/dev/null
+assert_jq "19b.5 last:1 before:<page2 startCursor> → back to Alpha (round trip)" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+assert_jq "19b.5 backward page → hasNextPage=true (the page we left sits ahead)" \
+    '.data.users.pageInfo.hasNextPage' "true"
+
+# The reader binds every cursor to HashContext(filter, orderBy, search,
+# includeArchived), so a cursor is only spendable inside the EXACT listing that
+# issued it — changing any axis between pages must reject rather than silently
+# seek into a different result set. REST rejects these at the wrapper (e2e
+# §15.16-15.18); GraphQL has no pre-dispatch cursor check (§17b), so the same
+# SchemaViolationNotification comes from the reader. Same key, both surfaces.
+gql "query { users(where: { name: { icontains: \"Gqlop A\" } }, orderBy: [\"name\"], first: 1, after: \"${GOP_C1}\") { edges { node { name } } } }" >/dev/null
+assert_jq "19b.6 cursor↔filter mismatch → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.6 cursor↔filter mismatch → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, first: 1) { pageInfo { endCursor } } }" >/dev/null
+GOP_NOSORT=$(gop_pi endCursor)
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], first: 1, after: \"${GOP_NOSORT}\") { edges { node { name } } } }" >/dev/null
+assert_jq "19b.7 cursor↔sort mismatch (issued unsorted, spent sorted) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.7 cursor↔sort mismatch → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+gql "query { users(${GOP_CTX}, first: 1, after: \"${GOP_C1}\", includeArchived: true) { edges { node { name } } } }" >/dev/null
+assert_jq "19b.8 cursor↔includeArchived mismatch → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.8 cursor↔includeArchived mismatch → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# An undecodable cursor is a SHAPE violation, distinct from the context
+# mismatches above — it must still be a legible Schema rejection, never a 500.
+gql 'query { users(first: 1, after: "not-base64---") { edges { node { id } } } }' >/dev/null
+assert_jq "19b.9 malformed cursor (not base64) → semantic Schema (not Internal)" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.9 malformed cursor → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# Page-size guards. §18 covers first:0; the negative case and the BACKWARD side
+# of the positivity rule are the REST parity legs still missing here (e2e
+# §15.13/§15.14 assert both directions of the same canonical gate).
+gql 'query { users(first: -5) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.10 first:-5 (negative page size) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+gql 'query { users(last: 0) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.11 last:0 (non-positive, backward side) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+gql 'query { users(last: -5) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.11 last:-5 (negative, backward side) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+
+# The per-view page-size ceiling lives in the reader, so it is surface-neutral:
+# `query.maxLimit: 100` in microservice.qa.yaml is the resolved cap here. 100 is
+# AT the ceiling (accepted), 101 is the first value past it — the boundary pair,
+# with the typed LimitExceededNotification REST asserts at e2e §15.15.
+gql 'query { users(first: 101) { edges { node { id } } } }' >/dev/null
+assert_jq "19b.12 first:101 (one past the ceiling) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.12 first:101 → LimitExceededNotification" \
+    '.errors[0].extensions.notificationKey' "LimitExceededNotification"
+gql 'query { users(first: 100) { edges { node { id } } } }' >/dev/null
+assert_jq_true "19b.12 first:100 (exactly AT the ceiling) → accepted, no errors" \
+    '(((.errors // []) | length) == 0) and (.data.users.edges | type == "array")'
+
+# The last direction mix §18 does not carry: forward size + backward cursor.
+gql "query { users(first: 1, before: \"${GOP_C1}\") { edges { node { id } } } }" >/dev/null
+assert_jq "19b.13 first + before (forward size, backward cursor) → semantic Schema" \
+    '.errors[0].extensions.semantic' "Schema"
+assert_jq "19b.13 first + before → SchemaViolationNotification" \
+    '.errors[0].extensions.notificationKey' "SchemaViolationNotification"
+
+# No page-size argument at all → the framework default page size applies; the
+# connection is a normal listing, never an unbounded dump (REST e2e §15.4).
+gql 'query { users { edges { node { id } } pageInfo { hasNextPage } totalCount } }' >/dev/null
+assert_jq_true "19b.14 no first/last → default page size, bounded listing (<=100)" \
+    '(((.errors // []) | length) == 0) and ((.data.users.edges | length) <= 100)'
+
+# ── 20. The non-pagination control keys: search, includeArchived, orderBy ───
+# Of the nine reserved controls, this suite proved the five pagination ones and
+# `orderBy` only in its ascending form (as a helper for §19/§19b, never as the
+# subject). `search` had no case at all and `includeArchived` only appeared as a
+# cursor-context axis in §19b.8 — never once doing its actual job. REST pins all
+# three (e2e §24.1-24.3, §16.2, §17.4, §15.6-15.7); this is the GraphQL half.
+#
+# `fields` has no case here BY DESIGN, and that is not a gap: it is one of the
+# two graphqlNaturalControls (web/graphql/criteria.go) — the selection set IS
+# the projection on this surface, so there is no argument to exercise. Its real
+# consumer-visible contract is the restricted-field refusal, which needs an
+# Identity and therefore lives in authz.sh §15 beside the REST twin.
+
+# search — the framework's ?search= over the view's TextIndex(name, email).
+gql 'query { users(search: "Gqlop") { totalCount } }' >/dev/null
+assert_jq "20.1 search:Gqlop matches the three fixtures (TextIndex on name/email)" \
+    '.data.users.totalCount' "3"
+gql 'query { users(search: "zzznomatchqqq") { totalCount } }' >/dev/null
+assert_jq "20.2 search with no match returns an empty set (not everything)" \
+    '.data.users.totalCount' "0"
+# search AND-combines with a where filter rather than replacing it.
+gql 'query { users(search: "Gqlop", where: { name: { icontains: "Alpha" } }) { edges { node { name } } totalCount } }' >/dev/null
+assert_jq "20.3 search + where AND-combine (narrowed to one)" '.data.users.totalCount' "1"
+assert_jq "20.3 search + where returns the Alpha node" \
+    '.data.users.edges[0].node.name' "Gqlop Alpha"
+
+# includeArchived — the keep-by-default archive contract. Archive Charlie, let
+# CDC carry the state to the projection, then read the same listing three ways.
+gql "mutation { archiveUser(id: \"${GOP_ID_C}\") { success } }" >/dev/null
+assert_jq_true "20.4 archiveUser(Charlie) succeeds" '.data.archiveUser.success == true'
+echo "Waiting for the archive to reach the projection…"
+arch_ready=fail
+for _ in $(seq 1 40); do
+    gql 'query { users(where: { name: { icontains: "Gqlop" } }) { totalCount } }' >/dev/null
+    [ "$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)" = "2" ] && { arch_ready=ok; break; }
+    sleep 0.5
+done
+if [ "$arch_ready" = ok ]; then echo "${GREEN}PASS${RESET} (archived Charlie left the default read)"; PASS=$((PASS+1));
+else echo "${RED}FAIL${RESET} (archive never reached the projection)"; FAIL=$((FAIL+1)); fi
+
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, includeArchived: true) { totalCount } }' >/dev/null
+assert_jq "20.5 includeArchived:true resurfaces the archived node (3)" \
+    '.data.users.totalCount' "3"
+# Explicit false is presence WITHOUT activation — the default read, not a third
+# behavior (the GraphQL twin of REST's ?includeArchived=false, e2e §10.8c).
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, includeArchived: false) { totalCount } }' >/dev/null
+assert_jq "20.6 includeArchived:false behaves as the default read (2)" \
+    '.data.users.totalCount' "2"
+gql "mutation { unarchiveUser(id: \"${GOP_ID_C}\") { success } }" >/dev/null
+assert_jq_true "20.7 unarchiveUser(Charlie) restores the fixture" \
+    '.data.unarchiveUser.success == true'
+for _ in $(seq 1 40); do
+    gql 'query { users(where: { name: { icontains: "Gqlop" } }) { totalCount } }' >/dev/null
+    [ "$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)" = "3" ] && break
+    sleep 0.5
+done
+
+# orderBy — §19 only ever sorted ascending. Descending and the COMPOSITE form
+# (secondary key) are the legs REST pins at e2e §15.7 and §24.3.
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, orderBy: ["-name"], first: 1) { edges { node { name } } } }' >/dev/null
+assert_jq "20.8 orderBy:[-name] descending → Charlie leads" \
+    '.data.users.edges[0].node.name' "Gqlop Charlie"
+
+# The composite needs a TIE on the primary key for the secondary to be
+# observable, so seed two users sharing one name and differing only by email.
+GQS_A="gqlsort.a.${TS19}@omnicore.test"
+GQS_B="gqlsort.b.${TS19}@omnicore.test"
+GQS_ID_A=$(seed_gop "$GQS_A" 39000009004 gopsa "Gqlsort Pair")
+GQS_ID_B=$(seed_gop "$GQS_B" 39000009005 gopsb "Gqlsort Pair")
+echo "Waiting for the sort pair to materialize…"
+pair_ready=fail
+for _ in $(seq 1 40); do
+    gql 'query { users(where: { name: { icontains: "Gqlsort" } }) { totalCount } }' >/dev/null
+    [ "$(jq -r '.data.users.totalCount' ${GQL_TMP}.body 2>/dev/null)" = "2" ] && { pair_ready=ok; break; }
+    sleep 0.5
+done
+if [ "$pair_ready" = ok ]; then echo "${GREEN}PASS${RESET} (sort pair visible)"; PASS=$((PASS+1));
+else echo "${RED}FAIL${RESET} (sort pair never materialized)"; FAIL=$((FAIL+1)); fi
+
+gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: ["name","email"], first: 1) { edges { node { email } } } }' >/dev/null
+assert_jq "20.9 composite orderBy [name,email] → the lower email leads" \
+    '.data.users.edges[0].node.email' "$GQS_A"
+gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: ["name","-email"], first: 1) { edges { node { email } } } }' >/dev/null
+assert_jq "20.9 composite orderBy [name,-email] → the SECONDARY key flips the pair" \
+    '.data.users.edges[0].node.email' "$GQS_B"
+
+# A non-sortable field is a wire-contract violation, not a silent no-op — the
+# GraphQL twin of REST's ?orderBy=bogus → 400 (e2e §19.20).
+gql 'query { users(orderBy: ["bogus"]) { edges { node { id } } } }' >/dev/null
+assert_jq_true "20.10 orderBy:[bogus] (undeclared field) → rejected, not ignored" \
+    '((.errors // []) | length) > 0'
+
 # Cleanup the GOP fixtures.
-for gid in "$GOP_ID_A" "$GOP_ID_B" "$GOP_ID_C"; do
+for gid in "$GOP_ID_A" "$GOP_ID_B" "$GOP_ID_C" "$GQS_ID_A" "$GQS_ID_B"; do
     [ -n "$gid" ] && [ "$gid" != "null" ] && gql "mutation { deleteUser(id: \"${gid}\") { success } }" >/dev/null
 done
 echo "cleaned up GOP fixtures"

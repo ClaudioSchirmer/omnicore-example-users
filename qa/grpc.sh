@@ -366,6 +366,38 @@ title "6c.5 include_archived resurfaces alice in the count"
 rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"onlyTotal":true,"includeArchived":true}}'
 if echo "$RPC_BODY" | grep -Eq '"totalCount":"?3"?'; then ok "archived included on opt-in"; else bad "includeArchived"; echo "$RPC_BODY" | head -c 200; fi
 
+# 6c.5 proves include_archived on a COUNT. The flag's real job is reshaping a
+# LISTING, and the items path never exercised it here: a reader that honored the
+# flag only in count mode would pass 6c.5 untouched. REST pins both (e2e §16.2
+# count-side §17.4). Default first, so the contrast is in one place.
+title "6c.5b include_archived reshapes the ITEMS, not just the count"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"first":10}}'
+default_hides=no
+echo "$RPC_BODY" | grep -q 'grpcqa_carol' && ! echo "$RPC_BODY" | grep -q 'grpcqa_alice' && default_hides=yes
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"first":10,"includeArchived":true}}'
+if [ "$default_hides" = yes ] && [ "$RPC_STATUS" = "200" ] \
+   && echo "$RPC_BODY" | grep -q 'grpcqa_alice' && echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
+  ok "archived alice hidden by default, present in the items on opt-in"
+else
+  bad "include_archived listing (default_hides=$default_hides status=$RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+# Composite order_by — repeated OrderByField is the proto's multi-key form, but
+# every case so far sent a SINGLE term, so a reader that silently dropped every
+# term past the first would look correct. user_profile is 1 on all grpcqa
+# fixtures: a deliberate TIE, so the pair can only be separated by the SECOND
+# key. REST pins the same shape at e2e §24.3.
+title "6c.6 composite order_by: the secondary key breaks the user_profile tie"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_profile"},{"field":"user_name"}],"pagination":{"first":1}}'
+sec_asc=$(echo "$RPC_BODY" | grep -o 'grpcqa_[a-z]*' | head -1)
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_profile"},{"field":"user_name","desc":true}],"pagination":{"first":1}}'
+sec_desc=$(echo "$RPC_BODY" | grep -o 'grpcqa_[a-z]*' | head -1)
+if [ "$sec_asc" = "grpcqa_carol" ] && [ "$sec_desc" = "grpcqa_dave" ]; then
+  ok "secondary key honored in both directions (asc=$sec_asc, desc=$sec_desc)"
+else
+  bad "composite order_by (asc=$sec_asc, desc=$sec_desc)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
 ##############################################################################
 sec "6d. The FULL Semantic → code table (Provoke fixture)"
 ##############################################################################
@@ -477,6 +509,51 @@ if [ -n "$CUR_B" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave'; then
   fi
 else
   bad "startCursor missing on page 2"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+# `last` WITHOUT a cursor is a direction on its own — it yields the LAST N of the
+# ordered set (proto comment on PaginationRequest; REST parity e2e §15.9b). It is
+# the one Relay leg the gRPC suite never exercised: 6f.1 only ever sent `last`
+# paired with `before`, which the reader also infers backward from.
+GRPC_PAGE='{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"orderBy":[{"field":"user_name"}],"pagination"'
+
+title "6f.2 last:1 with NO cursor → the tail of the ordered set (dave)"
+rpc ListUsers "${GRPC_PAGE}:{\"last\":1}}"
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave' \
+   && ! echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
+  ok "last:1 alone returns the tail window"
+else
+  bad "last:1 tail (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+# PaginationInfo is "the REST pagination block mirrored field-for-field"
+# (query.proto), but no case ever read its boundary flags — the suite only ever
+# harvested cursors. Connect serializes with protojson defaults, so a FALSE bool
+# and an EMPTY string are OMITTED from the JSON: presence IS the assertion, and
+# absence is the negative one. The reader also emits end_cursor only when
+# has_next_page and start_cursor only when has_previous_page, so the two halves
+# of each page must agree.
+title "6f.3 page 1 envelope: has_next_page + end_cursor, no backward half"
+rpc ListUsers "${GRPC_PAGE}:{\"first\":1}}"
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"hasNextPage":true' \
+   && ! echo "$RPC_BODY" | grep -q 'hasPreviousPage' \
+   && echo "$RPC_BODY" | grep -q '"endCursor"' \
+   && ! echo "$RPC_BODY" | grep -q '"startCursor"'; then
+  ok "head page: forward half populated, backward half absent"
+else
+  bad "page 1 envelope (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+CUR_P1=$(echo "$RPC_BODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
+
+title "6f.4 page 2 (the tail) envelope: has_previous_page + start_cursor, no forward half"
+rpc ListUsers "${GRPC_PAGE}:{\"first\":1,\"after\":\"$CUR_P1\"}}"
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"hasPreviousPage":true' \
+   && ! echo "$RPC_BODY" | grep -q 'hasNextPage' \
+   && echo "$RPC_BODY" | grep -q '"startCursor"' \
+   && ! echo "$RPC_BODY" | grep -q '"endCursor"'; then
+  ok "tail page: backward half populated, forward half absent"
+else
+  bad "page 2 envelope (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
 ##############################################################################
@@ -670,6 +747,13 @@ title "6h.5 only_total + fields → invalid_argument (onlyTotal[fields])"
 conflict "only-total rejects fields" \
   '{"fields":"userName","pagination":{"onlyTotal":true}}' 'onlyTotal[fields]'
 
+# The gate's only-total matrix has SIX page-shaping keys (queryschema: fields,
+# orderBy, first, last, after, before) and 6h.1-6h.5 covered five — `last` was
+# the hole, and it is the one REST pins at e2e §17.9b.
+title "6h.5b only_total + last → invalid_argument (onlyTotal[last])"
+conflict "only-total rejects last" \
+  '{"pagination":{"onlyTotal":true,"last":1}}' 'onlyTotal[last]'
+
 title "6h.6 search stays valid in count mode (PaginationRequest.search)"
 rpc ListUsers '{"pagination":{"onlyTotal":true,"search":"Dave"}}'
 if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -Eq '"totalCount":"?1"?' \
@@ -710,6 +794,121 @@ if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotif
   ok "orderBy outside the vocabulary rejects"
 else
   bad "undeclared orderBy (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+##############################################################################
+sec "6i. Pagination REJECTION matrix — positivity, direction, ceiling, cursor"
+##############################################################################
+# §6c/§6f prove the happy walk and §6h the only-total conflicts, but every
+# NEGATIVE pagination leg REST carries (e2e §15.5, §15.9c, §15.10-§15.15) was
+# untested on this surface. Two distinct enforcement points are exercised here
+# and they must not be confused:
+#
+#   - the canonical control gateway (queryschema.ValidateControls), shared
+#     verbatim with REST and GraphQL — positivity and direction, rejected
+#     BEFORE dispatch, field = the offending control key;
+#   - the READER — the per-view page-size ceiling (LimitExceededNotification)
+#     and cursor validity (InvalidCursorError → SchemaViolationNotification).
+#     gRPC has no pre-dispatch cursor check, so these surface from the reader,
+#     which is exactly why they need their own cases here.
+#
+# Both must land as invalid_argument with a typed notification — never a bare
+# `internal`. State: carol + dave active, alice archived (userName grpcqa_*).
+
+title "6i.1 first:0 → invalid_argument (non-positive page size)"
+conflict "first:0 rejected" '{"pagination":{"first":0}}' '"field":"first"'
+
+title "6i.2 first:-5 → invalid_argument (negative page size)"
+conflict "first:-5 rejected" '{"pagination":{"first":-5}}' '"field":"first"'
+
+title "6i.3 last:0 → invalid_argument (non-positive, backward side)"
+conflict "last:0 rejected" '{"pagination":{"last":0}}' '"field":"last"'
+
+title "6i.4 last:-5 → invalid_argument (negative, backward side)"
+conflict "last:-5 rejected" '{"pagination":{"last":-5}}' '"field":"last"'
+
+# The four direction mixes. The gate reports the BACKWARD side as the offending
+# field (`last` when present, else `before`) — the same field REST puts on its
+# 400 envelope, so the two surfaces name the same culprit for the same request.
+title "6i.5 first + last → invalid_argument (one direction at a time)"
+conflict "first+last rejected" '{"pagination":{"first":1,"last":1}}' '"field":"last"'
+
+title "6i.6 after + before → invalid_argument (mutually exclusive cursors)"
+conflict "after+before rejected" \
+  '{"pagination":{"after":"cur-xyz","before":"cur-xyz"}}' '"field":"before"'
+
+title "6i.7 last + after → invalid_argument (backward size, forward cursor)"
+conflict "last+after rejected" \
+  '{"pagination":{"last":1,"after":"cur-xyz"}}' '"field":"last"'
+
+title "6i.8 first + before → invalid_argument (forward size, backward cursor)"
+conflict "first+before rejected" \
+  '{"pagination":{"first":1,"before":"cur-xyz"}}' '"field":"before"'
+
+# The page-size ceiling is resolved in the reader (view MaxLimit → yaml
+# query.maxLimit → framework default), so it is surface-neutral: 100 in
+# microservice.qa.yaml. 100 is AT the cap, 101 the first value past it — the
+# boundary pair, with the typed notification REST asserts at e2e §15.15.
+title "6i.9 first:101 (one past the ceiling) → invalid_argument + LimitExceeded"
+rpc ListUsers '{"pagination":{"first":101}}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'LimitExceededNotification'; then
+  ok "page size past the ceiling rejects with the typed notification"
+else
+  bad "first:101 (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6i.10 first:100 (exactly AT the ceiling) → 200"
+rpc ListUsers '{"pagination":{"first":100}}'
+if [ "$RPC_STATUS" = "200" ]; then
+  ok "page size at the ceiling is accepted"
+else
+  bad "first:100 (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6i.11 malformed cursor (not base64) → invalid_argument, never internal"
+rpc ListUsers '{"pagination":{"first":1,"after":"not-base64---"}}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification' \
+   && ! echo "$RPC_BODY" | grep -q '"code":"internal"'; then
+  ok "undecodable cursor rejects legibly"
+else
+  bad "malformed cursor (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+# The reader binds every cursor to HashContext(filter, orderBy, search,
+# includeArchived): a cursor is spendable ONLY inside the exact listing that
+# issued it. Changing an axis between pages must reject rather than silently
+# seek into a different result set — REST pins the three axes at e2e
+# §15.16-§15.18 and they were never proven here. Each case below issues a real
+# cursor in one context and spends it in a shifted one.
+title "6i.12 cursor↔filter mismatch → invalid_argument"
+rpc ListUsers "${GRPC_PAGE}:{\"first\":1}}"
+CUR_CTX=$(echo "$RPC_BODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
+if [ -n "$CUR_CTX" ]; then
+  conflict "cursor issued unfiltered-by-carol, spent with a narrowed filter" \
+    "{\"filters\":{\"userName\":{\"conditions\":[{\"op\":\"STRING_OP_STARTSWITH\",\"values\":[\"grpcqa_c\"]}]}},\"orderBy\":[{\"field\":\"user_name\"}],\"pagination\":{\"first\":1,\"after\":\"$CUR_CTX\"}}" \
+    'SchemaViolationNotification'
+else
+  bad "6i.12 could not issue a cursor"; echo "$RPC_BODY" | head -c 200; echo
+fi
+
+title "6i.13 cursor↔orderBy mismatch → invalid_argument"
+rpc ListUsers '{"filters":{"userName":{"conditions":[{"op":"STRING_OP_STARTSWITH","values":["grpcqa_"]}]}},"pagination":{"first":1}}'
+CUR_NOSORT=$(echo "$RPC_BODY" | grep -o '"endCursor":"[^"]*"' | cut -d'"' -f4)
+if [ -n "$CUR_NOSORT" ]; then
+  conflict "cursor issued unsorted, spent sorted" \
+    "${GRPC_PAGE}:{\"first\":1,\"after\":\"$CUR_NOSORT\"}}" \
+    'SchemaViolationNotification'
+else
+  bad "6i.13 could not issue an unsorted cursor"; echo "$RPC_BODY" | head -c 200; echo
+fi
+
+title "6i.14 cursor↔include_archived mismatch → invalid_argument"
+if [ -n "$CUR_CTX" ]; then
+  conflict "cursor issued on the default gate, spent with include_archived" \
+    "${GRPC_PAGE}:{\"first\":1,\"after\":\"$CUR_CTX\",\"includeArchived\":true}}" \
+    'SchemaViolationNotification'
+else
+  bad "6i.14 no cursor from 6i.12"
 fi
 
 ##############################################################################
