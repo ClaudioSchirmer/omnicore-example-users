@@ -173,7 +173,7 @@ grpc_call "$GRPC_BASE" ListUsers '{}' -H "Authorization: Bearer forged.garbage.t
 [ "$RPC_STATUS" = "401" ] && ok "forged rejected on internal plane" || bad "B.4 (got $RPC_STATUS)"
 
 title "B.5 anonymous read_mask Phone → allowed (nil identity = trusted)"
-grpc_call "$GRPC_BASE" ListUsers '{"readMask":"phone","pagination":{"onlyTotal":true}}'
+grpc_call "$GRPC_BASE" ListUsers '{"readMask":"phone","pagination":{"limit":1}}'
 [ "$RPC_STATUS" = "200" ] && ok "anonymous trusted read" || { bad "B.5 (got $RPC_STATUS)"; echo "$RPC_BODY" | head -c 200; }
 
 ##############################################################################
@@ -194,7 +194,7 @@ title "C.3 the synthetic service identity observably flows: Phone restricted"
 # FindUserByParamsQuery.ToCriteria restricts Phone unless users:admin — the
 # certificate identity (service-a, no permissions) triggers it, while door
 # B's anonymous nil-identity read (B.5) was allowed. Identity end to end.
-grpc_call "$GRPC_TLS" ListUsers '{"readMask":"phone","pagination":{"onlyTotal":true}}' --cacert "$WORK/ca.crt" --cert "$WORK/client.crt" --key "$WORK/client.key"
+grpc_call "$GRPC_TLS" ListUsers '{"readMask":"phone","pagination":{"limit":1}}' --cacert "$WORK/ca.crt" --cert "$WORK/client.crt" --key "$WORK/client.key"
 if [ "$RPC_STATUS" = "403" ] && ! echo "$RPC_BODY" | grep -q 'MissingPermissionNotification'; then
   ok "cert identity reached ToCriteria (Phone restricted for service-a, NOT the gate)"
 else

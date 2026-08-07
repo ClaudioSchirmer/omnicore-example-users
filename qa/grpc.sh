@@ -14,6 +14,13 @@
 #     (SemanticStateConflict) — asserted indirectly via the semantic
 #     metadata emitted with each ErrorInfo
 #   - ListUsers: equality filter, only_total, X-Request-ID echo
+#   - the only_total CONFLICT MATRIX (REST e2e §17 parity): count-only +
+#     each page-shaping control (limit/after/before/sort/read_mask) →
+#     invalid_argument with the onlyTotal[<key>] marker; filters, search
+#     and include_archived stay valid in count mode; only_total=false
+#     behaves as omitted
+#   - mask/sort vocabulary guards: an undeclared read_mask path or sort
+#     field → invalid_argument (the Fields allowlist, REST tag parity)
 #   - the WIRE-TYPE matrix (EchoTypes fixture): every proto scalar kind
 #     through the pb↔DTO bridge in both directions — the 64-bit integers
 #     protojson quotes (money as int64), at their extremes and past 2^53,
@@ -620,6 +627,90 @@ echoes "the full matrix round-trips in a single call" \
   '"amounts":\["10","20"\]' '"tags":\["x","y"\]' \
   '"childCents":"100"' '"childCents":"1000"' \
   '"sumCents":"2180"' '"labelPresent":true'
+
+##############################################################################
+sec "6h. The only_total conflict matrix + mask/sort vocabulary guards"
+##############################################################################
+# The REST wrapper rejects ?onlyTotal=true combined with any page-shaping
+# control (e2e §17.5-17.9: fields/sort/limit/after/before → 400 with the
+# onlyTotal[<key>] marker). The gRPC criteria builder carries the SAME matrix
+# — presence-based, since proto3 optional distinguishes absent from zero.
+# Filter leaves, search and include_archived stay valid in count mode
+# (counting a filtered subset is the canonical use case — 6c.1/6c.4/6c.5
+# already prove those legs); only_total=false must behave as omitted.
+# State here: carol + dave active, alice archived (all userName grpcqa_*).
+
+conflict() { # conflict <label> <request-json> <marker>
+  rpc ListUsers "$2"
+  if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification' \
+     && echo "$RPC_BODY" | grep -qF "$3"; then
+    ok "$1"
+  else
+    bad "$1 (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+  fi
+}
+
+title "6h.1 only_total + limit → invalid_argument (onlyTotal[limit])"
+conflict "count-only rejects limit" \
+  '{"pagination":{"onlyTotal":true,"limit":1}}' 'onlyTotal[limit]'
+
+title "6h.2 only_total + after → invalid_argument (onlyTotal[after])"
+conflict "count-only rejects after" \
+  '{"pagination":{"onlyTotal":true,"after":"cur-xyz"}}' 'onlyTotal[after]'
+
+title "6h.3 only_total + before → invalid_argument (onlyTotal[before])"
+conflict "count-only rejects before" \
+  '{"pagination":{"onlyTotal":true,"before":"cur-xyz"}}' 'onlyTotal[before]'
+
+title "6h.4 only_total + sort → invalid_argument (onlyTotal[sort])"
+conflict "count-only rejects sort" \
+  '{"sort":[{"field":"user_name"}],"pagination":{"onlyTotal":true}}' 'onlyTotal[sort]'
+
+title "6h.5 only_total + read_mask → invalid_argument (onlyTotal[read_mask])"
+conflict "count-only rejects read_mask" \
+  '{"readMask":"userName","pagination":{"onlyTotal":true}}' 'onlyTotal[read_mask]'
+
+title "6h.6 search stays valid in count mode (PaginationRequest.search)"
+rpc ListUsers '{"pagination":{"onlyTotal":true,"search":"Dave"}}'
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -Eq '"total":"?1"?' \
+   && ! echo "$RPC_BODY" | grep -q '"items"'; then
+  ok "search + only_total counts the text-index match"
+else
+  bad "search+onlyTotal (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.7 search in listing mode shapes the items"
+rpc ListUsers '{"pagination":{"limit":10,"search":"Dave"}}'
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q 'grpcqa_dave' \
+   && ! echo "$RPC_BODY" | grep -q 'grpcqa_carol'; then
+  ok "search selects dave only, items returned"
+else
+  bad "search listing (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.8 only_total=false behaves as omitted (listing envelope intact)"
+rpc ListUsers '{"pagination":{"onlyTotal":false,"limit":1}}'
+if [ "$RPC_STATUS" = "200" ] && echo "$RPC_BODY" | grep -q '"items"'; then
+  ok "explicit false keeps the listing envelope (limit accepted)"
+else
+  bad "onlyTotal=false (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.9 undeclared read_mask path → invalid_argument (Fields allowlist)"
+rpc ListUsers '{"readMask":"nope"}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
+  ok "read_mask outside the vocabulary rejects"
+else
+  bad "undeclared mask (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.10 undeclared sort field → invalid_argument (Fields allowlist)"
+rpc ListUsers '{"sort":[{"field":"nope"}]}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
+  ok "sort outside the vocabulary rejects"
+else
+  bad "undeclared sort (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
 
 ##############################################################################
 sec "7. Internal-plane posture — side-by-side with the main door"
