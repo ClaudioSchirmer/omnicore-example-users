@@ -454,6 +454,14 @@ gql "{\"query\":\"mutation { unarchiveEmployee(id: \\\"$GQL_ID\\\") { success } 
 gql "{\"query\":\"mutation { deleteEmployee(id: \\\"$GQL_ID\\\") { success } }\"}"
 [ "$(jsonq "d['data']['deleteEmployee']['success']")" = "True" ] && ok "deleteEmployee" || bad "deleteEmployee: $RESP"
 
+title "7.6b mutation type names derive from the FIELD name (second aggregate)"
+# createEmployee → CreateEmployeeInput/CreateEmployeePayload; the Go DTO names
+# (InsertEmployeeRequest/Response) never leak into the SDL.
+gql "{\"query\":\"{ in: __type(name: \\\"CreateEmployeeInput\\\") { kind } out: __type(name: \\\"CreateEmployeePayload\\\") { kind } gone: __type(name: \\\"InsertEmployeeInput\\\") { kind } }\"}"
+[ "$(jsonq "d['data']['in']['kind']")" = "INPUT_OBJECT" ] && ok "CreateEmployeeInput is INPUT_OBJECT" || bad "CreateEmployeeInput: $RESP"
+[ "$(jsonq "d['data']['out']['kind']")" = "OBJECT" ] && ok "CreateEmployeePayload is OBJECT" || bad "CreateEmployeePayload: $RESP"
+[ "$(jsonq "d['data']['gone']")" = "None" ] && ok "InsertEmployeeInput (Go name) is gone" || bad "InsertEmployeeInput leaked: $RESP"
+
 title "7.6 GraphQL validation error mirrors REST (422 envelope in errors)"
 gql "{\"query\":\"mutation { createEmployee(input: {ethnicity: \\\"white\\\", name: \\\"X\\\", email: \\\"bad@example.com\\\", document: \\\"30000000008\\\", employeeNumber: \\\"EMP-8\\\", dependents: [{name: \\\"K\\\", birthDate: \\\"2020-01-01T00:00:00Z\\\", relationship: \\\"cousin\\\"}], jobHistories: []}) { id } }\"}"
 ERRS=$(jsonq "len(d.get('errors') or [])")

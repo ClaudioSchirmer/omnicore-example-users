@@ -800,6 +800,136 @@ for i in $CTLIDS; do delete "/users/$i" >/dev/null 2>&1; done
 delete "/users/$RID" >/dev/null 2>&1
 
 ##############################################################################
+sec "16G. GraphQL over the SQLite SoR — usersRel/userRel serve, Mongo twins empty"
+##############################################################################
+# GraphQL is mounted on the MVP too (POST /graphql; introspection on in
+# microservice.sqlite.yaml). The Mongo-backed fields (users/user, persons/
+# person) can never materialize here (no CDC — section 17's law expressed in
+# GraphQL), so the RelationalSource twins usersRel/userRel are the working
+# GraphQL read path — read-your-writes straight from app.db, mirroring REST
+# where /users-rel is the only read path. Writes flow through the GraphQL
+# mutations against the SQLite SoR and are verified with sqlite3 directly.
+gqlq() { STATUS=$(curl -sS -m 10 -o "$BODY" -w "%{http_code}" -X POST "$BASE/graphql" \
+  -H "Content-Type: application/json" \
+  --data "{\"query\":$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")}"); }
+
+title "16G.1 introspection + the field-name-derived mutation type names"
+gqlq '{ __schema { queryType { name } mutationType { name } } }'
+status_is "introspection answers on the MVP" 200
+eq "queryType"    "$(jsonq "d['data']['__schema']['queryType']['name']")" "Query"
+eq "mutationType" "$(jsonq "d['data']['__schema']['mutationType']['name']")" "Mutation"
+gqlq '{ in: __type(name: "CreateUserInput") { kind } out: __type(name: "CreateUserPayload") { kind } gone: __type(name: "InsertUserInput") { kind } }'
+eq "CreateUserInput is INPUT_OBJECT (named from the FIELD, not the Go DTO)" \
+   "$(jsonq "d['data']['in']['kind']")" "INPUT_OBJECT"
+eq "CreateUserPayload is OBJECT" "$(jsonq "d['data']['out']['kind']")" "OBJECT"
+eq "InsertUserInput (Go-derived name) is gone" "$(jsonq "d['data']['gone']")" "None"
+
+title "16G.2 createUser mutation writes the SQLite SoR (verified with sqlite3)"
+GDOC="91000000301"
+gqlq "mutation { createUser(input: { name: \"Gql Mvp\", email: \"gqlmvp@example.com\", phone: \"14155550301\", document: \"$GDOC\", userName: \"gqlmvp\", ethnicity: \"white\", userProfile: 1, addresses: [{ label: \"home\", street: \"Rua G\", number: \"1\", neighborhood: \"Centro\", city: \"Lisboa\", state: \"LX\", zipCode: \"97000301\", country: \"PT\", addressType: \"residential\" }] }) { id email userName } }"
+status_is "createUser over SQLite" 200
+GID=$(jsonq "d['data']['createUser']['id']")
+eq "payload echoes the email"    "$(jsonq "d['data']['createUser']['email']")" "gqlmvp@example.com"
+eq "person row in app.db"        "$(db "SELECT COUNT(*) FROM persons WHERE document='$GDOC';")" "1"
+eq "user (role) row in app.db"   "$(db "SELECT COUNT(*) FROM users WHERE user_name='gqlmvp';")" "1"
+
+title "16G.3 usersRel connection — read-your-writes, root+base fields via the loader JOIN"
+gqlq "{ usersRel(where: { document: { eq: \"$GDOC\" } }) { totalCount edges { node { id name email userName document } cursor } pageInfo { hasNextPage } } }"
+eq "totalCount sees the row immediately (no projection lag)" \
+   "$(jsonq "d['data']['usersRel']['totalCount']")" "1"
+eq "ROOT role field (userName)"        "$(jsonq "d['data']['usersRel']['edges'][0]['node']['userName']")" "gqlmvp"
+eq "SHARED-BASE field (name)"          "$(jsonq "d['data']['usersRel']['edges'][0]['node']['name']")" "Gql Mvp"
+eq "SHARED-BASE natural key (document)" "$(jsonq "d['data']['usersRel']['edges'][0]['node']['document']")" "$GDOC"
+NONEMPTY=$(jsonq "1 if (d['data']['usersRel']['edges'][0]['cursor'] or '') else 0")
+eq "edges[].cursor populated (Relay keyset cursor from the SoR)" "$NONEMPTY" "1"
+
+title "16G.4 userRel(id:) — singular hit, not-found null + typed error"
+gqlq "{ userRel(id: \"$GID\") { id name document } }"
+eq "singular hit returns the node" "$(jsonq "d['data']['userRel']['id']")" "$GID"
+eq "  with the base document"      "$(jsonq "d['data']['userRel']['document']")" "$GDOC"
+gqlq '{ userRel(id: "00000000-0000-0000-0000-000000000399") { id } }'
+eq "unknown id → data.userRel null (nullable node)" "$(jsonq "d['data']['userRel']")" "None"
+note_has "  beside the canonical error" "RecordNotFoundNotification"
+
+title "16G.5 archive/unarchive via GraphQL — visibility flips IMMEDIATELY on the SoR"
+gqlq "mutation { archiveUser(id: \"$GID\") { success } }"
+eq "archiveUser succeeds" "$(jsonq "d['data']['archiveUser']['success']")" "True"
+eq "  deleted_at stamped in app.db" "$(nn deleted_at users "user_name='gqlmvp'")" "SET"
+gqlq "{ userRel(id: \"$GID\") { id } }"
+note_has "default singular read hides the archived row (no CDC wait)" "RecordNotFoundNotification"
+gqlq "{ userRel(id: \"$GID\", includeArchived: true) { id } }"
+eq "includeArchived: true reveals it" "$(jsonq "d['data']['userRel']['id']")" "$GID"
+gqlq "mutation { unarchiveUser(id: \"$GID\") { success } }"
+eq "unarchiveUser succeeds" "$(jsonq "d['data']['unarchiveUser']['success']")" "True"
+gqlq "{ userRel(id: \"$GID\") { id } }"
+eq "default read serves it again" "$(jsonq "d['data']['userRel']['id']")" "$GID"
+
+title "16G.6 keyset pagination on the SoR connection (first/after, totalCount law)"
+for i in 2 3; do
+  gqlq "mutation { createUser(input: { name: \"Gql Mvp $i\", email: \"gqlmvp$i@example.com\", phone: \"1415555030$i\", document: \"$((91000000300+i))\", userName: \"gqlmvp$i\", ethnicity: \"white\", userProfile: 1, addresses: [] }) { id } }"
+  status_is "seed pagination user $i" 200
+done
+gqlq '{ usersRel(where: { document: { startswith: "910000003" } }, orderBy: [{field: NAME}], first: 2) { totalCount edges { node { name } cursor } pageInfo { hasNextPage endCursor } } }'
+eq "page 1 carries 2 edges"                  "$(jsonq "len(d['data']['usersRel']['edges'])")" "2"
+eq "totalCount is the FULL match count (3)"  "$(jsonq "d['data']['usersRel']['totalCount']")" "3"
+eq "hasNextPage true"                        "$(jsonq "d['data']['usersRel']['pageInfo']['hasNextPage']")" "True"
+GCUR=$(jsonq "d['data']['usersRel']['pageInfo']['endCursor']")
+gqlq "{ usersRel(where: { document: { startswith: \"910000003\" } }, orderBy: [{field: NAME}], first: 2, after: \"$GCUR\") { edges { node { name } } pageInfo { hasNextPage } } }"
+eq "page 2 carries the remaining edge"       "$(jsonq "len(d['data']['usersRel']['edges'])")" "1"
+eq "  and it is the third by name"           "$(jsonq "d['data']['usersRel']['edges'][0]['node']['name']")" "Gql Mvp 3"
+eq "hasNextPage false at the end"            "$(jsonq "d['data']['usersRel']['pageInfo']['hasNextPage']")" "False"
+gqlq '{ usersRel(where: { document: { startswith: "910000003" } }, orderBy: [{field: NAME, direction: DESC}], first: 1) { edges { node { name } } } }'
+eq "orderBy: [{field: NAME, direction: DESC}] serves the highest name first" \
+   "$(jsonq "d['data']['usersRel']['edges'][0]['node']['name']")" "Gql Mvp 3"
+
+title "16G.7 the relational capability cut — typed errors, not silent holes"
+gqlq '{ usersRel(search: "gql") { totalCount } }'
+note_has "search: → RelationalCapabilityNotification (the 400 twin)" "RelationalCapabilityNotification"
+gqlq '{ usersRel(where: { addresses_zipCode: { eq: "97000301" } }) { totalCount } }'
+note_has "1:N child-field where → RelationalCapabilityNotification" "RelationalCapabilityNotification"
+
+title "16G.7b the typed orderBy vocabulary + the schema gateway on the MVP"
+# The sortable enum is reflected from the SAME Response DTO on every posture —
+# the MVP schema carries UserOrderField/OrderDirection/UserOrder too.
+gqlq '{ f: __type(name: "UserOrderField") { kind } d: __type(name: "OrderDirection") { kind } o: __type(name: "UserOrder") { kind } }'
+eq "UserOrderField is an ENUM"        "$(jsonq "d['data']['f']['kind']")" "ENUM"
+eq "OrderDirection is the shared ENUM" "$(jsonq "d['data']['d']['kind']")" "ENUM"
+eq "UserOrder is an INPUT_OBJECT"      "$(jsonq "d['data']['o']['kind']")" "INPUT_OBJECT"
+# Gateway: an undeclared enum value and the pre-enum string form are both cut
+# by validation BEFORE any resolver runs — no silent ignore, no SoR query.
+gqlq '{ usersRel(orderBy: [{field: BOGUS}]) { totalCount } }'
+eq "orderBy {field: BOGUS} rejected by validation" \
+   "$(jsonq "len(d.get('errors') or []) > 0")" "True"
+gqlq '{ usersRel(orderBy: ["-name"]) { totalCount } }'
+eq "pre-enum string form rejected by validation" \
+   "$(jsonq "len(d.get('errors') or []) > 0")" "True"
+
+title "16G.8 the Mongo-backed GraphQL twins stay EMPTY by construction (section 17's law)"
+gqlq "{ users(where: { document: { eq: \"$GDOC\" } }) { totalCount } }"
+eq "users (Mongo connection) sees NOTHING of the SoR rows" \
+   "$(jsonq "d['data']['users']['totalCount']")" "0"
+gqlq "{ user(id: \"$GID\") { id } }"
+note_has "user (Mongo by-id) → RecordNotFound for a row the SoR serves" "RecordNotFoundNotification"
+gqlq "{ persons(where: { document: { eq: \"$GDOC\" } }) { totalCount } }"
+eq "persons (SharedBaseView, Mongo-only shape) is empty too" \
+   "$(jsonq "d['data']['persons']['totalCount']")" "0"
+gqlq "{ person(id: \"$GID\") { id } }"
+note_has "person (singular SharedBaseView read) → RecordNotFound" "RecordNotFoundNotification"
+
+title "16G.9 update/patch/delete mutations close the loop on the SoR"
+gqlq "mutation { updateUser(id: \"$GID\", input: { name: \"Gql Mvp Upd\", email: \"gqlmvp@example.com\", phone: \"14155550301\", userName: \"gqlmvp\", ethnicity: \"white\", userProfile: 1, notificationEmail: \"g@n.io\", notificationFrequency: 2, emailNotification: true, smsNotification: false, addresses: [] }) { name } }"
+eq "updateUser (strict input) applies" "$(jsonq "d['data']['updateUser']['name']")" "Gql Mvp Upd"
+eq "  persisted on the base row"       "$(db "SELECT name FROM persons WHERE document='$GDOC';")" "Gql Mvp Upd"
+gqlq "mutation { patchUser(id: \"$GID\", input: { name: \"Gql Mvp Patched\" }) { name } }"
+eq "patchUser (lenient input) applies" "$(jsonq "d['data']['patchUser']['name']")" "Gql Mvp Patched"
+for uid in $GID $(db "SELECT u.id FROM users u JOIN persons p ON p.id=u.id WHERE p.document IN ('91000000302','91000000303');"); do
+  gqlq "mutation { deleteUser(id: \"$uid\") { success } }"
+  eq "deleteUser $uid" "$(jsonq "d['data']['deleteUser']['success']")" "True"
+done
+eq "purge cascaded — no persons left in the 910000003xx group" \
+   "$(db "SELECT COUNT(*) FROM persons WHERE document LIKE '910000003%';")" "0"
+
+##############################################################################
 sec "17. Mongo read side is EMPTY by design (no CDC → no Mongo projection)"
 ##############################################################################
 # The Mongo-backed views (users/employees/persons) go through d.ViewReader → the

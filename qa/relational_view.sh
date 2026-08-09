@@ -334,7 +334,7 @@ title "4.4b before the FIRST row (offset-0 cursor) → EMPTY page, never a full-
 # requests carry the same listing context (no filter, orderBy=code), which is
 # what the cursor's context hash binds.
 prev=$(curl -sS -X POST "$BASE/graphql" -H "Content-Type: application/json" \
-  --data '{"query":"query { gadgetsRel(orderBy: [\"code\"], first: 1) { edges { cursor } } }"}' \
+  --data '{"query":"query { gadgetsRel(orderBy: [{field: CODE}], first: 1) { edges { cursor } } }"}' \
   | python3 -c 'import sys,json
 try:
   c=(json.load(sys.stdin).get("data") or {}).get("gadgetsRel") or {}
@@ -558,7 +558,7 @@ try:
 except Exception: print("<err> <err>")'; }
 
 title "10.1 a paged connection reports the FULL count, not the edge count"
-read -r gtot gedges <<<"$(gql 'query { gadgetsRel(first: 2, orderBy: ["code"]) { totalCount edges { node { code } } } }' | gql_pick)"
+read -r gtot gedges <<<"$(gql 'query { gadgetsRel(first: 2, orderBy: [{field: CODE}]) { totalCount edges { node { code } } } }' | gql_pick)"
 echo "graphql gadgetsRel(first:2) → totalCount=$gtot edges=$gedges"
 [ "$gedges" = "2" ] && [ "$gtot" = "3" ] && ok "GraphQL totalCount over a relational view = full count ($gtot over $gedges edges)" || bad "GraphQL relational totalCount=$gtot edges=$gedges (want 3 over 2)"
 
@@ -718,7 +718,7 @@ gql_rej() { local l="$1" q="$2" k; k=$(gqlk "$q")
 GPI='pageInfo { hasNextPage hasPreviousPage startCursor endCursor }'
 
 title "12.10 GraphQL head page over the relational view — same edge-cursor rule"
-Q="query { gadgetsRel(orderBy: [\"code\"], first: 1) { edges { cursor node { code } } $GPI } }"
+Q="query { gadgetsRel(orderBy: [{field: CODE}], first: 1) { edges { cursor node { code } } $GPI } }"
 rv_eq "GraphQL head is GADGET-01"     "$(gqlc "$Q" "c['edges'][0]['node']['code']")" "GADGET-01"
 rv_eq "GraphQL head hasNextPage"      "$(gqlc "$Q" "c['pageInfo']['hasNextPage']")" "True"
 rv_eq "GraphQL head startCursor null" "$(gqlc "$Q" "c['pageInfo']['startCursor'] is None")" "True"
@@ -726,10 +726,10 @@ rv_eq "GraphQL head endCursor set"    "$(gqlc "$Q" "c['pageInfo']['endCursor'] i
 GC1=$(gqlc "$Q" "c['pageInfo']['endCursor']")
 
 title "12.11 GraphQL walk to the tail — endCursor goes null at the end"
-Q2="query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC1\") { edges { node { code } } $GPI } }"
+Q2="query { gadgetsRel(orderBy: [{field: CODE}], first: 1, after: \"$GC1\") { edges { node { code } } $GPI } }"
 rv_eq "GraphQL page 2 is GADGET-02"   "$(gqlc "$Q2" "c['edges'][0]['node']['code']")" "GADGET-02"
 GC2E=$(gqlc "$Q2" "c['pageInfo']['endCursor']")
-Q3="query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC2E\") { edges { cursor node { code } } $GPI } }"
+Q3="query { gadgetsRel(orderBy: [{field: CODE}], first: 1, after: \"$GC2E\") { edges { cursor node { code } } $GPI } }"
 rv_eq "GraphQL tail is GADGET-03"        "$(gqlc "$Q3" "c['edges'][0]['node']['code']")" "GADGET-03"
 rv_eq "GraphQL tail hasNextPage false"   "$(gqlc "$Q3" "c['pageInfo']['hasNextPage']")" "False"
 rv_eq "GraphQL tail endCursor null"      "$(gqlc "$Q3" "c['pageInfo']['endCursor'] is None")" "True"
@@ -741,7 +741,7 @@ rv_eq "GraphQL tail row still carries edges[].cursor" \
 
 title "12.12 GraphQL backward + rejection matrix on the relational view"
 rv_eq "GraphQL last:1 is the tail (GADGET-03)" \
-  "$(gqlc "query { gadgetsRel(orderBy: [\"code\"], last: 1) { edges { node { code } } } }" "c['edges'][0]['node']['code']")" "GADGET-03"
+  "$(gqlc "query { gadgetsRel(orderBy: [{field: CODE}], last: 1) { edges { node { code } } } }" "c['edges'][0]['node']['code']")" "GADGET-03"
 gql_rej "GraphQL first:0"        'query { gadgetsRel(first: 0) { edges { node { code } } } }'
 gql_rej "GraphQL first:101 (ceiling)" 'query { gadgetsRel(first: 101) { edges { node { code } } } }'
 gql_rej "GraphQL first+last"     'query { gadgetsRel(first: 1, last: 1) { edges { node { code } } } }'
@@ -753,21 +753,21 @@ title "12.12b GraphQL cursor↔context guards on the relational view"
 # check, so these come from the READER — which is exactly the path that used to
 # answer 500 before the cursor rejections were typed.
 gql_rej "GraphQL cursor↔filter mismatch" \
-  "query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC1\", where: { category: { eq: \"cat-a\" } }) { edges { node { code } } } }"
+  "query { gadgetsRel(orderBy: [{field: CODE}], first: 1, after: \"$GC1\", where: { category: { eq: \"cat-a\" } }) { edges { node { code } } } }"
 gql_rej "GraphQL cursor↔sort mismatch" \
   "query { gadgetsRel(first: 1, after: \"$GC1\") { edges { node { code } } } }"
 gql_rej "GraphQL cursor↔includeArchived mismatch" \
-  "query { gadgetsRel(orderBy: [\"code\"], first: 1, after: \"$GC1\", includeArchived: true) { edges { node { code } } } }"
+  "query { gadgetsRel(orderBy: [{field: CODE}], first: 1, after: \"$GC1\", includeArchived: true) { edges { node { code } } } }"
 
 title "12.12c GraphQL orderBy + includeArchived over the relational view"
 rv_eq "GraphQL orderBy [-code] leads with GADGET-03" \
-  "$(gqlc 'query { gadgetsRel(orderBy: ["-code"], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-03"
+  "$(gqlc 'query { gadgetsRel(orderBy: [{field: CODE, direction: DESC}], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-03"
 # cat-a holds GADGET-01 and GADGET-02, so only the SECOND term can order them.
 rv_eq "GraphQL composite [category,code] → GADGET-01" \
-  "$(gqlc 'query { gadgetsRel(where: { category: { eq: "cat-a" } }, orderBy: ["category","code"], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-01"
+  "$(gqlc 'query { gadgetsRel(where: { category: { eq: "cat-a" } }, orderBy: [{field: CATEGORY}, {field: CODE}], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-01"
 rv_eq "GraphQL composite [category,-code] → the secondary key flips to GADGET-02" \
-  "$(gqlc 'query { gadgetsRel(where: { category: { eq: "cat-a" } }, orderBy: ["category","-code"], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-02"
-gql_rej "GraphQL orderBy [bogus]" 'query { gadgetsRel(orderBy: ["bogus"]) { edges { node { code } } } }'
+  "$(gqlc 'query { gadgetsRel(where: { category: { eq: "cat-a" } }, orderBy: [{field: CATEGORY}, {field: CODE, direction: DESC}], first: 1) { edges { node { code } } } }' "c['edges'][0]['node']['code']")" "GADGET-02"
+gql_rej "GraphQL orderBy {field: BOGUS} (undeclared enum value)" 'query { gadgetsRel(orderBy: [{field: BOGUS}]) { edges { node { code } } } }'
 # GADGET-04 was archived in 4.6: the default read hides it, the flag brings it back.
 rv_eq "GraphQL default read hides the archived row (3)" \
   "$(gqlc 'query { gadgetsRel { totalCount } }' "c['totalCount']")" "3"

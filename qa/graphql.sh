@@ -7,16 +7,26 @@
 # endpoint the example wires via Wiring.GraphQL = NewGraphQL(d):
 #
 #   Query    users(where, first, after, orderBy, ...) → Relay connection
-#   Mutation createUser(input)       → InsertUserResponse
-#   Mutation archiveUser(id) / deleteUser(id) → MutationResult
+#   Query    user(id, includeArchived) → nullable User node (singular by-id)
+#   Query    usersRel / userRel → the SAME pair over the RelationalSource view
+#            (SoR read-your-writes, no CDC; capability cuts → typed errors)
+#   Mutation createUser(input: CreateUserInput!) → CreateUserPayload
+#   Mutation archiveUser(id) / deleteUser(id) → ArchiveUserPayload / DeleteUserPayload
 #
 # Coverage:
 #   - Introspection (__schema / __type) answered (graphql.introspection: true)
 #   - GraphiQL playground served at /graphql/ui (graphql.playground: true)
 #   - GraphQL route ABSENT from /openapi.json (own surface, never in Swagger)
+#   - The singular `user(id:)` field (GraphQL twin of GET /users/:id): node
+#     hit, not-found → data.user null + RecordNotFound in errors[] (the
+#     GitHub-style shape), archived hidden by default / revealed by
+#     includeArchived: true — and it shares the ONE `User` node type with the
+#     `users` connection
+#   - Mutation schema type names derive from the FIELD name (CreateUserInput /
+#     CreateUserPayload — never the Go DTO names), asserted via introspection
 #   - All SIX write verbs (parity with /users/*): createUser (Mutation),
 #     updateUser + patchUser (MutationWithBodyID, PUT/PATCH — id + input),
-#     archiveUser + unarchiveUser + deleteUser (MutationByID → MutationResult)
+#     archiveUser + unarchiveUser + deleteUser (MutationByID → field-derived Payload)
 #   - createUser persists; the same record appears on the read side after the
 #     CDC pipeline materializes it (Debezium → Kafka → Mongo)
 #   - where filter folds identically to REST; edges[].cursor populated (Relay)
@@ -154,6 +164,36 @@ assert_jq "createUser returns the document (natural key)" '.data.createUser.docu
 USER_ID=$(jq -r '.data.createUser.id' ${GQL_TMP}.body 2>/dev/null)
 echo "USER_ID : ${USER_ID}"
 
+# ── 6b. RelationalSource twins usersRel/userRel — read-your-writes, NO CDC ──
+# The same DTOs/handlers as users/user pointed at the relational view: the
+# record created in 6 is visible IMMEDIATELY (SoR read, zero projection lag),
+# while the Mongo-backed users field only sees it after the CDC hop (section 7).
+gql "query { usersRel(where: { email: { eq: \"${EMAIL}\" } }) {
+        totalCount edges { node { id name email userName document } }
+     } }" >/dev/null
+assert_jq "usersRel sees the write with NO CDC wait (read-your-writes)" \
+    '.data.usersRel.edges[0].node.email' "${EMAIL}"
+assert_jq_true "usersRel totalCount counts it immediately" '.data.usersRel.totalCount >= 1'
+assert_jq "usersRel reaches the ROOT role field (userName)" \
+    '.data.usersRel.edges[0].node.userName' "gqltester"
+assert_jq "usersRel reaches the SHARED-BASE natural key (document) via the loader JOIN" \
+    '.data.usersRel.edges[0].node.document' "10000000050"
+
+gql "query { userRel(id: \"${USER_ID}\") { id name document } }" >/dev/null
+assert_jq "userRel(id:) singular hit straight from the SoR" '.data.userRel.id' "${USER_ID}"
+assert_jq "userRel(id:) carries the base document" '.data.userRel.document' "10000000050"
+
+# The relational capability cut, in GraphQL idiom: what GET /users-rel answers
+# with 400 RelationalCapabilityNotification surfaces here as the SAME typed
+# notification in errors[] — search and a 1:N child-field filter cannot be
+# expressed by a root SELECT.
+gql "query { usersRel(search: \"gql\") { totalCount } }" >/dev/null
+assert_jq "usersRel(search:) → RelationalCapabilityNotification (400 twin)" \
+    '.errors[0].extensions.notificationKey' "RelationalCapabilityNotification"
+gql "query { usersRel(where: { addresses_zipCode: { eq: \"95014\" } }) { totalCount } }" >/dev/null
+assert_jq "usersRel child-field where → RelationalCapabilityNotification" \
+    '.errors[0].extensions.notificationKey' "RelationalCapabilityNotification"
+
 # ── 7. Read side materializes (CDC) and the where filter folds like REST ────
 echo "Waiting ${CDC_WAIT_SEC}s for the CDC pipeline (Debezium → Kafka → Mongo)…"
 sleep "${CDC_WAIT_SEC}"
@@ -168,6 +208,68 @@ assert_jq_true "Relay edges[].cursor is populated (per-item keyset cursor)" \
     '(.data.users.edges[0].cursor // "") | length > 0'
 assert_jq_true "connection carries pageInfo + totalCount" \
     '(.data.users.pageInfo != null) and (.data.users.totalCount >= 1)'
+
+# ── 7b. Singular user(id:) — the by-id twin of GET /users/:id ───────────────
+# Same view document as the connection node; the two root fields share the
+# ONE `User` type. A hit returns the node directly (no edges envelope).
+gql "query { user(id: \"${USER_ID}\") { id name email userName } }" >/dev/null
+assert_jq "user(id:) returns the node's email" '.data.user.email' "${EMAIL}"
+assert_jq "user(id:) returns the node's userName" '.data.user.userName' "gqltester"
+assert_jq "user(id:) echoes the id" '.data.user.id' "${USER_ID}"
+
+# Not-found: nullable node → data.user null beside the canonical
+# RecordNotFound notification in errors[].extensions (GitHub-style; REST 404 twin).
+gql 'query { user(id: "00000000-0000-0000-0000-000000000099") { id } }' >/dev/null
+assert_jq_true "user(id: unknown) resolves to null" '.data.user == null'
+assert_jq "user(id: unknown) carries RecordNotFoundNotification" \
+    '.errors[0].extensions.notificationKey' "RecordNotFoundNotification"
+
+# Naming convention live in the schema: mutation input/payload types derive
+# from the FIELD name — CreateUserInput/CreateUserPayload, no Go DTO leakage.
+gql 'query { in: __type(name: "CreateUserInput") { kind } out: __type(name: "CreateUserPayload") { kind } gone: __type(name: "InsertUserInput") { kind } }' >/dev/null
+assert_jq "CreateUserInput is an INPUT_OBJECT" '.data.in.kind' "INPUT_OBJECT"
+assert_jq "CreateUserPayload is an OBJECT" '.data.out.kind' "OBJECT"
+assert_jq_true "InsertUserInput (Go-derived name) is gone from the schema" '.data.gone == null'
+gql 'query { upd: __type(name: "UpdateUserPayload") { kind } pin: __type(name: "PatchUserInput") { kind } goneR: __type(name: "UpdateUserResponse") { kind } }' >/dev/null
+assert_jq "UpdateUserPayload is an OBJECT" '.data.upd.kind' "OBJECT"
+assert_jq "PatchUserInput is an INPUT_OBJECT" '.data.pin.kind' "INPUT_OBJECT"
+assert_jq_true "UpdateUserResponse (Go DTO name) is gone from the schema" '.data.goneR == null'
+# Bodyless mutations own field-derived payloads too: ArchiveUserPayload/
+# UnarchiveUserPayload/DeleteUserPayload (fixed { success, id } shape), and the
+# old shared MutationResult is GONE — per-mutation payloads, the GitHub shape.
+gql 'query { arc: __type(name: "ArchiveUserPayload") { kind fields { name } } del: __type(name: "DeleteUserPayload") { kind } goneMR: __type(name: "MutationResult") { kind } }' >/dev/null
+assert_jq "ArchiveUserPayload is an OBJECT" '.data.arc.kind' "OBJECT"
+assert_jq_true "  carrying the bodyless shape (success + id)" \
+    '[.data.arc.fields[].name] as $f | (["success","id"] - $f) == []'
+assert_jq "DeleteUserPayload is an OBJECT" '.data.del.kind' "OBJECT"
+assert_jq_true "shared MutationResult is gone from the schema" '.data.goneMR == null'
+
+# ── 7c. ONE node type across the three read fields (fragment proof + parity) ─
+# users (Mongo connection), user (Mongo by-id) and userRel (SoR by-id) all
+# declare entity "User", so a single fragment spreads across all of them —
+# the compile-level proof they share one node type.
+gql "query { m: user(id: \"${USER_ID}\") { ...F } r: userRel(id: \"${USER_ID}\") { ...F } c: users(where: { email: { eq: \"${EMAIL}\" } }, first: 1) { edges { node { ...F } } } } fragment F on User { id name email }" >/dev/null
+assert_jq_true "fragment on User resolves on user, userRel AND the connection node" \
+    '(.data.m.id == .data.r.id) and (.data.m.id == .data.c.edges[0].node.id)'
+assert_jq_true "the three fields agree on the projected email" \
+    '(.data.m.email == .data.r.email) and (.data.m.email == .data.c.edges[0].node.email)'
+
+# Backing parity: after the CDC hop the Mongo connection and the SoR connection
+# count the same record for the same filter.
+gql "query { m: users(where: { email: { eq: \"${EMAIL}\" } }) { totalCount } r: usersRel(where: { email: { eq: \"${EMAIL}\" } }) { totalCount } }" >/dev/null
+assert_jq_true "users (Mongo) and usersRel (SoR) totalCount agree" \
+    '.data.m.totalCount == .data.r.totalCount'
+
+# The 1:N child-field where the SoR twin REJECTS (6b) works on the Mongo
+# backing — the capability difference is the backing's, not the surface's.
+gql "query { users(where: { addresses_zipCode: { eq: \"95014\" } }) { totalCount } }" >/dev/null
+assert_jq_true "child-field where works on the Mongo-backed users (contrast with usersRel)" \
+    '.data.users.totalCount >= 1'
+
+# Only-total selection shape on the SoR twin: a totalCount-only selection
+# short-circuits to the relational count primitive.
+gql "query { usersRel(where: { email: { eq: \"${EMAIL}\" } }) { totalCount } }" >/dev/null
+assert_jq_true "totalCount-only selection answers from the SoR" '.data.usersRel.totalCount >= 1'
 
 # ── 8. Bare connection shape (no where) ─────────────────────────────────────
 gql 'query { users(first: 1) { edges { node { id } } pageInfo { hasNextPage } totalCount } }' >/dev/null
@@ -228,15 +330,34 @@ if [ -n "${USER_ID}" ] && [ "${USER_ID}" != "null" ]; then
     gql "mutation { patchUser(id: \"${USER_ID}\", input: { name: \"GraphQL Patched\" }) { id name } }" >/dev/null
     assert_jq "patchUser applies the partial name" '.data.patchUser.name' "GraphQL Patched"
 
-    # ── 13. archiveUser (MutationByID → MutationResult) ─────────────────────
+    # ── 13. archiveUser (MutationByID → ArchiveUserPayload) ─────────────────
     gql "mutation { archiveUser(id: \"${USER_ID}\") { success id } }" >/dev/null
     assert_jq_true "archiveUser returns success" '.data.archiveUser.success == true'
 
-    # ── 14. unarchiveUser (MutationByID → MutationResult) ───────────────────
+    # ── 13b. archived-visibility pairs on the singular fields ────────────────
+    # The SoR twin sees the archive IMMEDIATELY (read-your-writes): default
+    # read hides (RecordNotFound), includeArchived: true reveals — no wait.
+    gql "query { userRel(id: \"${USER_ID}\") { id } }" >/dev/null
+    assert_jq "archived user hidden on userRel IMMEDIATELY (SoR, no CDC wait)" \
+        '.errors[0].extensions.notificationKey' "RecordNotFoundNotification"
+    gql "query { userRel(id: \"${USER_ID}\", includeArchived: true) { id } }" >/dev/null
+    assert_jq "includeArchived: true reveals it on userRel immediately" '.data.userRel.id' "${USER_ID}"
+
+    # The Mongo-backed user(id:) needs the archive to reach the projection
+    # first (CDC hop) — the same pair, eventual-consistency flavor.
+    echo "Waiting ${CDC_WAIT_SEC}s for the archive to materialize (CDC)…"
+    sleep "${CDC_WAIT_SEC}"
+    gql "query { user(id: \"${USER_ID}\") { id } }" >/dev/null
+    assert_jq "archived user hidden on the default singular read" \
+        '.errors[0].extensions.notificationKey' "RecordNotFoundNotification"
+    gql "query { user(id: \"${USER_ID}\", includeArchived: true) { id name } }" >/dev/null
+    assert_jq "includeArchived: true reveals the archived user" '.data.user.id' "${USER_ID}"
+
+    # ── 14. unarchiveUser (MutationByID → UnarchiveUserPayload) ─────────────
     gql "mutation { unarchiveUser(id: \"${USER_ID}\") { success } }" >/dev/null
     assert_jq_true "unarchiveUser returns success" '.data.unarchiveUser.success == true'
 
-    # ── 15. deleteUser (MutationByID → MutationResult) — cleanup ────────────
+    # ── 15. deleteUser (MutationByID → DeleteUserPayload) — cleanup ─────────
     gql "mutation { deleteUser(id: \"${USER_ID}\") { success } }" >/dev/null
     assert_jq_true "deleteUser returns success" '.data.deleteUser.success == true'
 else
@@ -394,11 +515,11 @@ assert_jq "where email.ieq returns the Alpha node (case-folded equality)" \
 # Backward pagination WITH content: orderBy name ascending. first:1 → the min
 # (Alpha), last:1 → the max (Charlie). Proves last/before pages from the END of
 # the ordered set and returns the correct node, not merely a well-formed shape.
-gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], first: 1) {
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [{field: NAME}], first: 1) {
         edges { node { name } } pageInfo { hasNextPage } } }" >/dev/null
 assert_jq "forward first:1 (orderBy name) → Alpha (the minimum)" \
     '.data.users.edges[0].node.name' "Gqlop Alpha"
-gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], last: 1) {
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [{field: NAME}], last: 1) {
         edges { node { name } } pageInfo { hasPreviousPage } } }" >/dev/null
 assert_jq "backward last:1 (orderBy name) → Charlie (the maximum)" \
     '.data.users.edges[0].node.name' "Gqlop Charlie"
@@ -414,7 +535,7 @@ assert_jq "backward last:1 (orderBy name) → Charlie (the maximum)" \
 # hasNextPage, startCursor ONLY when hasPreviousPage — so page 1 of a forward
 # walk carries no startCursor, and the last page carries no endCursor. The
 # assertions below encode that contract; they do not work around it.
-GOP_CTX='where: { name: { icontains: "Gqlop" } }, orderBy: ["name"]'
+GOP_CTX='where: { name: { icontains: "Gqlop" } }, orderBy: [{field: NAME}]'
 GOP_PI='pageInfo { hasNextPage hasPreviousPage startCursor endCursor }'
 gop_pi() { jq -r ".data.users.pageInfo.${1} // \"\"" ${GQL_TMP}.body 2>/dev/null; }
 
@@ -462,7 +583,7 @@ assert_jq "19b.5 backward page → hasNextPage=true (the page we left sits ahead
 # seek into a different result set. REST rejects these at the wrapper (e2e
 # §15.16-15.18); GraphQL has no pre-dispatch cursor check (§17b), so the same
 # SchemaViolationNotification comes from the reader. Same key, both surfaces.
-gql "query { users(where: { name: { icontains: \"Gqlop A\" } }, orderBy: [\"name\"], first: 1, after: \"${GOP_C1}\") { edges { node { name } } } }" >/dev/null
+gql "query { users(where: { name: { icontains: \"Gqlop A\" } }, orderBy: [{field: NAME}], first: 1, after: \"${GOP_C1}\") { edges { node { name } } } }" >/dev/null
 assert_jq "19b.6 cursor↔filter mismatch → semantic Schema" \
     '.errors[0].extensions.semantic' "Schema"
 assert_jq "19b.6 cursor↔filter mismatch → SchemaViolationNotification" \
@@ -470,7 +591,7 @@ assert_jq "19b.6 cursor↔filter mismatch → SchemaViolationNotification" \
 
 gql "query { users(where: { name: { icontains: \"Gqlop\" } }, first: 1) { pageInfo { endCursor } } }" >/dev/null
 GOP_NOSORT=$(gop_pi endCursor)
-gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [\"name\"], first: 1, after: \"${GOP_NOSORT}\") { edges { node { name } } } }" >/dev/null
+gql "query { users(where: { name: { icontains: \"Gqlop\" } }, orderBy: [{field: NAME}], first: 1, after: \"${GOP_NOSORT}\") { edges { node { name } } } }" >/dev/null
 assert_jq "19b.7 cursor↔sort mismatch (issued unsorted, spent sorted) → semantic Schema" \
     '.errors[0].extensions.semantic' "Schema"
 assert_jq "19b.7 cursor↔sort mismatch → SchemaViolationNotification" \
@@ -588,8 +709,8 @@ done
 
 # orderBy — §19 only ever sorted ascending. Descending and the COMPOSITE form
 # (secondary key) are the legs REST pins at e2e §15.7 and §24.3.
-gql 'query { users(where: { name: { icontains: "Gqlop" } }, orderBy: ["-name"], first: 1) { edges { node { name } } } }' >/dev/null
-assert_jq "20.8 orderBy:[-name] descending → Charlie leads" \
+gql 'query { users(where: { name: { icontains: "Gqlop" } }, orderBy: [{field: NAME, direction: DESC}], first: 1) { edges { node { name } } } }' >/dev/null
+assert_jq "20.8 orderBy DESC (typed enum) descending → Charlie leads" \
     '.data.users.edges[0].node.name' "Gqlop Charlie"
 
 # The composite needs a TIE on the primary key for the secondary to be
@@ -608,17 +729,51 @@ done
 if [ "$pair_ready" = ok ]; then echo "${GREEN}PASS${RESET} (sort pair visible)"; PASS=$((PASS+1));
 else echo "${RED}FAIL${RESET} (sort pair never materialized)"; FAIL=$((FAIL+1)); fi
 
-gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: ["name","email"], first: 1) { edges { node { email } } } }' >/dev/null
-assert_jq "20.9 composite orderBy [name,email] → the lower email leads" \
+gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: [{field: NAME}, {field: EMAIL}], first: 1) { edges { node { email } } } }' >/dev/null
+assert_jq "20.9 composite orderBy [NAME, EMAIL] → the lower email leads" \
     '.data.users.edges[0].node.email' "$GQS_A"
-gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: ["name","-email"], first: 1) { edges { node { email } } } }' >/dev/null
-assert_jq "20.9 composite orderBy [name,-email] → the SECONDARY key flips the pair" \
+gql 'query { users(where: { name: { icontains: "Gqlsort" } }, orderBy: [{field: NAME}, {field: EMAIL, direction: DESC}], first: 1) { edges { node { email } } } }' >/dev/null
+assert_jq "20.9 composite orderBy [NAME, EMAIL DESC] → the SECONDARY key flips the pair" \
     '.data.users.edges[0].node.email' "$GQS_B"
 
 # A non-sortable field is a wire-contract violation, not a silent no-op — the
-# GraphQL twin of REST's ?orderBy=bogus → 400 (e2e §19.20).
-gql 'query { users(orderBy: ["bogus"]) { edges { node { id } } } }' >/dev/null
-assert_jq_true "20.10 orderBy:[bogus] (undeclared field) → rejected, not ignored" \
+# GraphQL twin of REST's ?orderBy=bogus → 400 (e2e §19.20). With the typed
+# orderBy the cut sits in the SCHEMA: BOGUS is not a UserOrderField value, so
+# gqlparser rejects before any resolver runs.
+gql 'query { users(orderBy: [{field: BOGUS}]) { edges { node { id } } } }' >/dev/null
+assert_jq_true "20.10 orderBy {field: BOGUS} (undeclared enum value) → rejected by validation" \
+    '((.errors // []) | length) > 0'
+
+# ── 20.11-20.16 the typed orderBy vocabulary itself ─────────────────────────
+# Introspection: the per-entity UserOrderField enum (one value per sortable
+# wire path — the SAME allowlist REST's ?orderBy= validates), the shared
+# OrderDirection, and the ASC default on UserOrder.direction.
+gql 'query { f: __type(name: "UserOrderField") { kind enumValues { name } } d: __type(name: "OrderDirection") { kind enumValues { name } } o: __type(name: "UserOrder") { kind inputFields { name defaultValue } } }' >/dev/null
+assert_jq "20.11 UserOrderField is an ENUM" '.data.f.kind' "ENUM"
+assert_jq_true "  carrying NAME/EMAIL/USER_NAME/ADDRESSES_ZIP_CODE (reflected wire paths)" \
+    '[.data.f.enumValues[].name] as $v | (["NAME","EMAIL","USER_NAME","ADDRESSES_ZIP_CODE"] - $v) == []'
+assert_jq "20.12 OrderDirection is the shared ENUM" '.data.d.kind' "ENUM"
+assert_jq_true "  with exactly ASC and DESC" '([.data.d.enumValues[].name] | sort) == ["ASC","DESC"]'
+assert_jq "20.13 UserOrder is an INPUT_OBJECT" '.data.o.kind' "INPUT_OBJECT"
+assert_jq_true "  and direction defaults to ASC" \
+    '[.data.o.inputFields[] | select(.name == "direction") | .defaultValue] == ["ASC"]'
+
+# The pre-enum string form is gone from the contract — rejected by validation.
+gql 'query { users(orderBy: ["-name"]) { edges { node { id } } } }' >/dev/null
+assert_jq_true "20.14 the pre-enum string form orderBy:[\"-name\"] is rejected" \
+    '((.errors // []) | length) > 0'
+
+# The SAME typed sort on the RELATIONAL twin — the fold lands on a SoR ORDER BY
+# instead of a Mongo sort, same enum, same terms — and the same schema cut on
+# an undeclared value.
+gql 'query { usersRel(where: { name: { icontains: "Gqlop" } }, orderBy: [{field: NAME, direction: DESC}], first: 1) { edges { node { name } } } }' >/dev/null
+assert_jq "20.15 typed DESC sort over the RelationalSource twin → Charlie leads" \
+    '.data.usersRel.edges[0].node.name' "Gqlop Charlie"
+gql 'query { usersRel(where: { name: { icontains: "Gqlop" } }, orderBy: [{field: NAME}], first: 1) { edges { node { name } } } }' >/dev/null
+assert_jq "20.16 default direction (field only) is ASC on the SoR twin → Alpha leads" \
+    '.data.usersRel.edges[0].node.name' "Gqlop Alpha"
+gql 'query { usersRel(orderBy: [{field: BOGUS}]) { edges { node { id } } } }' >/dev/null
+assert_jq_true "20.17 undeclared enum value rejected on the relational twin too" \
     '((.errors // []) | length) > 0'
 
 # Cleanup the GOP fixtures.

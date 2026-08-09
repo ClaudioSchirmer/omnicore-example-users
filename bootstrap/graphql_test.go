@@ -34,15 +34,31 @@ func TestMountUsersGraphQL_SchemaBuilds(t *testing.T) {
 	}
 	for _, want := range []string{
 		"type Query", "users(",
+		"user(id: ID!, includeArchived: Boolean): User",
+		// The RelationalSource twins — same DTOs, same node type, SoR backing.
+		"usersRel(",
+		"userRel(id: ID!, includeArchived: Boolean): User",
+		// The typed order vocabulary, reflected from the FindUsers Response.
+		"orderBy: [UserOrder!]",
+		"enum UserOrderField", "enum OrderDirection",
+		"direction: OrderDirection = ASC",
 		"type Mutation",
 		"createUser(", "updateUser(", "patchUser(",
 		"archiveUser(", "unarchiveUser(", "deleteUser(",
 		"type User", "UserConnection",
-		"input InsertUserInput", "input UpdateUserInput", "input PatchUserInput",
-		"type MutationResult",
+		// Mutation type names derive from the FIELD name (Relay/GitHub
+		// convention), never from the Go DTO names.
+		"input CreateUserInput", "input UpdateUserInput", "input PatchUserInput",
+		"type CreateUserPayload", "type UpdateUserPayload", "type PatchUserPayload",
+		// Bodyless mutations own field-derived payloads too — no shared type.
+		"archiveUser(id: ID!): ArchiveUserPayload!",
+		"type ArchiveUserPayload", "type UnarchiveUserPayload", "type DeleteUserPayload",
 	} {
 		if !strings.Contains(sdl, want) {
 			t.Errorf("generated SDL missing %q\n---\n%s", want, sdl)
 		}
+	}
+	if strings.Contains(sdl, "MutationResult") {
+		t.Errorf("shared MutationResult must be gone from the SDL\n---\n%s", sdl)
 	}
 }

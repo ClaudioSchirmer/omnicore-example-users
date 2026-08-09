@@ -331,7 +331,7 @@ func MountUsersRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap.De
 //
 // Each field carries the same Layer-1 permission as its REST twin via
 // fwgraphql.RequirePermission (the GraphQL twin of fwopenapi.RequirePermission):
-// users → users:read; createUser/updateUser/patchUser → users:write;
+// users/user → users:read; createUser/updateUser/patchUser → users:write;
 // archiveUser/unarchiveUser → users:archive; deleteUser → users:delete. The
 // gate enforces under auth.authorization.enabled (prd-authz) and is inert
 // otherwise, exactly like the REST matrix.
@@ -349,6 +349,22 @@ func MountUsersGraphQL(
 	](
 		"users", "User",
 		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+			Reader: d.ViewReader, View: view.Name(),
+		},
+		fwgraphql.RequirePermission("users:read")))
+
+	// READ → QueryByID `user(id, includeArchived)` → the nullable User node —
+	// the singular twin of `users` and the GraphQL twin of GET /users/:id,
+	// over the SAME FindByID handler + DTOs. Both fields pass entity "User",
+	// so they share the one node type (the list's Response DTO registered
+	// first defines it; the two DTOs are wire-aligned). A missing id resolves
+	// to null with the canonical RecordNotFound error in errors[].
+	reg.Register(fwgraphql.QueryByID[
+		requests.FindUserByIDRequest,
+		requests.FindUserByIDResponse,
+	](
+		"user", "User",
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("users:read")))
@@ -385,7 +401,9 @@ func MountUsersGraphQL(
 		},
 		fwgraphql.RequirePermission("users:write")))
 
-	// WRITE bodyless → MutationByID → MutationResult{success, id}.
+	// WRITE bodyless → MutationByID → `<name>(id) → <Name>Payload{success, id}`
+	// (archiveUser → ArchiveUserPayload — the payload name derives from the
+	// field, like every mutation).
 	reg.Register(fwgraphql.MutationByID(
 		"archiveUser",
 		&handlers.ArchiveCommandHandler[*appdomain.User, *commands.ArchiveUserCommand, fwresults.None]{
@@ -406,6 +424,44 @@ func MountUsersGraphQL(
 			Repo: repo, Service: svc,
 		},
 		fwgraphql.RequirePermission("users:delete")))
+}
+
+// MountUsersRelGraphQL registers the RelationalSource read twin on the GraphQL
+// surface — the GraphQL twin of MountUsersRel, exactly as MountUsersGraphQL is
+// the twin of MountUsers:
+//
+//	usersRel(where, first, after, …) → Relay connection (served from the SoR)
+//	userRel(id, includeArchived)     → nullable User node (served from the SoR)
+//
+// Same FindUsers DTOs and handlers as the Mongo-backed `users`/`user` fields,
+// pointed at the relational view — so both field pairs share the ONE `User`
+// node type and differ only in backing: read-your-writes with zero projection
+// lag here, eventual consistency there. On the SQLite MVP (no CDC → Mongo
+// views empty by construction) this pair is the ONLY working GraphQL read
+// path, mirroring REST where /users-rel is the only read path. The relational
+// capability cuts surface in GraphQL idiom: `search:` and a 1:N child filter
+// (`addresses_…` in `where`) resolve to the typed
+// RelationalCapabilityNotification in errors[] — the 400 twin.
+func MountUsersRelGraphQL(reg *fwgraphql.Registry, relView *query.ViewDefinition, d bootstrap.Deps) {
+	reg.Register(fwgraphql.QueryWithParams[
+		requests.FindUsersByParamsRequest,
+		requests.FindUsersByParamsResponse,
+	](
+		"usersRel", "User",
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+			Reader: d.ViewReader, View: relView.Name(),
+		},
+		fwgraphql.RequirePermission("users:read")))
+
+	reg.Register(fwgraphql.QueryByID[
+		requests.FindUserByIDRequest,
+		requests.FindUserByIDResponse,
+	](
+		"userRel", "User",
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+			Reader: d.ViewReader, View: relView.Name(),
+		},
+		fwgraphql.RequirePermission("users:read")))
 }
 
 // MountUsersGRPC registers the User aggregate's RPCs into the service's

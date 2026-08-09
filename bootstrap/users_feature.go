@@ -77,6 +77,7 @@ func (f *UsersFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 // construction). web owns the field attachment (appweb.MountUsersGraphQL).
 func (f *UsersFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) {
 	appweb.MountUsersGraphQL(reg, f.repo, nil, f.view, d)
+	appweb.MountUsersRelGraphQL(reg, f.relView, d)
 }
 
 // MountGRPC contributes the UsersService to the service's single gRPC
