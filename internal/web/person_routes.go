@@ -117,4 +117,17 @@ func MountPersonsGraphQL(
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("persons:read")))
+
+	// `person(id, includeArchived)` — the singular twin of `persons`, the
+	// GraphQL twin of GET /persons/:id over the same by-id handler + DTOs.
+	// Shares the "Person" node type with the connection (wire-aligned DTOs).
+	reg.Register(fwgraphql.QueryByID[
+		requests.FindPersonByIDRequest,
+		requests.FindPersonByIDResponse,
+	](
+		"person", "Person",
+		&handlers.FindByIDQueryHandler[*appqueries.FindPersonByIDQuery]{
+			Reader: d.ViewReader, View: view.Name(),
+		},
+		fwgraphql.RequirePermission("persons:read")))
 }

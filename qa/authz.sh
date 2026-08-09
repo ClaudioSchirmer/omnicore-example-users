@@ -693,6 +693,26 @@ show_gql_case "GraphQL users query with alice → ALLOW (alice has users:read)" 
   "$TOK_ALICE" 'query { users(first: 1) { edges { node { id } } } }' \
   ALLOW
 
+# The singular by-id field and the RelationalSource twins carry the SAME
+# users:read gate as the connection — denied without it, resolved with it
+# (a not-found for alice's random id still proves the GATE passed: the
+# resolver ran and answered with the domain notification, not the permission one).
+show_gql_case "GraphQL user(id:) with noperm → MissingPermissionNotification (same users:read gate)" \
+  "$TOK_NOPERM" 'query { user(id: "00000000-0000-0000-0000-000000000001") { id } }' \
+  MissingPermissionNotification
+show_gql_case "GraphQL usersRel with noperm → MissingPermissionNotification (SoR twin, same gate)" \
+  "$TOK_NOPERM" 'query { usersRel(first: 1) { edges { node { id } } } }' \
+  MissingPermissionNotification
+show_gql_case "GraphQL user(id:) with alice → gate passes (RecordNotFound is the RESOLVER answering)" \
+  "$TOK_ALICE" 'query { user(id: "00000000-0000-0000-0000-000000000001") { id } }' \
+  RecordNotFoundNotification
+# NOTE: a totalCount-ONLY selection beside `first:` would trip the only-total
+# conflict matrix (onlyTotal[first]) — the ALLOW probe selects edges like the
+# users twin above so it exercises the GATE, not the conflict.
+show_gql_case "GraphQL usersRel with alice → ALLOW (alice has users:read)" \
+  "$TOK_ALICE" 'query { usersRel(first: 1) { edges { node { id } } } }' \
+  ALLOW
+
 # alice lacks users:delete → deleteUser is gated even though she can read/write.
 show_gql_case "GraphQL deleteUser with alice → MissingPermissionNotification (alice lacks users:delete)" \
   "$TOK_ALICE" 'mutation { deleteUser(id: "00000000-0000-0000-0000-000000000000") { success } }' \

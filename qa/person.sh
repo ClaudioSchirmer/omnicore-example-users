@@ -404,11 +404,29 @@ fi
 ####################################
 sec "11. GraphQL persons connection"
 ####################################
-req POST /graphql "{\"query\":\"{ persons(where: {document: {eq: \\\"$D2\\\"}}) { totalCount edges { node { name document user { userName } } } } }\"}"
+req POST /graphql "{\"query\":\"{ persons(where: {document: {eq: \\\"$D2\\\"}}) { totalCount edges { node { id name document user { userName } } } } }\"}"
 expect_status "11.1 GraphQL persons query" 200
 [ "$(jsonq "d['data']['persons']['totalCount']")" = "1" ] && ok "11.2 totalCount" || bad "11.2 — $RESP"
 [ "$(jsonq "d['data']['persons']['edges'][0]['node']['user']['userName']")" = "beto" ] && \
   ok "11.3 role sub-object through GraphQL" || bad "11.3 — $RESP"
+# Singular person(id:) — the by-id twin of GET /persons/:id, sharing the ONE
+# `Person` node type with the connection. _id of the SharedBaseView doc = the
+# base id, taken from the connection node just read.
+P_ID=$(jsonq "d['data']['persons']['edges'][0]['node']['id']")
+req POST /graphql "{\"query\":\"{ person(id: \\\"$P_ID\\\") { id name document user { userName } } }\"}"
+expect_status "11.4 GraphQL person(id:) singular query" 200
+[ "$(jsonq "d['data']['person']['document']")" = "$D2" ] && \
+  ok "11.5 singular node carries the identity (document)" || bad "11.5 — $RESP"
+[ "$(jsonq "d['data']['person']['user']['userName']")" = "beto" ] && \
+  ok "11.6 role sub-object on the singular node" || bad "11.6 — $RESP"
+# Not-found on the singular field: nullable node → data.person null beside the
+# canonical RecordNotFound error (the REST-404 twin).
+req POST /graphql '{"query":"{ person(id: \"00000000-0000-0000-0000-000000000499\") { id } }"}'
+expect_status "11.7 GraphQL person(id: unknown) answers 200" 200
+[ "$(jsonq "d['data']['person']")" = "None" ] && \
+  ok "11.8 unknown person resolves to null (nullable node)" || bad "11.8 — $RESP"
+echo "$RESP" | grep -q '"notificationKey":"RecordNotFoundNotification"' && \
+  ok "11.9 beside the canonical RecordNotFoundNotification" || bad "11.9 — $RESP"
 
 ####################################
 sec "12. Base managed columns: persons.updated_at moves on a role-driven change"
