@@ -38,12 +38,13 @@ type Employee struct {
 	Pix     *string `labelKey:"EmployeePixField"`
 
 	// ─── Children ───────────────────────────────────────────────────────────
-	// Addresses is the BASE's native child collection (persons owns it), so it
-	// is the same list the User role sees. Dependents and JobHistories are
-	// role-owned: private to the Employee, invisible to other roles.
-	Addresses    []aggregatevos.Address    // base child (shared across roles)
-	Dependents   []aggregatevos.Dependent  // role child, carries a sibling (A2b)
-	JobHistories []aggregatevos.JobHistory // role child
+	// No slice fields here: the aggregate's children live in the embedded
+	// AggregateRoot's collection (added/replaced through the methods below,
+	// read with domain.GetCurrentItemsOf), which is what the write path,
+	// loader, outbox and audit consume. The boundary is declared by type in
+	// AggregateChildren: Address is the BASE's native child (persons owns it),
+	// so it is the same list the User role sees; Dependent and JobHistory are
+	// role-owned — private to the Employee, invisible to other roles.
 }
 
 // Employee needs no domain.Service for the same reason User doesn't:
