@@ -53,3 +53,7 @@ func (d Dependent) BuildRules(actionName string, service domain.Service, r *doma
 		// them off the struct (nil pointers skipped); nothing to wire here.
 	})
 }
+
+// CollectionName — see Address.CollectionName. This one nests inside the
+// employee role document.
+func (Dependent) CollectionName() string { return "Dependents" }

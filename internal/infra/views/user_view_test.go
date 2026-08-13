@@ -13,7 +13,8 @@ import (
 //   - The "users" collection name (inferred from the Go type).
 //   - No explicit EmbedMany: the addresses are the shared Person's base
 //     children, composed automatically from the SharedBase schema, so the view
-//     declares zero embeds (the "Addresses" segment is derived, not declared).
+//     declares zero embeds (the "Addresses" segment comes from the child type's
+//     CollectionName, not from an embed on the view).
 //   - The index set the read-side runtime depends on. Note document/email and
 //     the (name,email) TextIndex are all SharedBase (person) columns merged
 //     flat into the doc by the composer.

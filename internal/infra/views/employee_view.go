@@ -14,8 +14,8 @@ import (
 //     the root doc;
 //   - the base's addresses AND the role's own children (dependents — with
 //     their health-plan sibling merged FLAT into each item — and
-//     jobHistories) auto-project under their derived pluralized segments,
-//     no explicit EmbedMany;
+//     jobHistories) auto-project under the segments their types declare in
+//     CollectionName, no explicit EmbedMany;
 //   - keep-by-default: archived docs survive in the projection (no
 //     DeleteOnArchive), gated at read time by ?includeArchived.
 //
