@@ -74,6 +74,6 @@ func LensFieldsKitsView() *query.ViewDefinition {
 		Schema(LensKitSchema()).
 		EmbedMany(query.JoinView(LensPartsView(), "Parts", "parts").
 			Fields("Label", "Slot", "Brand")).
-			OrderBy("slot").On("kit_id").
+		OrderBy("slot").On("kit_id").
 		Indexes(query.Index("name"))
 }

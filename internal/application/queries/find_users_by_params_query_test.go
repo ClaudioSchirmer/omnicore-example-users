@@ -11,7 +11,7 @@ func TestFindUsersByParamsQuery_ToCriteriaIsIdentity(t *testing.T) {
 	want := fwqueries.ReadCriteria{
 		Filter:          map[string]any{"name": "Jane", "email": map[string]any{"$in": []any{"a@x.com"}}},
 		Limit:           20,
-		OrderBy:            []fwqueries.OrderByField{{Field: "name", Desc: true}},
+		OrderBy:         []fwqueries.OrderByField{{Field: "name", Desc: true}},
 		IncludeArchived: true,
 	}
 	q := FindUsersByParamsQuery{Criteria: want}

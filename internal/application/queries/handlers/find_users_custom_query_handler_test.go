@@ -18,9 +18,9 @@ func TestFindUsersCustomQueryHandler_HappyPath(t *testing.T) {
 				{"id": "u-1", "name": "Jane", "email": "jane@example.com"},
 				{"id": "u-2", "name": "Bob", "email": "bob@example.com"},
 			},
-			HasNextPage:    true,
-			EndCursor: "cursor-X",
-			TotalCount: 42,
+			HasNextPage: true,
+			EndCursor:   "cursor-X",
+			TotalCount:  42,
 		},
 	}
 	h := &FindUsersCustomQueryHandler{Reader: reader, View: "users"}
