@@ -45,3 +45,8 @@ func (h JobHistory) BuildRules(actionName string, service domain.Service, r *dom
 		}
 	})
 }
+
+// CollectionName — see Address.CollectionName. Note the framework would have no
+// way to spell this one from the type name: JobHistory pluralizes irregularly,
+// which is exactly why the domain says it.
+func (JobHistory) CollectionName() string { return "JobHistories" }

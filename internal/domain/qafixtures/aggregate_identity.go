@@ -24,3 +24,8 @@ func (l AccountLine) IsSameBusinessIdentity(other domain.AggregateValueObject) b
 func (p WidgetPart) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
 	return domain.IsSameByBusinessFields(p, other)
 }
+
+func (GadgetKitLine) CollectionName() string { return "GadgetKitLines" }
+func (CatalogLine) CollectionName() string   { return "CatalogLines" }
+func (AccountLine) CollectionName() string   { return "AccountLines" }
+func (WidgetPart) CollectionName() string    { return "WidgetParts" }

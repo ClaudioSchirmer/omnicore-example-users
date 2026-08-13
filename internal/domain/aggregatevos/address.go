@@ -117,3 +117,11 @@ func isAlpha2Country(c string) bool {
 	}
 	return true
 }
+
+// CollectionName names the collection this child occupies inside its owner —
+// the segment the projection nests it under ("Addresses"), the Go segment a
+// filter path walks (?addresses.city → Addresses.City), and, lower-camelled, the
+// notification wire path ("addresses[0].zipCode"). Declared, never derived: the
+// framework applies no pluralization rule, so a domain that speaks Portuguese
+// declares "Enderecos" here and everything downstream follows.
+func (Address) CollectionName() string { return "Addresses" }

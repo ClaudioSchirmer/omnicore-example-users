@@ -19,7 +19,7 @@ import (
 //     flat Go entity, so the read surface is unchanged in shape from a plain
 //     aggregate.
 //   - The addresses are the BASE's native children: the composer nests them
-//     under the derived "Addresses" segment automatically (ParentID person_id), so
+//     under the "Addresses" segment its type declares automatically (ParentID person_id), so
 //     there is NO explicit EmbedMany here — declaring the SharedBase with its
 //     Child(AddressSchema()) is sufficient and the view derives the embed.
 //
