@@ -277,7 +277,10 @@ services:
   # is sufficient for everything the bench needs: the SERVER enforces the majority
   # write concern across all three members regardless of how the client connected.
   # `mongo` carries a high priority so it is deterministically the primary, which
-  # is what keeps the direct connection pointed at a writable node.
+  # is what keeps the direct connection pointed at a writable node — reconciled
+  # by this node's healthcheck on EVERY boot, not only when the set is first
+  # initiated (see the rationale there; it is a persisted config, not a compose
+  # setting, so declaring it here is not the same as it being in effect).
   #
   # The container_name stays `omnicore-qa-mongo`: the QA suites reach the primary
   # through `docker exec omnicore-qa-mongo mongosh`, and inside the network
@@ -305,11 +308,26 @@ services:
       - "27028:27017"
     volumes:
       - mongo_data:/data/db
-    # The healthcheck doubles as the one-shot replica-set initiator: it is
-    # idempotent (rs.status() succeeds once initiated) and retried, which absorbs
-    # the race where mongo2/mongo3 are not yet accepting connections. It reports
-    # healthy only when this node is a WRITABLE PRIMARY, so nothing starts against
-    # a set that has not elected yet.
+    # The healthcheck doubles as the replica-set initiator: it is idempotent
+    # (rs.status() succeeds once initiated) and retried, which absorbs the race
+    # where mongo2/mongo3 are not yet accepting connections. It reports healthy
+    # only when this node is a WRITABLE PRIMARY, so nothing starts against a set
+    # that has not elected yet.
+    #
+    # The priority is RECONCILED on every boot, not just at initiation, and that
+    # is the whole point of the second clause. rs.initiate runs once in the life
+    # of the volume; the config it wrote then lives in mongo_data forever, so a
+    # set initiated before `priority: 10` existed — or reconfigured by any other
+    # hand — keeps all three members at priority 1 and no `compose up` ever fixes
+    # it. That drift is invisible until something needs the invariant: with equal
+    # priorities an election moves the primary to mongo2/mongo3 and nothing moves
+    # it back, and every host client — pinned to THIS node by directConnection —
+    # is left holding a read-only secondary. It cost a RED projection_resilience
+    # run (a projection written during a step-down could not converge, because
+    # the read side never became writable again) to find, so the invariant is now
+    # asserted continuously rather than assumed. The reconfig needs a primary,
+    # hence the guard; a transient rejection just fails this probe and the next
+    # retry picks it up.
     healthcheck:
       test:
         - CMD-SHELL
@@ -320,6 +338,9 @@ services:
           {_id: 0, host: "mongo:27017", priority: 10},
           {_id: 1, host: "mongo2:27017"},
           {_id: 2, host: "mongo3:27017"}]}) }
+          if (db.hello().isWritablePrimary) {
+          const c = rs.conf(), m = c.members.find(x => x.host == "mongo:27017");
+          if (m && m.priority != 10) { m.priority = 10; c.version++; rs.reconfig(c) } }
           if (!db.hello().isWritablePrimary) { quit(1) }'
       interval: 5s
       timeout: 10s
