@@ -66,12 +66,10 @@ func (c *Catalog) AggregateChildren() []domain.AggregateValueObject {
 
 // AddLine attaches a CatalogLine to the aggregate (INSERT on commit).
 func (c *Catalog) AddLine(l CatalogLine) {
-	domain.EnsureInitialized(c)
 	domain.AddAggregateChild(c, l)
 }
 
 // ReplaceLines clears and re-adds the whole line collection (PUT full-replace).
 func (c *Catalog) ReplaceLines(lines []CatalogLine) {
-	domain.EnsureInitialized(c)
 	domain.ReplaceAggregateChildrenOf(c, lines)
 }
