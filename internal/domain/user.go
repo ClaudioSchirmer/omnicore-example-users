@@ -161,9 +161,9 @@ func (u *User) AggregateChildren() []domain.AggregateValueObject {
 // which is exactly why Address.IsSameBusinessIdentity, not a framework guess,
 // now decides it.
 //
-// EnsureInitialized is the first call — without it, AddNotification before
-// the boundary (GetInsertable) would be silently a no-op because the
-// NotificationContext does not yet exist on the freshly constructed entity.
+// Note that this method emits BEFORE the boundary (GetInsertable) has ever seen
+// the entity, and needs no preparation for it: an entity carries its
+// NotificationContext from construction.
 //
 // Dedup approach: REJECT with a notification. On this surface the duplicate
 // can only come from the SAME request body (a warm re-POST of the document
@@ -172,7 +172,6 @@ func (u *User) AggregateChildren() []domain.AggregateValueObject {
 // silent MERGE, which keeps a warm cross-role POST idempotent when the person
 // already owns the re-sent address — see Employee.AddAddress in employee.go.
 func (u *User) AddAddress(addr aggregatevos.Address, svc domain.Service) {
-	domain.EnsureInitialized(u)
 	for _, existing := range domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot) {
 		if existing.IsSameBusinessIdentity(addr) {
 			u.AddNotification("Address", DuplicateAddressNotification{})
@@ -187,7 +186,6 @@ func (u *User) AddAddress(addr aggregatevos.Address, svc domain.Service) {
 // identity of the row in the DB — the persister infers the ID from the
 // exported field and emits UPDATE.
 func (u *User) ChangeAddress(original, replacement aggregatevos.Address) {
-	domain.EnsureInitialized(u)
 	domain.ChangeAggregateChild(u, original, replacement)
 }
 
@@ -203,7 +201,6 @@ func (u *User) ChangeAddress(original, replacement aggregatevos.Address) {
 // looked-up slot's ID so the framework's auditor pairs pre/post by GetID()
 // and the persister emits UPDATE (not INSERT) on the addresses row.
 func (u *User) ChangeAddressByID(addressID string, replacement aggregatevos.Address) {
-	domain.EnsureInitialized(u)
 	for _, addr := range domain.GetCurrentItemsOf[aggregatevos.Address](&u.AggregateRoot) {
 		if addr.GetID().Value() == addressID {
 			replacement.SetID(domain.NewID(addressID))
@@ -217,7 +214,6 @@ func (u *User) ChangeAddressByID(addressID string, replacement aggregatevos.Addr
 // RemoveAddress marks an Address as REMOVED. On commit: symmetric cascade
 // archives the row in addresses.
 func (u *User) RemoveAddress(addr aggregatevos.Address) {
-	domain.EnsureInitialized(u)
 	domain.RemoveAggregateChild(u, addr)
 }
 
@@ -230,7 +226,6 @@ func (u *User) RemoveAddress(addr aggregatevos.Address) {
 // duplicates is a client error, not User's). If you want a stronger rule,
 // move the duplicate-check loop here.
 func (u *User) ReplaceAddresses(addrs []aggregatevos.Address) {
-	domain.EnsureInitialized(u)
 	domain.ReplaceAggregateChildrenOf(u, addrs)
 }
 

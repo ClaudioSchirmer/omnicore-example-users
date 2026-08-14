@@ -49,7 +49,6 @@ func TestInsertUserCommand_ApplyTo_CopiesFieldsAndAddresses(t *testing.T) {
 func TestUpdateUserCommand_ApplyTo_ReplacesRootAndAddresses(t *testing.T) {
 	// Seed user with one existing address.
 	u := &appdomain.User{Name: "Old", Email: "old@x.com"}
-	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
 		domain.WithID(aggregatevos.Address{Street: "Old", Number: "1", Neighborhood: "N",
@@ -206,7 +205,6 @@ func TestInsertUserCustomCommand_ApplyToAndFromEntity(t *testing.T) {
 
 func TestUpdateUserCustomCommand_ApplyToReplacesFields(t *testing.T) {
 	u := &appdomain.User{Name: "Old", Email: "old@x", Document: "10000000001"}
-	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 
 	cmd := &UpdateUserCustomCommand{
@@ -282,7 +280,6 @@ func TestDeleteUserCustomCommand_ApplyAndFromEntity(t *testing.T) {
 func TestChangeAddressCustomCommand_ApplyAndFromEntity(t *testing.T) {
 	// Pre-seed root with one address; the cmd asks to change it.
 	u := &appdomain.User{Name: "U", Email: "e@x"}
-	domain.EnsureInitialized(u)
 	u.SetID(domain.NewID(uuid.NewString()))
 	u.AggregateConstructor([]domain.AggregateValueObject{
 		domain.WithID(aggregatevos.Address{Street: "Old", Number: "1", Neighborhood: "N",

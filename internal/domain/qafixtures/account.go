@@ -88,6 +88,5 @@ func (a *AccountHolder) AggregateChildren() []domain.AggregateValueObject {
 // ReplaceLines clears and re-adds the base child lines (the shared-base upsert
 // re-applies the full set on every POST).
 func (a *AccountHolder) ReplaceLines(lines []AccountLine) {
-	domain.EnsureInitialized(a)
 	domain.ReplaceAggregateChildrenOf(a, lines)
 }

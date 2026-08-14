@@ -50,6 +50,5 @@ func (k *GadgetKit) AggregateChildren() []domain.AggregateValueObject {
 }
 
 func (k *GadgetKit) AddLine(l GadgetKitLine) {
-	domain.EnsureInitialized(k)
 	domain.AddAggregateChild(k, l)
 }

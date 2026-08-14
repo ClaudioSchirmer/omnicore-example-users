@@ -40,7 +40,6 @@ func (w *Widget) AggregateChildren() []domain.AggregateValueObject {
 }
 
 func (w *Widget) AddPart(p WidgetPart) {
-	domain.EnsureInitialized(w)
 	domain.AddAggregateChild(w, p)
 }
 

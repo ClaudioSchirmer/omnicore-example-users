@@ -95,7 +95,6 @@ func (f *Employee) AggregateChildren() []domain.AggregateValueObject {
 // two methods are the reference pair for the merge-vs-reject choice the
 // manual describes for shared-base children.
 func (f *Employee) AddAddress(addr aggregatevos.Address, svc domain.Service) {
-	domain.EnsureInitialized(f)
 	for _, existing := range domain.GetCurrentItemsOf[aggregatevos.Address](&f.AggregateRoot) {
 		if existing.IsSameBusinessIdentity(addr) {
 			return
@@ -106,7 +105,6 @@ func (f *Employee) AddAddress(addr aggregatevos.Address, svc domain.Service) {
 
 // ReplaceAddresses is the PUT full-replace path for the shared collection.
 func (f *Employee) ReplaceAddresses(addrs []aggregatevos.Address) {
-	domain.EnsureInitialized(f)
 	domain.ReplaceAggregateChildrenOf(f, addrs)
 }
 
@@ -114,25 +112,21 @@ func (f *Employee) ReplaceAddresses(addrs []aggregatevos.Address) {
 // today — Dependent field validation lives in Dependent.BuildRules and runs
 // at the boundary.
 func (f *Employee) AddDependent(dep aggregatevos.Dependent) {
-	domain.EnsureInitialized(f)
 	domain.AddAggregateChild(f, dep)
 }
 
 // ReplaceDependents is the PUT full-replace path for the dependents.
 func (f *Employee) ReplaceDependents(deps []aggregatevos.Dependent) {
-	domain.EnsureInitialized(f)
 	domain.ReplaceAggregateChildrenOf(f, deps)
 }
 
 // AddJobHistory appends one job-history entry.
 func (f *Employee) AddJobHistory(h aggregatevos.JobHistory) {
-	domain.EnsureInitialized(f)
 	domain.AddAggregateChild(f, h)
 }
 
 // ReplaceJobHistories is the PUT full-replace path for the job history.
 func (f *Employee) ReplaceJobHistories(hs []aggregatevos.JobHistory) {
-	domain.EnsureInitialized(f)
 	domain.ReplaceAggregateChildrenOf(f, hs)
 }
 
