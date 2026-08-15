@@ -8,6 +8,11 @@
 #   500 InternalServerErrorNotification — a panic recovered by fwweb.Recover()
 #   503 ServiceUnavailableNotification — a handler emitting SemanticUnavailable
 #
+# §4 covers the other half of a notification: the ECHOED VALUE. A message may
+# carry the rejected input back in `value`, and no suite here ever asserted on
+# it — which is how "every optional field echoes a memory address instead of its
+# value" lived undetected. Status and key are only half of what a caller reads.
+#
 # 500/503 ride qa-only showcase routes on the Gadget mirror (`//go:build qa`,
 # /qa/showcase/*). 504 (RequestTimeoutNotification) is intentionally NOT covered
 # here: the framework's http.requestTimeoutSeconds deadline reaches the
@@ -118,6 +123,89 @@ else
   bad "3.1 want 413 / PayloadTooLargeNotification, got $st"; head -c 200 "$tmp"; echo
 fi
 rm -f "$BIG" "$tmp"
+
+##############################################################################
+sec "4. The ECHOED VALUE — what \"which value did you refuse?\" answers"
+##############################################################################
+# Every message may carry the rejected input back in `value`. It is the half of
+# a validation error a caller can ACT on, and it had a hole nothing could see:
+# only a string and a *string were rendered as themselves. Every other POINTER
+# — which is what every OPTIONAL field is — went through fmt.Sprint and arrived
+# as a memory ADDRESS. A rule fired correctly, the status was right, the key was
+# right, and the answer was 0xc000180dda.
+#
+# It survived because no suite ever looked at `value`, and because an address is
+# a perfectly valid rendering of a pointer: nothing errored, nothing logged, and
+# an assertion checking "a notification came back" passed either way. So the
+# assertions below are on the VALUE, and §4.2 fails the suite on the SHAPE of
+# the bug (a 0x-prefixed address) rather than on any single field — a new echo
+# of a new type is covered the day it is added.
+
+title "4.1 GET /qa/showcase/echo-values → 400"
+# 400, not 422: the route emits SchemaViolationNotification — the framework
+# built-in whose job IS to carry the rejected value — and its SemanticSchema
+# maps to 400 (§1-3 above cover the status table itself). What matters here is
+# every message's `value`.
+ECHO=$(mktemp)
+st=$(curl -sS -o "$ECHO" -w "%{http_code}" "$BASE/qa/showcase/echo-values")
+[ "$st" = "400" ] && ok "4.1 echo-values answers 400" || { bad "4.1 want 400, got $st"; head -c 300 "$ECHO"; echo; }
+
+# echoed <field> → the message's `value`, or the empty string when absent
+# (omitempty drops it). jq keeps this honest: a grep would happily match the
+# field name inside a neighbouring message.
+echoed() { jq -r --arg f "$1" '[.errors[].messages[] | select(.field==$f) | .value // ""] | first // "<no-such-field>"' "$ECHO"; }
+
+assert_echo() {
+  local field="$1" want="$2" got
+  got=$(echoed "$field")
+  if [ "$got" = "$want" ]; then ok "4.1 $field echoed as \"$want\""
+  else bad "4.1 $field: want \"$want\", got \"$got\""; fi
+}
+
+title "4.1a Scalars echo as themselves"
+assert_echo valueInt    "15"
+assert_echo valueString "plain"
+assert_echo valueRawVO  "ana@corp.com"
+
+title "4.1b Every POINTER is dereferenced — the optional-field shape"
+assert_echo pointerInt    "15"
+assert_echo pointerInt64  "-7"
+assert_echo pointerFloat  "2.5"
+assert_echo pointerBool   "true"
+assert_echo pointerString "plain"
+
+title "4.1c Value objects echo their VALUE, through the pointer"
+# A VO is a named type over a base type and declares no String(), which is
+# exactly the shape fmt renders as an address. The int-backed enum echoes its
+# underlying int: the translated LABEL needs the request language and lives at
+# the boundary, not in the domain.
+assert_echo pointerRawVO     "ana@corp.com"
+assert_echo pointerStrEnumVO "white"
+assert_echo pointerIntEnumVO "3"
+
+title "4.1d A type that renders ITSELF keeps its own rendering"
+# Unwrapping a value whose pointer carries String() would discard the only code
+# that knows how to print it. time.Time is the one every service has.
+assert_echo pointerStringer "vo(x)"
+assert_echo valueTime       "2026-08-15 10:30:00 +0000 UTC"
+assert_echo pointerTime     "2026-08-15 10:30:00 +0000 UTC"
+
+title "4.1e An absent value is not a value"
+# nil renders "" and omitempty drops the key, so the caller is never told that
+# the server refused "nothing".
+assert_echo nilPointer ""
+
+title "4.2 No message anywhere leaks a pointer address"
+# The shape assertion, deliberately not per-field: it covers every echo this
+# route emits today AND every one added later, which is what would have caught
+# the original bug without anyone having thought to look for it.
+LEAKED=$(jq -r '[.errors[].messages[] | select(.value != null and (.value | tostring | startswith("0x"))) | .field] | join(", ")' "$ECHO")
+if [ -z "$LEAKED" ]; then
+  ok "4.2 no echoed value is a memory address"
+else
+  bad "4.2 pointer address leaked into value on: $LEAKED"; head -c 400 "$ECHO"; echo
+fi
+rm -f "$ECHO"
 
 ##############################################################################
 sec "Summary"

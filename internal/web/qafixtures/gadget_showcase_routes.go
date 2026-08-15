@@ -30,6 +30,7 @@ const defaultSlowSleepMillis = 3000
 //	GET /qa/showcase/panic        → 500 (forced panic, recovered by fwweb.Recover)
 //	GET /qa/showcase/unavailable  → 503 (ServiceUnavailableNotification)
 //	GET /qa/showcase/slow         → 504 when the sleep outlasts the request budget
+//	GET /qa/showcase/echo-values  → 400 carrying one message per echoed value type
 //	GET /qa/gadgets-hot           list over the DeleteOnArchive `gadgets_hot` view
 //	GET /qa/gadgets-capped        list over the MaxLimit(5) `gadgets_capped` view
 //	GET /qa/gadgets-raw           list over `gadgets` with the RawDoc projector
@@ -101,6 +102,25 @@ func MountGadgetShowcase(
 			Parameters: []fwopenapi.Parameter{
 				{In: fwopenapi.InQuery, Name: "sleepMillis", Description: "handler sleep in ms (default 3000)"},
 			},
+		})
+
+	// The ECHOED VALUE of every type a rule may hand to AddNotification. Same
+	// pipeline + RespondFromResult path as the 503 above; what this one proves is
+	// not the status (SchemaViolationNotification is SemanticSchema → 400) but
+	// the `value` field of each message — the answer to "which value did you
+	// refuse?".
+	fwopenapi.MountRaw(d.OpenAPIRegistry, sc, fiber.MethodGet, "/echo-values",
+		func(c fiber.Ctx) error {
+			appCtx := fwweb.AppContext(c)
+			appCtx.SetParentIfAbsent(c)
+			result := pipeline.Dispatch(d.Pipeline, appCtx,
+				&appqa.EchoValuesQuery{}, &appqa.EchoValuesHandler{})
+			return fwweb.RespondFromResult(c, result, fiber.StatusOK)
+		},
+		fwopenapi.RawSpec{
+			Summary:     "Echo one notification per value type → 422",
+			Description: "Emits one SchemaViolationNotification per flavour the AddNotification value variadic accepts — scalars, every POINTER kind (the optional-field shape), both value-object flavours, a self-rendering type, and a nil pointer. Each message's `value` must be the VALUE, never a memory address.",
+			Tags:        scTags, Public: true, Hidden: true,
 		})
 
 	// Read-side option showcases. Each reuses the canonical Gadget list DTOs +
