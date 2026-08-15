@@ -479,6 +479,17 @@ title "8.2 Termination before hire → 422"
 req POST /employees "{\"name\":\"Bad Hist\",\"email\":\"badhist@example.com\",\"document\":\"30000000010\",\"employeeNumber\":\"EMP-10\",\"ethnicity\":\"white\",\"jobHistories\":[{\"jobTitle\":\"X\",\"department\":\"Y\",\"hiredAt\":\"2024-01-01T00:00:00Z\",\"terminatedAt\":\"2023-01-01T00:00:00Z\"}]}"
 expect_status "termination before hire" 422
 echo "$RESP" | grep -q "TerminationBeforeHireNotification" && ok "TerminationBeforeHireNotification on the wire" || bad "notification missing: $RESP"
+# The rule echoes the refused date, and TerminatedAt is a *time.Time — so this
+# asserts the ECHOED VALUE, not just the key. A notification whose `value` is a
+# memory address is a rule that fired correctly and reported uselessly; the key
+# alone cannot tell the two apart. The full type matrix lives in
+# status_mapping.sh §4; this pins the real domain path.
+ECHOED=$(echo "$RESP" | jq -r '[.errors[].messages[] | select(.field=="jobHistories[0].terminatedAt") | .value // ""] | first // "<missing>"')
+case "$ECHOED" in
+  2023-01-01*) ok "the refused date is echoed back ($ECHOED)" ;;
+  0x*)         bad "the echoed value is a memory address: $ECHOED" ;;
+  *)           bad "unexpected echoed value: $ECHOED" ;;
+esac
 
 title "8.3 Duplicate ACTIVE employee for the same document → 409"
 req POST /employees "{\"name\":\"Alice P. Patched\",\"email\":\"alice.emp@example.com\",\"document\":\"$D2\",\"employeeNumber\":\"EMP-0002\",\"ethnicity\":\"white\"}"
