@@ -22,6 +22,13 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	employees := NewEmployeesFeature(d)
 	persons := NewPersonsFeature(d)
 
+	// authFeature/refreshStore/tokenChecker are all nil in the canonical
+	// (non-qa) build — see wire_noqa.go. In the qa build, qaAuthWiring
+	// provisions qa_refresh_tokens and wires web/authcore.Issuer's two
+	// pluggable seams (RefreshTokenStore, TokenChecker) to the SAME
+	// instances the /qa/auth/* routes use directly (logout/revoke-access).
+	authFeature, refreshStore, tokenChecker := qaAuthWiring(d)
+
 	// GraphQL and gRPC are NOT wired here: each feature opts into those surfaces
 	// by implementing bootstrap.GraphQLFeature / bootstrap.GRPCFeature, and the
 	// framework discovers them (like ReadableFeature), builds the single shared
@@ -30,22 +37,31 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	// contributes the QA GraphQL/gRPC fixtures — all cumulatively, no hand-wiring.
 	// Serving knobs live under graphql:/grpc: in the YAML.
 
+	// qaFeatures(d) appends the QA-only fixtures (Gadget) when built with the
+	// `qa` build tag; it is nil in the canonical (non-qa) build. authFeature
+	// (nil in the canonical build) is appended separately because it, unlike
+	// qaFeatures' members, also needs its store/checker surfaced on Wiring
+	// itself (below) — everything here is the ONLY canonical touch for the
+	// QA fixtures; the rest lives under //go:build qa in qafixtures/.
+	features := append([]bootstrap.Feature{
+		users,
+		employees,
+		persons,
+		NewUserCustomFeature(d),
+		NewAuditFeature(),
+	}, qaFeatures(d)...)
+	if authFeature != nil {
+		features = append(features, authFeature)
+	}
+
 	return bootstrap.Wiring{
 		Translations: []translation.Module{
 			apptrans.PTBR(), apptrans.ENG(), apptrans.ESP(), apptrans.FRA(),
 			apptrans.DEU(), apptrans.ITA(), apptrans.NLD(),
 		},
-		// qaFeatures(d) appends the QA-only fixtures (Gadget) when built with
-		// the `qa` build tag; it is nil in the canonical (non-qa) build. This
-		// append is the ONLY canonical touch for the QA fixtures — everything
-		// else lives under //go:build qa in qafixtures/ subfolders.
-		Features: append([]bootstrap.Feature{
-			users,
-			employees,
-			persons,
-			NewUserCustomFeature(d),
-			NewAuditFeature(),
-		}, qaFeatures(d)...),
+		Features:          features,
+		RefreshTokenStore: refreshStore,
+		TokenChecker:      tokenChecker,
 		OpenAPI: &openapi.Config{
 			Title:            "OmniCore Example Users",
 			Version:          "0.1.0",
