@@ -30,6 +30,13 @@
 #      first demoted to previous: a token hand-signed with the now-previous
 #      key still validates (publish-then-sign / previous-still-valid), and a
 #      fresh login signs with the new current key.
+#   H. Runtime TTL retuning — the Issuer's Set/Get TTL seam over /qa/auth/ttl:
+#      each setter's effect proven on the NEXT minted token (default lifetime,
+#      the ceiling capping a per-request TokenRequest.TTL, the refresh
+#      lifetime), every rejection the setters owe (non-positive, default above
+#      the ceiling, ceiling below the default, and 0 on the ceiling — which
+#      must NOT mean "unbounded") leaving state untouched, and a reboot
+#      restoring the yaml values, since this is runtime-only by design.
 #
 # Self-managed; qa binary + a yaml derived from microservice.qa.yaml with
 # BOTH auth.issuer (this service mints) AND auth.jwt (this service validates
@@ -145,7 +152,7 @@ base = open("microservice.qa.yaml").read()
 auth_block = (
 "auth:\n"
 "  mode: jwt\n"
-"  publicRoutes: [\"GET /livez\", \"POST /qa/auth/login\", \"POST /qa/auth/refresh\", \"POST /qa/auth/logout\", \"POST /qa/auth/revoke-access\"]\n"
+"  publicRoutes: [\"GET /livez\", \"POST /qa/auth/login\", \"POST /qa/auth/refresh\", \"POST /qa/auth/logout\", \"POST /qa/auth/revoke-access\", \"GET /qa/auth/ttl\", \"POST /qa/auth/ttl\"]\n"
 "  authorization:\n"
 "    enabled: true\n"
 "  jwt:\n"
@@ -380,6 +387,108 @@ KID=$(python3 -c "import base64,json,sys; h=sys.argv[1]; h+='='*(-len(h)%4); pri
 title "G.5 JWKS after rotation carries BOTH keys (current + previous)"
 JWKS2=$(curl -sS "$BASE/.well-known/jwks.json")
 echo "$JWKS2" | grep -q '"qa-key-1"' && echo "$JWKS2" | grep -q '"qa-key-2"' && ok "both kids published" || bad "G.5 (missing a kid): $JWKS2"
+
+##############################################################################
+sec "H. Runtime TTL retuning — Issuer.Set/Get{Token,MaxToken,RefreshToken}TTL"
+##############################################################################
+# The derived yaml declares tokenTtlSeconds: 8, maxTokenTtlSeconds: 3600,
+# refreshTokenTtlSeconds: 3600 — the baseline every assertion below reads
+# against. Each setter is proven by what the NEXT token actually carries, not
+# by the getter echoing back what was just written.
+
+# ttl_now <field> -> the live value, straight from the Issuer's getters
+ttl_now() { api GET /qa/auth/ttl; jf "$RESP" data "$1"; }
+
+# secs_until <rfc3339> -> whole seconds from now until that instant. Go emits
+# RFC3339 with up to 9 fractional digits; fromisoformat tops out at 6, so the
+# tail is trimmed before parsing.
+secs_until() { python3 -c '
+import sys, re, datetime
+t = re.sub(r"(\.\d{6})\d+", r"\1", sys.argv[1].replace("Z", "+00:00"))
+d = datetime.datetime.fromisoformat(t)
+print(int((d - datetime.datetime.now(datetime.timezone.utc)).total_seconds()))
+' "$1"; }
+
+# near <actual> <expected> <tolerance>
+near() { local a="$1" e="$2" t="$3"; [ "$a" -ge $((e-t)) ] && [ "$a" -le $((e+t)) ]; }
+
+# ttl_reject <json-body> <expected-substring> — asserts 400 AND that the three
+# live values are byte-identical afterwards (a rejected setter changes nothing).
+ttl_reject() {
+  local body="$1" want="$2" before after
+  before=$(api GET /qa/auth/ttl; printf '%s' "$RESP")
+  api POST /qa/auth/ttl "$body"
+  local status="$STATUS" resp="$RESP"
+  after=$(api GET /qa/auth/ttl; printf '%s' "$RESP")
+  if [ "$status" = "400" ] && grep -qi -- "$want" <<<"$resp" && [ "$before" = "$after" ]; then
+    ok "rejected $body ($want) with state untouched"
+  else
+    bad "H.2 $body -> status=$status resp=$resp | before=$before after=$after"
+  fi
+}
+
+title "H.1 the getters reflect the yaml the service booted with"
+api GET /qa/auth/ttl
+if [ "$STATUS" = "200" ] &&
+   [ "$(jf "$RESP" data token_ttl_seconds)" = "8" ] &&
+   [ "$(jf "$RESP" data max_token_ttl_seconds)" = "3600" ] &&
+   [ "$(jf "$RESP" data refresh_token_ttl_seconds)" = "3600" ]; then
+  ok "8 / 3600 / 3600 as declared"
+else
+  bad "H.1 (got $STATUS): $RESP"
+fi
+
+title "H.2 every rejection the setters owe — and none of them mutates state"
+# The expected substrings deliberately stop before the "> 0" — Go's JSON
+# encoder escapes '>' as >, so matching the operator would assert on the
+# encoding rather than on the message.
+ttl_reject '{"token_ttl_seconds":0}'              'SetTokenTTL: must be'
+ttl_reject '{"token_ttl_seconds":-5}'             'SetTokenTTL: must be'
+ttl_reject '{"token_ttl_seconds":7200}'           'exceeds the current MaxTokenTTL'
+ttl_reject '{"max_token_ttl_seconds":0}'          'cannot be removed at runtime'
+ttl_reject '{"max_token_ttl_seconds":-1}'         'cannot be removed at runtime'
+ttl_reject '{"max_token_ttl_seconds":4}'          'below the current TokenTTL'
+ttl_reject '{"refresh_token_ttl_seconds":0}'      'SetRefreshTokenTTL: must be'
+
+title "H.3 SetTokenTTL — the next access token carries the NEW default"
+api POST /qa/auth/ttl '{"token_ttl_seconds":90}'
+[ "$STATUS" = "200" ] && [ "$(ttl_now token_ttl_seconds)" = "90" ] && ok "default now 90s" || bad "H.3 set (got $STATUS): $RESP"
+api POST /qa/auth/login '{"subject":"qa-ttl-default"}'
+LIFE=$(secs_until "$(jf "$RESP" data expires_at)")
+near "$LIFE" 90 5 && ok "minted token lives ~90s, not the yaml's 8s (got ${LIFE}s)" || bad "H.3 token life ${LIFE}s"
+
+title "H.4 SetMaxTokenTTL — the new ceiling caps a per-request TokenRequest.TTL"
+api POST /qa/auth/ttl '{"max_token_ttl_seconds":120}'
+[ "$STATUS" = "200" ] && [ "$(ttl_now max_token_ttl_seconds)" = "120" ] && ok "ceiling now 120s" || bad "H.4 set (got $STATUS): $RESP"
+api POST /qa/auth/login '{"subject":"qa-ttl-cap","ttl_seconds":3000}'
+LIFE=$(secs_until "$(jf "$RESP" data expires_at)")
+near "$LIFE" 120 5 && ok "a 3000s request was capped to the live 120s ceiling (got ${LIFE}s)" || bad "H.4 capped life ${LIFE}s"
+
+title "H.5 SetRefreshTokenTTL — the next refresh token carries the NEW lifetime"
+api POST /qa/auth/ttl '{"refresh_token_ttl_seconds":7200}'
+[ "$STATUS" = "200" ] && [ "$(ttl_now refresh_token_ttl_seconds)" = "7200" ] && ok "refresh lifetime now 7200s" || bad "H.5 set (got $STATUS): $RESP"
+api POST /qa/auth/login '{"subject":"qa-ttl-refresh"}'
+RLIFE=$(secs_until "$(jf "$RESP" data refresh_expires_at)")
+near "$RLIFE" 7200 30 && ok "refresh token lives ~7200s, not the yaml's 3600s (got ${RLIFE}s)" || bad "H.5 refresh life ${RLIFE}s"
+
+title "H.6 the pair moves together in ONE call (ceiling raised before the default)"
+api POST /qa/auth/ttl '{"token_ttl_seconds":300,"max_token_ttl_seconds":600}'
+if [ "$STATUS" = "200" ] && [ "$(ttl_now token_ttl_seconds)" = "300" ] && [ "$(ttl_now max_token_ttl_seconds)" = "600" ]; then
+  ok "300/600 applied in one request"
+else
+  bad "H.6 (got $STATUS): $RESP"
+fi
+
+title "H.7 a reboot restores the yaml — runtime changes are deliberately not persisted"
+boot "$WORK/rotated.yaml"
+api GET /qa/auth/ttl
+if [ "$(jf "$RESP" data token_ttl_seconds)" = "8" ] &&
+   [ "$(jf "$RESP" data max_token_ttl_seconds)" = "3600" ] &&
+   [ "$(jf "$RESP" data refresh_token_ttl_seconds)" = "3600" ]; then
+  ok "back to 8 / 3600 / 3600 — the drift the setters log a Warn about"
+else
+  bad "H.7 (got $STATUS): $RESP"
+fi
 
 ##############################################################################
 hr
