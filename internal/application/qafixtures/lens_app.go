@@ -229,11 +229,14 @@ func (*DeleteLensPartCommand) FromEntity(_ *configuration.AppContext, _ *qadomai
 
 type FindLensKitByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindLensKitByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+func (q FindLensKitByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindLensKitsResult) (FindLensKitsResult, error) {
+	return r, nil
 }
 func (q FindLensKitByIDQuery) ContextName() string { return "LensKit" }
 
@@ -246,6 +249,10 @@ func (q FindLensKitsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.Re
 	return q.Criteria, nil
 }
 
+func (q FindLensKitsQuery) FromQueryResult(_ *configuration.AppContext, r FindLensKitsResult) (FindLensKitsResult, error) {
+	return r, nil
+}
+
 type FindLensBrandsQuery struct {
 	fwqueries.QueryWithParamsBase
 	Criteria fwqueries.ReadCriteria
@@ -255,13 +262,20 @@ func (q FindLensBrandsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.
 	return q.Criteria, nil
 }
 
+func (q FindLensBrandsQuery) FromQueryResult(_ *configuration.AppContext, r FindLensBrandsResult) (FindLensBrandsResult, error) {
+	return r, nil
+}
+
 type FindLensPartByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindLensPartByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+func (q FindLensPartByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindLensPartsResult) (FindLensPartsResult, error) {
+	return r, nil
 }
 func (q FindLensPartByIDQuery) ContextName() string { return "LensPart" }
 
@@ -272,4 +286,64 @@ type FindLensPartsQuery struct {
 
 func (q FindLensPartsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return q.Criteria, nil
+}
+
+func (q FindLensPartsQuery) FromQueryResult(_ *configuration.AppContext, r FindLensPartsResult) (FindLensPartsResult, error) {
+	return r, nil
+}
+
+// ─── Results ────────────────────────────────────────────────────────────────
+//
+// One Result per hop, shared by that hop's list AND by-id reads (both serve
+// the same document) and by the `Fields`-capped projections over the same
+// roots — a capped view fills fewer leaves of the SAME shape, so the Result
+// carries the union and the web Response of each route decides what reaches
+// its wire. Pointers throughout: every lens endpoint opts into `?fields=`.
+
+// FindLensBrandsResult is hop 0 — the deepest source of the chain.
+type FindLensBrandsResult struct {
+	ID   *string
+	Name *string
+}
+
+// FindLensPartsResult is hop 1: the part plus its two materialized 1:1
+// segments. It doubles as the element type of the kits view's 1:N segment —
+// the embed-of-embed shape is literally this Result nested one level up.
+type FindLensPartsResult struct {
+	ID       *string
+	KitID    *string
+	GadgetID *string
+	BrandID  *string
+	Label    *string
+	Slot     *int
+	Gadget   *LensGadgetSegmentResult
+	Brand    *LensBrandSegmentResult
+}
+
+// LensGadgetSegmentResult is the materialized `gadgets` sub-document — the
+// gadget's FULL projection, unlike a subscription-filtered upstream mirror.
+type LensGadgetSegmentResult struct {
+	ID       *string
+	Code     *string
+	Name     *string
+	Category *string
+	Status   *string
+}
+
+// LensBrandSegmentResult is the brand sub-document. DeletedAt is carried
+// because the `Fields("Name","DeletedAt")` lifecycle projection materializes
+// it — the forever projection caps it away, and its Response simply does not
+// declare the field.
+type LensBrandSegmentResult struct {
+	ID        *string
+	Name      *string
+	DeletedAt *string
+}
+
+// FindLensKitsResult is hop 2: the kit plus its 1:N parts segment, each
+// element already carrying the hop-1 segments materialized inside it.
+type FindLensKitsResult struct {
+	ID    *string
+	Name  *string
+	Parts []FindLensPartsResult
 }

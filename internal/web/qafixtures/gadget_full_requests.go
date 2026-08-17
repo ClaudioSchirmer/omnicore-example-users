@@ -5,6 +5,7 @@ package qafixtures
 import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 )
@@ -59,6 +60,10 @@ type FindGadgetNotesResponse struct {
 	GadgetID *string `json:"gadgetId,omitempty"`
 	Text     *string `json:"text,omitempty"`
 	Kind     *string `json:"kind,omitempty"`
+}
+
+func (FindGadgetNotesResponse) FromResult(r appqa.FindGadgetNotesResult) FindGadgetNotesResponse {
+	return fwresponses.Map[FindGadgetNotesResponse](r)
 }
 
 // ─── Composed reads (gadgets_full) ───────────────────────────────────────────
@@ -119,6 +124,13 @@ type FindGadgetsFullResponse struct {
 	Notes          []GadgetFullNoteOutput  `json:"notes,omitempty"`
 }
 
+// FromResult is the wire mapping seat of the composed list — also the seat the
+// CSV/XLSX exports project through, so the tabular branches are exactly the
+// segments this DTO declares.
+func (FindGadgetsFullResponse) FromResult(r appqa.FindGadgetsFullResult) FindGadgetsFullResponse {
+	return fwresponses.Map[FindGadgetsFullResponse](r)
+}
+
 // GadgetFullMirrorOutput is the 1:1 external segment: null while the upstream
 // copy is not materialized (LEFT semantics) — the same [id, code, name] shape
 // the subscription filter allows.
@@ -141,12 +153,8 @@ type FindGadgetFullByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindGadgetFullByIDRequest) ToQuery() *appqa.FindGadgetFullByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &appqa.FindGadgetFullByIDQuery{IncludeArchived: arch}
+func (r FindGadgetFullByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetFullByIDQuery {
+	return &appqa.FindGadgetFullByIDQuery{Criteria: criteria}
 }
 
 // FindGadgetFullByIDResponse is the composed by-id projection: the flat
@@ -162,4 +170,8 @@ type FindGadgetFullByIDResponse struct {
 	Status         string                  `json:"status"`
 	UpstreamMirror *GadgetFullMirrorOutput `json:"upstreamMirror,omitempty"`
 	Notes          []GadgetFullNoteOutput  `json:"notes"`
+}
+
+func (FindGadgetFullByIDResponse) FromResult(r appqa.FindGadgetFullByIDResult) FindGadgetFullByIDResponse {
+	return fwresponses.Map[FindGadgetFullByIDResponse](r)
 }

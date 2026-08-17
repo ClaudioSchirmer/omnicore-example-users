@@ -30,8 +30,13 @@ func TestFindAddressByDocumentAndIDQueryHandler_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got["Street"] != "2 Other" {
+	// Typed Result, like every read handler — the manual showcase is an
+	// escape hatch for wiring, never a poorer contract.
+	if got.Street != "2 Other" {
 		t.Errorf("expected addr-2's payload, got %+v", got)
+	}
+	if got.ID != "addr-2" {
+		t.Errorf("expected the picked address's ID, got %q", got.ID)
 	}
 	if reader.readPageCalled != 1 {
 		t.Errorf("expected ReadPage called once, got %d", reader.readPageCalled)

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 )
@@ -108,14 +109,17 @@ type FindContractsResponse struct {
 	TrialTo        *time.Time `json:"trialTo,omitempty"`
 }
 
+// FromResult is the wire mapping seat — one method serving the list, the
+// by-id read and BOTH backings (Mongo projection + relational twin), which is
+// what makes any divergence between them a decomposition bug.
+func (FindContractsResponse) FromResult(r appqa.FindContractsResult) FindContractsResponse {
+	return fwresponses.Map[FindContractsResponse](r)
+}
+
 type FindContractByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindContractByIDRequest) ToQuery() *appqa.FindContractByIDQuery {
-	q := &appqa.FindContractByIDQuery{}
-	if r.IncludeArchived != nil {
-		q.IncludeArchived = *r.IncludeArchived
-	}
-	return q
+func (r FindContractByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindContractByIDQuery {
+	return &appqa.FindContractByIDQuery{Criteria: criteria}
 }

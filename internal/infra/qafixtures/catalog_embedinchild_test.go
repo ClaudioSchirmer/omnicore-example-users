@@ -21,7 +21,7 @@ func TestCatalogView_EmbedInChildValidatesAtBoot(t *testing.T) {
 
 // TestCatalogView_BuildViewNodeHasEnrichedSegment proves the read-side node
 // registers the enriched "Item" segment INSIDE the CatalogLines child node, so
-// AutoFromDoc / ?fields= / filter can reach catalogLines.item.
+// the Result fill / ?fields= / filter can reach catalogLines.item.
 func TestCatalogView_BuildViewNodeHasEnrichedSegment(t *testing.T) {
 	node := CatalogView().BuildViewNode()
 	// ColumnPath resolves a Go field path to the physical doc path; a path into

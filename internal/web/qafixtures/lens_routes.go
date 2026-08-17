@@ -24,8 +24,8 @@ func MountLensKitsDesc(app *fiber.App, viewName string, d bootstrap.Deps) {
 	g := app.Group("/qa/lens-kits-desc")
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindLensKitByIDRequest{},
-		fwresponses.AutoFromDoc[FindLensKitsResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindLensKitByIDQuery]{Reader: d.ViewReader, View: viewName})
+		FindLensKitsResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindLensKitByIDQuery, appqa.FindLensKitsResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id", byIDH, byIDSpec,
 		fwopenapi.Doc{
 			Summary:     "Get a lens kit by id, parts in DESCENDING slot order",
@@ -69,8 +69,8 @@ func MountLensBrands(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensBrandsRequest{},
-		fwresponses.AutoFromDoc[FindLensBrandsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensBrandsQuery]{Reader: d.ViewReader, View: viewName})
+		FindLensBrandsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensBrandsQuery, appqa.FindLensBrandsResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/", listH, listSpec,
 		fwopenapi.Doc{Summary: "List lens brands", Description: "The source view's own surface — an embedded view stays first-class.", Tags: tags},
 		fwopenapi.RequirePermission("gadgets:read"))
@@ -144,8 +144,8 @@ func MountLensParts(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensPartsRequest{},
-		fwresponses.AutoFromDoc[FindLensPartsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensPartsQuery]{
+		FindLensPartsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensPartsQuery, appqa.FindLensPartsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -159,8 +159,8 @@ func MountLensParts(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindLensPartByIDRequest{},
-		fwresponses.AutoFromDoc[FindLensPartsResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindLensPartByIDQuery]{
+		FindLensPartsResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindLensPartByIDQuery, appqa.FindLensPartsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -259,8 +259,8 @@ func MountLensKits(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensKitsRequest{},
-		fwresponses.AutoFromDoc[FindLensKitsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensKitsQuery]{
+		FindLensKitsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensKitsQuery, appqa.FindLensKitsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -274,8 +274,8 @@ func MountLensKits(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindLensKitByIDRequest{},
-		fwresponses.AutoFromDoc[FindLensKitsResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindLensKitByIDQuery]{
+		FindLensKitsResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindLensKitByIDQuery, appqa.FindLensKitsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",

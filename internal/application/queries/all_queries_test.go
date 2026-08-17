@@ -41,10 +41,10 @@ func TestFindUsersCustomQuery_ToCriteria_PassthroughOfCriteria(t *testing.T) {
 }
 
 func TestFindAddressByIDQuery_ToCriteria(t *testing.T) {
-	q := FindAddressByIDQuery{IncludeArchived: true}
+	q := FindAddressByIDQuery{Criteria: fwqueries.ReadCriteria{IncludeArchived: true}}
 	crit, _ := q.ToCriteria(nil)
 	if !crit.IncludeArchived {
-		t.Error("IncludeArchived flag should propagate as IncludeArchived")
+		t.Error("the wire criteria's IncludeArchived should pass through")
 	}
 	if crit.Filter != nil {
 		t.Errorf("expected nil Filter, got %v", crit.Filter)

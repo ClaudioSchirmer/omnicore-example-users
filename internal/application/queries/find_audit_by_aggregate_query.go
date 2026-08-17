@@ -1,6 +1,8 @@
 package queries
 
 import (
+	"time"
+
 	"github.com/ClaudioSchirmer/omnicore/application/pipeline"
 )
 
@@ -27,4 +29,51 @@ type FindAuditByAggregateQuery struct {
 	pipeline.QueryBase
 	EntityType  string
 	AggregateID string
+}
+
+// ─── RESULT ─────────────────────────────────────────────────────────────────
+
+// FindAuditByAggregateResult is the application-layer Result of one audit
+// timeline row. The service OWNS this shape — the framework's audit.AuditEvent
+// is an infrastructure record, not this service's wire contract, so the
+// timeline can be narrowed, renamed or versioned here without a framework
+// change. Tagless, like every Result; the web Response owns the wire names.
+type FindAuditByAggregateResult struct {
+	ThreadID    string
+	TraceID     string
+	EntityType  string
+	EntityID    string
+	Verb        string
+	ActionName  string
+	Kind        string
+	Actor       string
+	ActorIssuer string
+	// ActorClaims carries the JWT claims the auth.auditClaims allowlist
+	// admitted — the framework filters them before the record is written, so
+	// this surface never widens what the audit trail already decided.
+	ActorClaims map[string]any
+	TenantID    string
+	DateTime    time.Time
+	Snapshot    map[string]any
+	Changes     []AuditFieldChangeResult
+	Children    map[string][]AuditChildResult
+}
+
+// AuditFieldChangeResult is one field diff on a kind=delta event. FieldLabel
+// carries the label ALREADY rendered in the actor's locale — the handler
+// resolves the catalog key before building the Result, so every surface
+// receives the translated string.
+type AuditFieldChangeResult struct {
+	Field      string
+	FieldLabel string
+	From       any
+	To         any
+}
+
+// AuditChildResult is one cascade entry under Children[typeName].
+type AuditChildResult struct {
+	ID       string
+	Op       string
+	Snapshot map[string]any
+	Changes  []AuditFieldChangeResult
 }

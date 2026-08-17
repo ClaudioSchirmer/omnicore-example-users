@@ -81,14 +81,13 @@ func MountUsersCustom(
 	// per-request Parse call for ?fields= and ?orderBy= translation.
 	//
 	// The byDocument parser carries no fields/sort opt-in today and therefore
-	// runs in pass-through mode at construction (no guard, no warn) and
-	// at runtime (projSchema=nil, identical behavior to fwweb.ParseCriteria
-	// — the helper still exists for callers that have no typed Response).
-	// Constructing it via NewQueryParser instead anchors the surface on the
-	// canonical path so the day the by-document DTO opts in, the guard fires
-	// without any wiring change here.
+	// runs in pass-through mode at construction (no guard, no warn) and at
+	// runtime (projSchema=nil). NewQueryParser is the ONE manual parsing
+	// seat — every manual read is built on it, so the day a DTO opts into
+	// `?fields=`/`?orderBy=` the boot guard fires with no wiring change here.
 	listParser := fwweb.NewQueryParser[requests.FindUsersCustomRequest, requests.FindUsersCustomResponse]()
 	byDocumentParser := fwweb.NewQueryParser[requests.FindUserByDocumentCustomRequest, requests.FindUserByDocumentCustomResponse]()
+	byAddressParser := fwweb.NewQueryParser[requests.FindAddressByDocumentAndIDRequest, requests.FindAddressByDocumentAndIDResponse]()
 
 	// Manual-with-pipeline routes route through openapi.Mount + a hand-crafted
 	// RouteSpec because the wrappers' siblings (CommandWith*Spec /
@@ -296,7 +295,7 @@ func MountUsersCustom(
 		fwopenapi.RequirePermission("users:write"))
 
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:document/addresses/:addressId",
-		customGetAddressByDocumentAndID(d.Pipeline, d.ViewReader),
+		customGetAddressByDocumentAndID(d.Pipeline, byAddressParser, d.ViewReader),
 		fwopenapi.RouteSpecOf[requests.FindAddressByDocumentAndIDRequest, requests.FindAddressByDocumentAndIDResponse](fiber.StatusOK),
 		fwopenapi.Doc{
 			Summary:     "Get one address of a user by document (manual showcase)",
@@ -524,9 +523,12 @@ func customGetUserByDocument(
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
-		crit, badField, ok := parser.Parse(c)
+		crit, violation, ok := parser.Parse(c)
 		if !ok {
-			return fwweb.RespondSchemaViolation(c, pipe, badField)
+			// The typed channel: a computed-field ordering refusal reaches the
+			// consumer with its own translated message here exactly as it does
+			// on the canonical wrapper.
+			return fwweb.RespondViolation(c, pipe, violation)
 		}
 
 		q := req.ToQuery(crit)
@@ -535,7 +537,7 @@ func customGetUserByDocument(
 		result := pipeline.Dispatch(pipe, appCtx, q, h)
 		if result.IsSuccess() {
 			return fwweb.RespondWithSuccess(c, fiber.StatusOK,
-				fwresponses.AutoFromDoc[requests.FindUserByDocumentCustomResponse](result.Value()))
+				requests.FindUserByDocumentCustomResponse{}.FromResult(result.Value()))
 		}
 		return fwweb.RespondFromResult(c, result, fiber.StatusOK)
 	}
@@ -554,10 +556,10 @@ func customGetUserByDocument(
 // slog.Warn advisory listing the sortable wire paths. Chaves desconhecidas
 // viram 400 with the canonical SchemaViolationNotification envelope.
 //
-// Projection is fwresponses.AutoFromDoc — same tag-driven default the
+// Projection is the Response's FromResult — same seat the
 // canonical /users surface uses. The manual route does NOT reimplement the
 // projector by hand: `id`/`name`/`email` with auto _id-fallback would be a
-// dumb rewrite of what AutoFromDoc already gives. What the manual surface
+// dumb rewrite of what the generic mapper already gives. What the manual surface
 // makes visible is the OUTER mechanics (BindPath, QueryParser, Dispatch,
 // RespondPaged) — those are the steps the canonical wrapper hides; the
 // projector itself is shared infrastructure.
@@ -578,9 +580,12 @@ func customListUsers(
 		appCtx.SetParent(c)
 
 		var req requests.FindUsersCustomRequest
-		crit, badField, ok := parser.Parse(c)
+		crit, violation, ok := parser.Parse(c)
 		if !ok {
-			return fwweb.RespondSchemaViolation(c, pipe, badField)
+			// The typed channel: a computed-field ordering refusal reaches the
+			// consumer with its own translated message here exactly as it does
+			// on the canonical wrapper.
+			return fwweb.RespondViolation(c, pipe, violation)
 		}
 
 		q := req.ToQuery(crit)
@@ -591,7 +596,7 @@ func customListUsers(
 			return fwweb.RespondFromResult(c, result, fiber.StatusOK)
 		}
 		return fwweb.RespondPaged(c, fiber.StatusOK, result.Value(),
-			fwresponses.AutoFromDoc[requests.FindUsersCustomResponse])
+			requests.FindUsersCustomResponse{}.FromResult)
 	}
 }
 
@@ -642,6 +647,7 @@ func customChangeAddress(
 
 func customGetAddressByDocumentAndID(
 	pipe *pipeline.Pipeline,
+	parser *fwweb.QueryParser[requests.FindAddressByDocumentAndIDRequest, requests.FindAddressByDocumentAndIDResponse],
 	reader fwqueries.ViewReader,
 ) fiber.Handler {
 	return func(c fiber.Ctx) error {
@@ -652,9 +658,12 @@ func customGetAddressByDocumentAndID(
 		if badField, ok := fwweb.BindPath(c, &req); !ok {
 			return fwweb.RespondSchemaViolation(c, pipe, badField)
 		}
-		crit, badField, ok := fwweb.ParseCriteria(c, req)
+		crit, violation, ok := parser.Parse(c)
 		if !ok {
-			return fwweb.RespondSchemaViolation(c, pipe, badField)
+			// The typed channel: a computed-field ordering refusal reaches the
+			// consumer with its own translated message here exactly as it does
+			// on the canonical wrapper.
+			return fwweb.RespondViolation(c, pipe, violation)
 		}
 
 		q := req.ToQuery(crit)
@@ -663,7 +672,7 @@ func customGetAddressByDocumentAndID(
 		result := pipeline.Dispatch(pipe, appCtx, q, h)
 		if result.IsSuccess() {
 			return fwweb.RespondWithSuccess(c, fiber.StatusOK,
-				fwresponses.AutoFromDoc[requests.FindAddressByDocumentAndIDResponse](result.Value()))
+				requests.FindAddressByDocumentAndIDResponse{}.FromResult(result.Value()))
 		}
 		return fwweb.RespondFromResult(c, result, fiber.StatusOK)
 	}

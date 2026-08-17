@@ -1,7 +1,9 @@
 package requests
 
 import (
-	"github.com/ClaudioSchirmer/omnicore/application/audit"
+	"time"
+
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 	"github.com/google/uuid"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
@@ -43,11 +45,52 @@ func (r FindAuditByAggregateRequest) ToQuery() *queries.FindAuditByAggregateQuer
 	}
 }
 
-// FindAuditByAggregateResponse is a type alias over the framework's
-// audit.AuditEvent slice. The struct already carries the wire-correct
-// JSON tags (top-level fields + nested Children + Changes with
-// FieldLabel) so reprojecting it through a Response twin would be
-// duplication for zero gain. The handler renders FieldLabelKey →
-// FieldLabel via audit.RenderLabels before the route serializes, so the
-// wire shape matches what the notification surface publishes.
-type FindAuditByAggregateResponse = []*audit.AuditEvent
+// ─── OUTPUT ─────────────────────────────────────────────────────────────────
+
+// FindAuditByAggregateResponse is the wire projection of one audit timeline
+// row, mapped from the application Result by FromResult below. The service
+// OWNS this shape: the framework's audit.AuditEvent is an infrastructure
+// record, so exposing it directly would hand the wire contract to the
+// framework's release cycle. Field labels arrive already rendered in the
+// actor's locale (the handler resolves the catalog key before building the
+// Result).
+type FindAuditByAggregateResponse struct {
+	ThreadID    string         `json:"threadId"`
+	TraceID     string         `json:"traceId,omitempty"`
+	EntityType  string         `json:"entityType"`
+	EntityID    string         `json:"entityId"`
+	Verb        string         `json:"verb"`
+	ActionName  string         `json:"actionName"`
+	Kind        string         `json:"kind"`
+	Actor       string         `json:"actor,omitempty"`
+	ActorIssuer string         `json:"actorIssuer,omitempty"`
+	ActorClaims map[string]any `json:"actorClaims,omitempty"`
+	TenantID    string         `json:"tenantId,omitempty"`
+	DateTime    time.Time      `json:"dateTime"`
+	Snapshot    map[string]any `json:"snapshot,omitempty"`
+
+	Changes  []AuditFieldChangeOutput           `json:"changes,omitempty"`
+	Children map[string][]AuditChildEventOutput `json:"children,omitempty"`
+}
+
+// AuditFieldChangeOutput is one field diff on a kind=delta event.
+type AuditFieldChangeOutput struct {
+	Field      string `json:"field"`
+	FieldLabel string `json:"fieldLabel,omitempty"`
+	From       any    `json:"from"`
+	To         any    `json:"to"`
+}
+
+// AuditChildEventOutput is one cascade entry under children[typeName].
+type AuditChildEventOutput struct {
+	ID       string                   `json:"id,omitempty"`
+	Op       string                   `json:"op"`
+	Snapshot map[string]any           `json:"snapshot,omitempty"`
+	Changes  []AuditFieldChangeOutput `json:"changes,omitempty"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper — the same seat every other read Response carries.
+func (FindAuditByAggregateResponse) FromResult(r queries.FindAuditByAggregateResult) FindAuditByAggregateResponse {
+	return fwresponses.Map[FindAuditByAggregateResponse](r)
+}

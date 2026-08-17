@@ -128,7 +128,14 @@ func findAuditByAggregateHandler(
 		}
 		result := pipeline.Dispatch(pipe, appCtx, q, h)
 		if result.IsSuccess() {
-			return fwweb.RespondWithSuccess(c, fiber.StatusOK, result.Value())
+			// Map every Result through the Response seat — the wire shape is
+			// the service's, never the application Result's Go field names.
+			events := result.Value()
+			out := make([]requests.FindAuditByAggregateResponse, 0, len(events))
+			for _, ev := range events {
+				out = append(out, requests.FindAuditByAggregateResponse{}.FromResult(ev))
+			}
+			return fwweb.RespondWithSuccess(c, fiber.StatusOK, out)
 		}
 		return fwweb.RespondFromResult(c, result, fiber.StatusOK)
 	}

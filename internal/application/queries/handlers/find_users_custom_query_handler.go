@@ -8,10 +8,11 @@ import (
 )
 
 // FindUsersCustomQueryHandler powers the paged list under GET /showcase/users-custom.
-// Returns the framework's queries.Page so the web layer can carry the
-// cursor envelope into the wire response — same shape the canonical
-// FindByParamsQueryHandler returns; the difference is the projection
-// step happens in web/, not in the framework wrapper.
+// Returns the framework's typed queries.PageOf so the web layer can carry the
+// cursor envelope into the wire response — the SAME shape the canonical
+// FindByParamsQueryHandler returns; the difference is only the wiring, never
+// the contract (manual is an escape hatch for wiring control, not a poorer
+// tier).
 //
 // The Fiber route is responsible for parsing the query string into
 // Criteria (Limit, After, Before, archived, plus the demonstrated name +
@@ -25,10 +26,10 @@ type FindUsersCustomQueryHandler struct {
 
 func (h *FindUsersCustomQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindUsersCustomQuery,
-) (queries.Page, error) {
+) (queries.PageOf[appqueries.FindUsersCustomResult], error) {
 	criteria, err := q.ToCriteria(ctx)
 	if err != nil {
-		return queries.Page{}, err
+		return queries.PageOf[appqueries.FindUsersCustomResult]{}, err
 	}
 	if criteria.Filter == nil {
 		criteria.Filter = map[string]any{}
@@ -63,5 +64,11 @@ func (h *FindUsersCustomQueryHandler) Handle(
 	//
 	// ──────────────────────────────────────────────────────────────────────
 
-	return h.Reader.ReadPage(ctx, h.View, criteria)
+	page, err := h.Reader.ReadPage(ctx, h.View, criteria)
+	if err != nil {
+		return queries.PageOf[appqueries.FindUsersCustomResult]{}, err
+	}
+	// The same fill the Auto handler performs: one Result per document, each
+	// passed through the Query's FromQueryResult hook.
+	return queries.PageOfFrom(page, queries.FromQueryResultFiller[appqueries.FindUsersCustomResult](ctx, q))
 }

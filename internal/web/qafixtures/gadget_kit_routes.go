@@ -49,8 +49,8 @@ func MountGadgetKits(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetKitByIDRequest{},
-		fwresponses.AutoFromDoc[FindGadgetKitByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindGadgetKitByIDQuery]{Reader: d.ViewReader, View: viewName})
+		FindGadgetKitByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetKitByIDQuery, appqa.FindGadgetKitByIDResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
 		byIDH, byIDSpec,
 		fwopenapi.Doc{
@@ -62,8 +62,8 @@ func MountGadgetKits(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetKitsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetKitsListResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetKitsQuery]{Reader: d.ViewReader, View: viewName})
+		FindGadgetKitsListResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetKitsQuery, appqa.FindGadgetKitsResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
 		listH, listSpec,
 		fwopenapi.Doc{
@@ -74,8 +74,10 @@ func MountGadgetKits(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
-		FindGadgetKitsRequest{}, view, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetKitsQuery]{Reader: d.ViewReader, View: viewName},
+		FindGadgetKitsRequest{},
+		FindGadgetKitsListResponse{}.FromResult,
+		view, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetKitsQuery, appqa.FindGadgetKitsResult]{Reader: d.ViewReader, View: viewName},
 		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/gadget-kits.csv",
 		csvH, csvSpec,
@@ -119,12 +121,8 @@ type FindGadgetKitByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindGadgetKitByIDRequest) ToQuery() *appqa.FindGadgetKitByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &appqa.FindGadgetKitByIDQuery{IncludeArchived: arch}
+func (r FindGadgetKitByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetKitByIDQuery {
+	return &appqa.FindGadgetKitByIDQuery{Criteria: criteria}
 }
 
 // GadgetMirrorOutput is one embedded upstream_gadgets document (the enrichment).
@@ -144,11 +142,15 @@ type GadgetKitLineOutput struct {
 }
 
 // FindGadgetKitByIDResponse — Go field GadgetKitLines matches the derived child
-// segment so AutoFromDoc maps it.
+// segment, which is the mapping handle from the Result.
 type FindGadgetKitByIDResponse struct {
 	ID             string                `json:"id"`
 	Name           string                `json:"name"`
 	GadgetKitLines []GadgetKitLineOutput `json:"gadgetKitLines,omitempty"`
+}
+
+func (FindGadgetKitByIDResponse) FromResult(r appqa.FindGadgetKitByIDResult) FindGadgetKitByIDResponse {
+	return fwresponses.Map[FindGadgetKitByIDResponse](r)
 }
 
 // ─── List DTOs ───────────────────────────────────────────────────────────────
@@ -189,4 +191,10 @@ type FindGadgetKitsListResponse struct {
 	ID             *string               `json:"id,omitempty"`
 	Name           *string               `json:"name,omitempty"`
 	GadgetKitLines []GadgetKitLineOutput `json:"gadgetKitLines,omitempty"`
+}
+
+// FromResult is the wire mapping seat of the paged list and of the CSV export
+// (which now derives its columns from this DTO).
+func (FindGadgetKitsListResponse) FromResult(r appqa.FindGadgetKitsResult) FindGadgetKitsListResponse {
+	return fwresponses.Map[FindGadgetKitsListResponse](r)
 }

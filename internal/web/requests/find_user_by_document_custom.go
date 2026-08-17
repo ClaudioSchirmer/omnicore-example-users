@@ -2,6 +2,7 @@ package requests
 
 import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
@@ -10,12 +11,12 @@ import (
 
 // FindUserByDocumentCustomRequest is the wire allowlist for GET
 // /showcase/users-custom/:document. Only ?includeArchived=true|false is
-// recognized — the route uses fwweb.ParseCriteria over this DTO to reject
+// recognized — the route runs a typed fwweb.QueryParser over this DTO to reject
 // every other query key with the canonical 400 envelope, matching what the
 // auto QueryByID wrapper enforces on /users/:id.
 //
 // Document carries `path:"document"`: the manual route chains fwweb.BindPath
-// before fwweb.ParseCriteria so the framework reads c.Params("document")
+// before the parser so the framework reads c.Params("document")
 // into req.Document automatically — same mechanism the canonical wrappers
 // use internally. Document is the Person natural key, the stable handle this
 // surface uses in place of the opaque id.
@@ -26,7 +27,7 @@ type FindUserByDocumentCustomRequest struct {
 
 // ToQuery is the web→application boundary — pure body mapping with no ctx.
 // Reads req.Document (populated by BindPath from the URL segment) and the
-// validated criteria from ParseCriteria; AppContext-derived overlays
+// validated criteria from the parser; AppContext-derived overlays
 // (future JWT tenant id, etc.) layer onto the criteria inside
 // Query.ToCriteria(ctx), consumed by the handler. The Query then translates
 // Document + IncludeArchived into a ReadCriteria with Filter[Document] +
@@ -53,13 +54,17 @@ func (r FindUserByDocumentCustomRequest) ToQuery(criteria fwqueries.ReadCriteria
 // not opt into `?fields=` today; the structural shape is preserved so a
 // future opt-in is a one-line tag addition.
 //
-// Projection runs through fwresponses.AutoFromDoc[FindUserByDocumentCustomResponse]
-// at the route — same tag-driven default the canonical /users surface uses.
-// No FromDoc method is declared here: id/name/email with auto _id-fallback
-// is mechanical extraction the framework already gives for free.
+// FromResult below delegates to the generic name-based mapper — the same
+// seat the canonical /users surface uses.
 type FindUserByDocumentCustomResponse struct {
 	ID       *string `json:"id,omitempty"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name     *string `json:"name,omitempty"     example:"Alice Pereira"`
 	Email    *string `json:"email,omitempty"    example:"alice@example.com"`
 	Document *string `json:"document,omitempty" example:"12345678901"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper.
+func (FindUserByDocumentCustomResponse) FromResult(r queries.FindUserByDocumentResult) FindUserByDocumentCustomResponse {
+	return fwresponses.Map[FindUserByDocumentCustomResponse](r)
 }

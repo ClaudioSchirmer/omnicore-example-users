@@ -114,14 +114,74 @@ func (c *UpdateAccountCommand) FromEntity(_ *configuration.AppContext, a *qadoma
 // and the two external embeds (FeaturedItem 1:1 + Items 1:N).
 type FindAccountByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindAccountByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+
+func (q FindAccountByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindAccountByIDResult) (FindAccountByIDResult, error) {
+	return r, nil
 }
 
 func (q FindAccountByIDQuery) ContextName() string { return "Account" }
+
+// FindAccountByIDResult is the by-id Result of the composed shared-base
+// document: base fields flat, the AccountHolder role sub-document, the two
+// external embeds (1:1 FeaturedItem + 1:N Items) and the base's own child
+// array. The by-id endpoint declares no `?fields=`, so the base leaves are
+// plain values; every segment stays optional because it is genuinely absent
+// until composed.
+type FindAccountByIDResult struct {
+	ID             string
+	AccountRef     string
+	DisplayName    string
+	FeaturedItemID *string
+	AccountHolder  *AccountHolderSegmentResult
+	FeaturedItem   *ItemSegmentResult
+	Items          []ItemSegmentResult
+	AccountLines   []AccountLineResult
+}
+
+// FindAccountsResult is the paged listing's Result — pointers/slices
+// throughout because the endpoint opts into `?fields=`, including into the
+// role and embed segments.
+type FindAccountsResult struct {
+	ID             *string
+	AccountRef     *string
+	DisplayName    *string
+	FeaturedItemID *string
+	AccountHolder  *AccountHolderSegmentResult
+	FeaturedItem   *ItemSegmentResult
+	Items          []ItemSegmentResult
+	AccountLines   []AccountLineResult
+}
+
+// AccountHolderSegmentResult is the role sub-document (role-private fields
+// only; the base fields live flat at the root).
+type AccountHolderSegmentResult struct {
+	HolderName *string
+}
+
+// AccountLineResult is one enriched base-child line; `Item` is the
+// EmbedInChild sub-document.
+type AccountLineResult struct {
+	ItemID *string
+	Note   *string
+	Item   *ItemSegmentResult
+}
+
+// ItemSegmentResult is one embedded `upstream_items` document, shared by the
+// 1:1 FeaturedItem segment and each entry of the 1:N Items array — on BOTH
+// the shared-base account view and the normal catalog view. Field names match
+// the upstream_items external schema's Go names.
+type ItemSegmentResult struct {
+	ID        *string
+	Label     *string
+	AccountID *string
+	CatalogID *string
+}
 
 // FindAccountsQuery is the paged LIST read of qa_accounts_view. Root filters,
 // segment filters (into the AccountHolder role AND the FeaturedItem/Items
@@ -135,4 +195,8 @@ type FindAccountsQuery struct {
 
 func (q FindAccountsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return q.Criteria, nil
+}
+
+func (q FindAccountsQuery) FromQueryResult(_ *configuration.AppContext, r FindAccountsResult) (FindAccountsResult, error) {
+	return r, nil
 }

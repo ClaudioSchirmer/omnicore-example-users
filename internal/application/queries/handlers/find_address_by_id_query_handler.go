@@ -13,10 +13,9 @@ import (
 // FindAddressByIDQueryHandler resolves GET /users/:id/addresses/:addressId
 // against the users Mongo view. The framework's Auto FindByIDQueryHandler
 // returns the whole user document; here we go one step further: load the
-// document, walk its `addresses` array, and return only the entry whose ID
-// matches the requested addressId. Returns the raw address sub-document
-// (map[string]any) and lets the web layer project it into a wire-format
-// response — same convention the manual showcase by-email handler follows.
+// document, walk its `addresses` array, and fill the Result from the entry
+// whose ID matches the requested addressId — same convention the manual
+// showcase by-document handler follows.
 //
 // Why a hand-rolled handler on the "canonical" surface: the framework does
 // not ship a generic "child of view doc" query handler. The two coexisting
@@ -24,7 +23,12 @@ import (
 // child read sits in between — load the parent, project one item. Keeping
 // the surface canonical while writing the projection logic by hand is the
 // honest middle ground; the framework absorbs the lookup primitive
-// (ViewReader.ReadByID), the consumer absorbs the per-child slice walk.
+// (ViewReader.ReadByID) and the doc→Result fill (queries.ResultFromDoc), the
+// consumer absorbs the per-child slice walk.
+//
+// The handler returns the TYPED Result, like every read handler — the raw
+// document never leaves the application layer, so REST, gRPC, GraphQL and the
+// exports all consume the same value.
 type FindAddressByIDQueryHandler struct {
 	Reader queries.ViewReader
 	View   string
@@ -32,10 +36,11 @@ type FindAddressByIDQueryHandler struct {
 
 func (h *FindAddressByIDQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindAddressByIDQuery,
-) (map[string]any, error) {
+) (appqueries.AddressResult, error) {
+	var zero appqueries.AddressResult
 	criteria, err := q.ToCriteria(ctx)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	// ─── Custom filter seam (same as the manual showcase by-email read) ────
@@ -59,16 +64,18 @@ func (h *FindAddressByIDQueryHandler) Handle(
 	userID := q.PathID().Value()
 	doc, found, err := h.Reader.ReadByID(ctx, h.View, userID, criteria)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 	if !found {
-		return nil, domain.NotFoundError("User", "id", userID)
+		return zero, domain.NotFoundError("User", "id", userID)
 	}
 
 	if addr, ok := pickAddressByID(doc["Addresses"], q.AddressID); ok {
-		return addr, nil
+		// The same framework fill the Auto handlers use — name-based, with the
+		// enum convergence and slice normalization every surface then shares.
+		return q.FromQueryResult(ctx, queries.ResultFromDoc[appqueries.AddressResult](addr))
 	}
-	return nil, domain.NotFoundError("Address", "id", q.AddressID)
+	return zero, domain.NotFoundError("Address", "id", q.AddressID)
 }
 
 // pickAddressByID walks any slice-like value (plain []any, []map[string]any,
@@ -77,9 +84,8 @@ func (h *FindAddressByIDQueryHandler) Handle(
 // Go-keyed document (each embed leaf translated from its physical column back
 // to its Go field name via the view's TableSchema), so the lookup keys on the
 // Go field name "ID", not the physical column "id". Uses reflection so the
-// application layer stays free of bson imports — the framework's
-// AutoFromDoc projector uses the same trick (asSliceOfMaps in
-// omnicore/web/responses/auto_from_doc.go) for the same reason.
+// application layer stays free of bson imports — the framework's Result fill
+// normalizes the same shapes for the same reason.
 func pickAddressByID(v any, addressID string) (map[string]any, bool) {
 	rv := reflect.ValueOf(v)
 	if !rv.IsValid() || rv.Kind() != reflect.Slice {

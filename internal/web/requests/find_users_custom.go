@@ -2,6 +2,7 @@ package requests
 
 import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
@@ -11,11 +12,11 @@ import (
 // FindUsersCustomRequest declares the wire allowlist for GET
 // /showcase/users-custom via the same struct-tag convention the canonical
 // /users surface uses. Filterable fields carry `query:"X" filter:"ops"`;
-// pagination/control keys carry only `query:"X"`. The manual route invokes
-// fwweb.ParseCriteria over this DTO to apply the same reflection-based
-// validation QueryWithParams uses internally — chaves desconhecidas
-// viram 400 instead of being silently ignored, closing the asymmetry the
-// previous hand-parsed implementation carried.
+// pagination/control keys carry only `query:"X"`. The manual route runs a
+// typed fwweb.QueryParser over this DTO to apply the same reflection-based
+// validation QueryWithParams uses internally — an unknown key is a 400
+// instead of being silently ignored, so the manual surface carries the same
+// contract as the canonical one.
 type FindUsersCustomRequest struct {
 	Name  *string `query:"name"  filter:"eq"`
 	Email *string `query:"email" filter:"eq"`
@@ -53,14 +54,18 @@ func (r FindUsersCustomRequest) ToQuery(criteria fwqueries.ReadCriteria) *querie
 // a pointer or slice with omitempty so encoding/json can elide stripped
 // columns instead of rendering their zero value).
 //
-// Projection runs through fwresponses.AutoFromDoc[FindUsersCustomResponse]
-// at the route — same tag-driven default the canonical /users surface uses.
-// No FromDoc method is declared here: id/name/email with auto _id-fallback
-// is mechanical extraction the framework already gives for free. Declare
-// FromDoc only when the projection needs logic AutoFromDoc cannot express
-// (derived fields, conditional shaping, ctx-aware projection).
+// FromResult below delegates to the generic name-based mapper — the same
+// seat the canonical /users surface uses. Read-side COMPUTATION (derived
+// fields, ctx-aware shaping) belongs in the Query's FromQueryResult hook, not
+// here, so every surface sees the same values.
 type FindUsersCustomResponse struct {
 	ID    *string `json:"id,omitempty"    example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name  *string `json:"name,omitempty"  example:"Alice Pereira"`
 	Email *string `json:"email,omitempty" example:"alice@example.com"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper.
+func (FindUsersCustomResponse) FromResult(r queries.FindUsersCustomResult) FindUsersCustomResponse {
+	return fwresponses.Map[FindUsersCustomResponse](r)
 }

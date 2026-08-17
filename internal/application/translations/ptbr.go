@@ -41,6 +41,7 @@ func (ptbr) Translations() map[string]string {
 		// o envelope direto e enxergam "CEP" em vez de
 		// "addresses[0].zipCode".
 		"UserNameField":                  "Nome",
+		"GadgetLabelField":               "Rótulo",
 		"UserEmailField":                 "E-mail",
 		"UserPhoneField":                 "Telefone",
 		"UserDocumentField":              "Documento",

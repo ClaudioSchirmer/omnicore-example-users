@@ -28,6 +28,7 @@ func (fra) Translations() map[string]string {
 		"User":                              "Utilisateur",
 		// Field labels — see ptbr.go for the per-locale rationale.
 		"UserNameField":                  "Nom",
+		"GadgetLabelField":               "Libellé",
 		"UserEmailField":                 "Adresse e-mail",
 		"UserPhoneField":                 "Téléphone",
 		"UserDocumentField":              "Document",

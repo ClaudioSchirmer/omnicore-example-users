@@ -32,3 +32,21 @@ func (q FindUserByDocumentQuery) ToCriteria(_ *configuration.AppContext) (fwquer
 		IncludeArchived: q.IncludeArchived,
 	}, nil
 }
+
+// FromQueryResult is the mandatory read-side projection hook — same seat the
+// canonical by-id read carries, so the manual surface stays feature-equivalent.
+func (q FindUserByDocumentQuery) FromQueryResult(_ *configuration.AppContext, r FindUserByDocumentResult) (FindUserByDocumentResult, error) {
+	return r, nil
+}
+
+// ─── RESULT ─────────────────────────────────────────────────────────────────
+
+// FindUserByDocumentResult is the reduced application-layer Result of the
+// manual by-document read — id + name + email + document. Sparse pointers for
+// symmetry with the listing twin (FindUsersCustomResult).
+type FindUserByDocumentResult struct {
+	ID       *string
+	Name     *string
+	Email    *string
+	Document *string
+}

@@ -40,10 +40,11 @@ import (
 //     output for every channel — HTTP, e-mail, audit. The frontend
 //     handles its own static i18n (form labels) but does not need to
 //     translate audit field identifiers.
-//  3. Returns the slice. The wire layer serializes *AuditEvent's JSON
-//     tags directly — no additional projection is needed because the
-//     framework's AuditEvent struct already carries the wire-correct
-//     shape.
+//  3. Maps each event into the service-owned
+//     appqueries.FindAuditByAggregateResult — the application Result every
+//     read handler returns. The framework's AuditEvent is an infrastructure
+//     record; projecting it here keeps the wire shape the SERVICE's to
+//     narrow, rename or version, exactly like every other read.
 //
 // Returns an empty slice + nil error when the aggregate has no audit
 // rows (created before audit was enabled, destinations excluded
@@ -56,14 +57,69 @@ type FindAuditByAggregateQueryHandler struct {
 
 func (h *FindAuditByAggregateQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindAuditByAggregateQuery,
-) ([]*audit.AuditEvent, error) {
+) ([]appqueries.FindAuditByAggregateResult, error) {
 	events, err := h.Reader.FindByAggregate(ctx, q.EntityType, q.AggregateID)
 	if err != nil {
 		return nil, err
 	}
 	lang := ctx.Language()
+	out := make([]appqueries.FindAuditByAggregateResult, 0, len(events))
 	for _, ev := range events {
 		audit.RenderLabels(ev, h.Translator, lang)
+		out = append(out, auditResultOf(ev))
 	}
-	return events, nil
+	return out, nil
+}
+
+// auditResultOf projects one framework audit record into the service-owned
+// Result. Labels are already rendered in the actor's locale by the caller.
+func auditResultOf(ev *audit.AuditEvent) appqueries.FindAuditByAggregateResult {
+	r := appqueries.FindAuditByAggregateResult{
+		ThreadID:    ev.ThreadID,
+		TraceID:     ev.TraceID,
+		EntityType:  ev.EntityType,
+		EntityID:    ev.EntityID,
+		Verb:        ev.Verb,
+		ActionName:  ev.ActionName,
+		Kind:        ev.Kind,
+		Actor:       ev.Actor,
+		ActorIssuer: ev.ActorIssuer,
+		ActorClaims: ev.ActorClaims,
+		TenantID:    ev.TenantID,
+		DateTime:    ev.DateTime,
+		Snapshot:    ev.Snapshot,
+		Changes:     auditChangesOf(ev.Changes),
+	}
+	if len(ev.Children) > 0 {
+		r.Children = make(map[string][]appqueries.AuditChildResult, len(ev.Children))
+		for typeName, children := range ev.Children {
+			entries := make([]appqueries.AuditChildResult, 0, len(children))
+			for _, c := range children {
+				entries = append(entries, appqueries.AuditChildResult{
+					ID:       c.ID,
+					Op:       c.Op,
+					Snapshot: c.Snapshot,
+					Changes:  auditChangesOf(c.Changes),
+				})
+			}
+			r.Children[typeName] = entries
+		}
+	}
+	return r
+}
+
+func auditChangesOf(changes []audit.FieldChange) []appqueries.AuditFieldChangeResult {
+	if len(changes) == 0 {
+		return nil
+	}
+	out := make([]appqueries.AuditFieldChangeResult, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, appqueries.AuditFieldChangeResult{
+			Field:      c.Field,
+			FieldLabel: c.FieldLabel,
+			From:       c.From,
+			To:         c.To,
+		})
+	}
+	return out
 }

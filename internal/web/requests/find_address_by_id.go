@@ -1,6 +1,9 @@
 package requests
 
 import (
+	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
+
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
 
@@ -24,24 +27,18 @@ type FindAddressByIDRequest struct {
 // Reads the Address UUID populated by BindPath and the `includeArchived` flag.
 // The User UUID arrives later via QueryByIDBase.SetPathID, invoked by
 // the wrapper after ToQuery returns.
-func (r FindAddressByIDRequest) ToQuery() *queries.FindAddressByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
+func (r FindAddressByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindAddressByIDQuery {
 	return &queries.FindAddressByIDQuery{
-		AddressID:       r.AddressID,
-		IncludeArchived: arch,
+		AddressID: r.AddressID,
+		Criteria:  criteria,
 	}
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
-// FindAddressByIDResponse is the wire projection of one address sub-document.
-// Mirrors the shape of FindUserByIDAddressOutput. The MongoViewReader already
-// translated every physical column back to its Go field name (zip_code →
-// ZipCode) using AddressSchema(), so AutoFromDoc keys by the Go field name and
-// the json tag is purely the outgoing wire name — no view: source-key override.
+// FindAddressByIDResponse is the wire projection of one address sub-document,
+// mapped from the shared queries.AddressResult. Mirrors the shape of
+// FindUserByIDAddressOutput; the json tag is purely the outgoing wire name.
 type FindAddressByIDResponse struct {
 	ID           string  `json:"id"                   example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Label        *string `json:"label,omitempty"      example:"home"`
@@ -54,4 +51,10 @@ type FindAddressByIDResponse struct {
 	ZipCode      string  `json:"zipCode"              example:"95014"`
 	Country      string  `json:"country"              example:"US"`
 	AddressType  string  `json:"addressType"          example:"residential"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper.
+func (FindAddressByIDResponse) FromResult(r queries.AddressResult) FindAddressByIDResponse {
+	return fwresponses.Map[FindAddressByIDResponse](r)
 }

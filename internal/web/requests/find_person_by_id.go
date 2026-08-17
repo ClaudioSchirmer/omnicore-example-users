@@ -1,6 +1,9 @@
 package requests
 
 import (
+	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
+
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
 
@@ -13,12 +16,8 @@ type FindPersonByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindPersonByIDRequest) ToQuery() *queries.FindPersonByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &queries.FindPersonByIDQuery{IncludeArchived: arch}
+func (r FindPersonByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindPersonByIDQuery {
+	return &queries.FindPersonByIDQuery{Criteria: criteria}
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -38,4 +37,10 @@ type FindPersonByIDResponse struct {
 	Addresses []FindUserByIDAddressOutput `json:"addresses"`
 	User      *PersonUserOutput           `json:"user,omitempty"`
 	Employee  *PersonEmployeeOutput       `json:"employee,omitempty"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper — the read-side twin of the command Responses' FromResult.
+func (FindPersonByIDResponse) FromResult(r queries.FindPersonByIDResult) FindPersonByIDResponse {
+	return fwresponses.Map[FindPersonByIDResponse](r)
 }

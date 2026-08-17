@@ -2,6 +2,7 @@ package requests
 
 import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
@@ -12,7 +13,7 @@ import (
 // /showcase/users-custom/:document/addresses/:addressId. Both identifiers
 // arrive via `path:` tags; only `?includeArchived=true|false` is recognized
 // as a query parameter — any other key produces the canonical 400 envelope
-// via the fwweb.ParseCriteria allowlist check the route runs after BindPath.
+// via the typed parser's allowlist check the route runs after BindPath.
 type FindAddressByDocumentAndIDRequest struct {
 	Document        string `path:"document"`
 	AddressID       string `path:"addressId"`
@@ -21,7 +22,7 @@ type FindAddressByDocumentAndIDRequest struct {
 
 // ToQuery is the web→application boundary — pure body mapping with no ctx.
 // Reads the path values populated by BindPath and the validated criteria
-// from ParseCriteria. AppContext-derived overlays (future JWT tenant id)
+// from the parser. AppContext-derived overlays (future JWT tenant id)
 // layer onto the criteria inside Query.ToCriteria(ctx) consumed by the
 // handler.
 func (r FindAddressByDocumentAndIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindAddressByDocumentAndIDQuery {
@@ -44,15 +45,21 @@ func (r FindAddressByDocumentAndIDRequest) ToQuery(criteria fwqueries.ReadCriter
 //
 // Non-sparse contract: plain `string` fields (no `*T` + ,omitempty). The
 // endpoint does not declare `query:"fields"`, so the Response is free to
-// render every field with its zero value — a missing key in the doc lands
-// as `""` on the wire instead of being elided. Projection runs through
-// fwresponses.AutoFromDoc[FindAddressByDocumentAndIDResponse] at the route;
-// AutoFromDoc handles both sparse (*T+omitempty) and non-sparse (string)
-// shapes uniformly.
+// render every field with its zero value — a field absent from the Result
+// lands as `""` on the wire instead of being elided. The generic mapper
+// handles both sparse (*T+omitempty) and non-sparse (string) shapes
+// uniformly.
 type FindAddressByDocumentAndIDResponse struct {
 	ID          string `json:"id"          example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Street      string `json:"street"      example:"1 Infinite Loop"`
 	City        string `json:"city"        example:"Cupertino"`
 	Country     string `json:"country"     example:"US"`
 	AddressType string `json:"addressType" example:"residential"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper. The Response deliberately exposes a SUBSET of the Result — proving
+// wire format and read model stay independent concerns.
+func (FindAddressByDocumentAndIDResponse) FromResult(r queries.AddressResult) FindAddressByDocumentAndIDResponse {
+	return fwresponses.Map[FindAddressByDocumentAndIDResponse](r)
 }

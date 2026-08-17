@@ -9,19 +9,21 @@ import (
 )
 
 // TestFindUserByDocumentCustomQueryHandler_HappyPath proves the criteria the handler
-// hands to ViewReader: Filter[Email]=<value>, Limit=1, IncludeArchived
-// flag honored. Returns the single doc the reader returned, untouched —
-// projection to FindUserByDocumentCustomResponse is the web layer's job.
+// hands to ViewReader: Filter[Document]=<value>, Limit=1, IncludeArchived
+// flag honored. Returns the TYPED Result filled from the single document the
+// reader returned; projection to FindUserByDocumentCustomResponse is the web
+// layer's job.
 func TestFindUserByDocumentCustomQueryHandler_HappyPath(t *testing.T) {
 	reader := &fakeViewReader{
+		// Go-keyed document — the shape the ViewReader hands the application layer.
 		pageToReturn: queries.Page{Items: []map[string]any{
-			{"id": "u-1", "name": "Jane", "email": "jane@example.com"},
+			{"ID": "u-1", "Name": "Jane", "Email": "jane@example.com", "Document": "12345678901"},
 		}},
 	}
 	h := &FindUserByDocumentCustomQueryHandler{Reader: reader, View: "users"}
 
 	q := &appqueries.FindUserByDocumentQuery{Document: "jane@example.com"}
-	doc, err := h.Handle(testCtx(), q)
+	got, err := h.Handle(testCtx(), q)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,8 +39,11 @@ func TestFindUserByDocumentCustomQueryHandler_HappyPath(t *testing.T) {
 	if reader.gotCriteria.Limit != 1 {
 		t.Errorf("expected Limit=1, got %d", reader.gotCriteria.Limit)
 	}
-	if doc["name"] != "Jane" {
-		t.Errorf("expected doc Name=Jane, got %v", doc["name"])
+	if got.Name == nil || *got.Name != "Jane" {
+		t.Errorf("expected Result.Name=Jane, got %v", got.Name)
+	}
+	if got.Document == nil || *got.Document != "12345678901" {
+		t.Errorf("expected Result.Document=12345678901, got %v", got.Document)
 	}
 }
 
@@ -61,7 +66,7 @@ func TestFindUserByDocumentCustomQueryHandler_NotFound(t *testing.T) {
 func TestFindUserByDocumentCustomQueryHandler_HonorsIncludeArchived(t *testing.T) {
 	reader := &fakeViewReader{
 		pageToReturn: queries.Page{Items: []map[string]any{
-			{"id": "u-1", "name": "Archived Jane", "email": "jane@example.com"},
+			{"ID": "u-1", "Name": "Archived Jane", "Email": "jane@example.com"},
 		}},
 	}
 	h := &FindUserByDocumentCustomQueryHandler{Reader: reader, View: "users"}

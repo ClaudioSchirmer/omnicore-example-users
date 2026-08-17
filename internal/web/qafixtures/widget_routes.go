@@ -94,16 +94,19 @@ type FindWidgetsResponse struct {
 	WidgetParts []WidgetPartOutput `json:"widgetParts,omitempty"`
 }
 
+// FromResult is the wire mapping seat: the generic name-based Result→Response
+// mapper. The by-id read serves the same shape (FindWidgetByIDResponse is an
+// alias), so this one method feeds both routes and both backings.
+func (FindWidgetsResponse) FromResult(r appqa.FindWidgetsResult) FindWidgetsResponse {
+	return fwresponses.Map[FindWidgetsResponse](r)
+}
+
 type FindWidgetByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindWidgetByIDRequest) ToQuery() *appqa.FindWidgetByIDQuery {
-	ia := false
-	if r.IncludeArchived != nil {
-		ia = *r.IncludeArchived
-	}
-	return &appqa.FindWidgetByIDQuery{IncludeArchived: ia}
+func (r FindWidgetByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindWidgetByIDQuery {
+	return &appqa.FindWidgetByIDQuery{Criteria: criteria}
 }
 
 type FindWidgetByIDResponse = FindWidgetsResponse
@@ -140,8 +143,8 @@ func MountWidgets(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindWidgetsRequest{},
-		fwresponses.AutoFromDoc[FindWidgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindWidgetsQuery]{
+		FindWidgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindWidgetsQuery, appqa.FindWidgetsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -155,8 +158,8 @@ func MountWidgets(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindWidgetByIDRequest{},
-		fwresponses.AutoFromDoc[FindWidgetByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindWidgetByIDQuery]{
+		FindWidgetByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindWidgetByIDQuery, appqa.FindWidgetsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -177,8 +180,8 @@ func MountWidgetsRel(app *fiber.App, listView *query.ViewDefinition, d bootstrap
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindWidgetsRequest{},
-		fwresponses.AutoFromDoc[FindWidgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindWidgetsQuery]{
+		FindWidgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindWidgetsQuery, appqa.FindWidgetsResult]{
 			Reader: d.ViewReader, View: listView.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -192,8 +195,8 @@ func MountWidgetsRel(app *fiber.App, listView *query.ViewDefinition, d bootstrap
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindWidgetByIDRequest{},
-		fwresponses.AutoFromDoc[FindWidgetByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindWidgetByIDQuery]{
+		FindWidgetByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindWidgetByIDQuery, appqa.FindWidgetsResult]{
 			Reader: d.ViewReader, View: listView.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",

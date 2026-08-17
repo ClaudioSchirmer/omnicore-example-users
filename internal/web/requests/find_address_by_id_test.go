@@ -1,23 +1,26 @@
 package requests
 
-import "testing"
+import (
+	"testing"
+
+	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+)
 
 func TestFindAddressByIDRequest_ToQuery_HappyPath(t *testing.T) {
 	r := FindAddressByIDRequest{AddressID: "a-1"}
-	q := r.ToQuery()
+	q := r.ToQuery(fwqueries.ReadCriteria{})
 	if q.AddressID != "a-1" {
 		t.Errorf("AddressID mismatch: got %q", q.AddressID)
 	}
-	if q.IncludeArchived {
+	if q.Criteria.IncludeArchived {
 		t.Error("expected IncludeArchived=false by default")
 	}
 }
 
 func TestFindAddressByIDRequest_ToQuery_IncludeArchivedTrue(t *testing.T) {
-	flag := true
-	r := FindAddressByIDRequest{AddressID: "a-1", IncludeArchived: &flag}
-	q := r.ToQuery()
-	if !q.IncludeArchived {
-		t.Error("expected IncludeArchived=true from request")
+	r := FindAddressByIDRequest{AddressID: "a-1"}
+	q := r.ToQuery(fwqueries.ReadCriteria{IncludeArchived: true})
+	if !q.Criteria.IncludeArchived {
+		t.Error("expected IncludeArchived=true from the wire criteria")
 	}
 }

@@ -98,8 +98,8 @@ func MountContractsRel(app *fiber.App, viewName string, d bootstrap.Deps) {
 func mountContractReads(g fiber.Router, viewName string, d bootstrap.Deps, tags []string, backing string) {
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindContractsRequest{},
-		fwresponses.AutoFromDoc[FindContractsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindContractsQuery]{Reader: d.ViewReader, View: viewName})
+		FindContractsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindContractsQuery, appqa.FindContractsResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/", listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List contracts",
@@ -110,8 +110,8 @@ func mountContractReads(g fiber.Router, viewName string, d bootstrap.Deps, tags 
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindContractByIDRequest{},
-		fwresponses.AutoFromDoc[FindContractsResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindContractByIDQuery]{Reader: d.ViewReader, View: viewName})
+		FindContractsResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindContractByIDQuery, appqa.FindContractsResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id", byIDH, byIDSpec,
 		fwopenapi.Doc{Summary: "Get a contract by id", Description: backing, Tags: tags},
 		fwopenapi.RequirePermission("gadgets:read"))

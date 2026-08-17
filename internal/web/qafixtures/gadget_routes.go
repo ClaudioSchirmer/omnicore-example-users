@@ -7,7 +7,9 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/application/persistence"
 	fwresults "github.com/ClaudioSchirmer/omnicore/application/results"
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
+	"github.com/ClaudioSchirmer/omnicore/infra/db/query"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
+	"github.com/ClaudioSchirmer/omnicore/web/export"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
 	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
@@ -33,9 +35,10 @@ func MountGadgets(
 	repo persistence.ScopedRepository[*qadomain.Gadget],
 	journal appqa.GadgetJournal,
 	publisher appqa.GadgetEventPublisher,
-	viewName string,
+	view *query.ViewDefinition,
 	d bootstrap.Deps,
 ) {
+	viewName := view.Name()
 	g := app.Group("/qa/gadgets")
 
 	// Auto insert — the framework detects the command's AfterBegin/BeforeCommit
@@ -74,8 +77,8 @@ func MountGadgets(
 	// List — the full filter-operator vocabulary.
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -83,6 +86,48 @@ func MountGadgets(
 		fwopenapi.Doc{
 			Summary:     "List gadgets (paged + full filter vocabulary)",
 			Description: "Paged read against the `gadgets` Mongo view. The four fields spread all 16 filter operators across their leaves (eq,ne,in,nin,gte,lte,gt,lt,startswith,contains,ieq,ine,iin,inin,istartswith,icontains). Unknown keys/operators return 400.",
+			Tags:        []string{"QA Gadgets"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
+	// Computed-field showcase — `label` carries no column: the Query's
+	// FromQueryResult derives it from Code+Name, and the Response declares
+	// `computed:"Code,Name"` so the framework pushes those two to the store in
+	// its place. Name is deliberately absent from that Response, proving a
+	// source need not reach the wire. Mounted BEFORE /:id so the literal
+	// segment wins the match.
+	computedH, computedSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
+		FindGadgetsRequest{},
+		FindGadgetsComputedResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
+			Reader: d.ViewReader, View: viewName,
+		})
+	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/computed",
+		computedH, computedSpec,
+		fwopenapi.Doc{
+			Summary:     "List gadgets with a COMPUTED field (label)",
+			Description: "Same `gadgets` view and handler as GET /qa/gadgets, projected through a Response whose `label` is computed by FromQueryResult from code+name. `?fields=label` reads the two sources and answers with label alone; `?orderBy=label` is 400 ComputedFieldNotSortableNotification (ordering happens in the store and the keyset cursor is built from stored values).",
+			Tags:        []string{"QA Gadgets"},
+		},
+		fwopenapi.RequirePermission("gadgets:read"))
+
+	// CSV twin of the computed list — the export derives its columns from the
+	// SAME Response, so `label` is a real column and `?fields=label` keeps it
+	// (its sources go to the store, never to the column set).
+	computedCSVH, computedCSVSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
+		FindGadgetsRequest{},
+		FindGadgetsComputedResponse{}.FromResult,
+		view,
+		d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
+			Reader: d.ViewReader, View: viewName,
+		},
+		export.WithDelimiter(','))
+	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/gadgets-computed.csv",
+		computedCSVH, computedCSVSpec,
+		fwopenapi.Doc{
+			Summary:     "Export the computed gadget list as CSV",
+			Description: "Tabular twin of GET /qa/gadgets/computed. The `label` column is derived per row by FromQueryResult; its header comes from the Response's exportLabelKey rendered in the request language.",
 			Tags:        []string{"QA Gadgets"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
@@ -95,8 +140,8 @@ func MountGadgets(
 	// /:id route so the literal segment wins the match.
 	bareH, bareSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsBareRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/bare",
@@ -113,8 +158,8 @@ func MountGadgets(
 	// rejects 400 through the same DTO gate.
 	bareByIDH, bareByIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetBareByIDRequest{},
-		fwresponses.AutoFromDoc[FindGadgetByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{
+		FindGadgetByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery, appqa.FindGadgetByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/bare/:id",
@@ -129,8 +174,8 @@ func MountGadgets(
 	// By id.
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetByIDRequest{},
-		fwresponses.AutoFromDoc[FindGadgetByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{
+		FindGadgetByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery, appqa.FindGadgetByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",

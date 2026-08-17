@@ -49,8 +49,8 @@ func MountGadgetNotes(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetNotesRequest{},
-		fwresponses.AutoFromDoc[FindGadgetNotesResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetNotesQuery]{
+		FindGadgetNotesResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetNotesQuery, appqa.FindGadgetNotesResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -105,8 +105,8 @@ func MountGadgetsFull(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsFullRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsFullResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery]{
+		FindGadgetsFullResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery, appqa.FindGadgetsFullResult]{
 			Reader: d.ViewReader, View: composed.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -120,8 +120,8 @@ func MountGadgetsFull(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetFullByIDRequest{},
-		fwresponses.AutoFromDoc[FindGadgetFullByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindGadgetFullByIDQuery]{
+		FindGadgetFullByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetFullByIDQuery, appqa.FindGadgetFullByIDResult]{
 			Reader: d.ViewReader, View: composed.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -138,9 +138,10 @@ func MountGadgetsFull(
 	// primary's tree + one branch per leg).
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		FindGadgetsFullRequest{},
+		FindGadgetsFullResponse{}.FromResult,
 		composed,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery]{
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery, appqa.FindGadgetsFullResult]{
 			Reader: d.ViewReader, View: composed.Name(),
 		},
 		export.WithDelimiter(','))
@@ -157,9 +158,10 @@ func MountGadgetsFull(
 	// reused verbatim, exactly like the canonical /users.xlsx twin).
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		FindGadgetsFullRequest{},
+		FindGadgetsFullResponse{}.FromResult,
 		composed,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery]{
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery, appqa.FindGadgetsFullResult]{
 			Reader: d.ViewReader, View: composed.Name(),
 		},
 		export.WithSheetName("GadgetsFull"))

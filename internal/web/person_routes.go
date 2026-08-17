@@ -8,7 +8,6 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/web/export"
 	fwgraphql "github.com/ClaudioSchirmer/omnicore/web/graphql"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqueries "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/web/requests"
@@ -30,8 +29,8 @@ func MountPersons(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
-		fwresponses.AutoFromDoc[requests.FindPersonsByParamsResponse],
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
+		requests.FindPersonsByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery, appqueries.FindPersonsByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, persons, fiber.MethodGet, "/",
@@ -45,8 +44,8 @@ func MountPersons(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindPersonByIDRequest{},
-		fwresponses.AutoFromDoc[requests.FindPersonByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqueries.FindPersonByIDQuery]{
+		requests.FindPersonByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindPersonByIDQuery, appqueries.FindPersonByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, persons, fiber.MethodGet, "/:id",
@@ -63,9 +62,10 @@ func MountPersons(
 	// one level in; a role's own collections one level further).
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
+		requests.FindPersonsByParamsResponse{}.FromResult,
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery, appqueries.FindPersonsByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithDelimiter(','))
@@ -81,9 +81,10 @@ func MountPersons(
 	// XLSX export — identical surface, different encoder.
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		requests.FindPersonsByParamsRequest{},
+		requests.FindPersonsByParamsResponse{}.FromResult,
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery, appqueries.FindPersonsByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithSheetName("Persons"))
@@ -108,12 +109,10 @@ func MountPersonsGraphQL(
 	view *query.ViewDefinition,
 	d bootstrap.Deps,
 ) {
-	reg.Register(fwgraphql.QueryWithParams[
-		requests.FindPersonsByParamsRequest,
-		requests.FindPersonsByParamsResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[requests.FindPersonsByParamsRequest](
 		"persons", "Person",
-		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery]{
+		requests.FindPersonsByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindPersonsByParamsQuery, appqueries.FindPersonsByParamsResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("persons:read")))
@@ -121,12 +120,10 @@ func MountPersonsGraphQL(
 	// `person(id, includeArchived)` — the singular twin of `persons`, the
 	// GraphQL twin of GET /persons/:id over the same by-id handler + DTOs.
 	// Shares the "Person" node type with the connection (wire-aligned DTOs).
-	reg.Register(fwgraphql.QueryByID[
-		requests.FindPersonByIDRequest,
-		requests.FindPersonByIDResponse,
-	](
+	reg.Register(fwgraphql.QueryByID[requests.FindPersonByIDRequest](
 		"person", "Person",
-		&handlers.FindByIDQueryHandler[*appqueries.FindPersonByIDQuery]{
+		requests.FindPersonByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindPersonByIDQuery, appqueries.FindPersonByIDResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("persons:read")))

@@ -11,7 +11,6 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 
@@ -33,7 +32,7 @@ const defaultSlowSleepMillis = 3000
 //	GET /qa/showcase/echo-values  → 400 carrying one message per echoed value type
 //	GET /qa/gadgets-hot           list over the DeleteOnArchive `gadgets_hot` view
 //	GET /qa/gadgets-capped        list over the MaxLimit(5) `gadgets_capped` view
-//	GET /qa/gadgets-raw           list over `gadgets` with the RawDoc projector
+//	GET /qa/gadgets-raw           list over `gadgets` mounted via MountRaw
 //
 // hotView / cappedView / defaultView are the Mongo collection names the feature
 // registered (infraqa.GadgetHotView / GadgetCappedView / GadgetView).
@@ -124,14 +123,15 @@ func MountGadgetShowcase(
 		})
 
 	// Read-side option showcases. Each reuses the canonical Gadget list DTOs +
-	// query; only the target view (and, for raw, the projector) differs.
+	// query; only the target view (and, for the last one, the openapi mount
+	// channel) differs.
 
 	// DeleteOnArchive — list over `gadgets_hot`. Archived gadgets are absent here
 	// (dropped from the projection) but survive in the default `gadgets` list.
 	hotH, hotSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: hotView,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/gadgets-hot",
@@ -147,8 +147,8 @@ func MountGadgetShowcase(
 	// with 400 LimitExceededNotification at read time.
 	cappedH, cappedSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: cappedView,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/gadgets-capped",
@@ -160,22 +160,23 @@ func MountGadgetShowcase(
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
 
-	// RawDoc — list over the default `gadgets` view using the RawDoc projector,
-	// so the raw view document (map[string]any) passes through verbatim instead
-	// of a typed Response. MountRaw (not the reflected Mount) because the spec
-	// generator cannot reflect over map[string]any — but the route must still go
-	// through the openapi channel to satisfy the boot guard.
+	// Second surface over the SAME default `gadgets` view, mounted through the
+	// RAW openapi channel (MountRaw + a hidden RawSpec) rather than the
+	// reflected one. It exists to prove the two mount channels are
+	// interchangeable for a read: the wire payload is byte-identical to
+	// GET /qa/gadgets — the same Request DTO, the same typed Response, the same
+	// json wire names — only the spec registration differs.
 	rawH := fwweb.QueryWithParams(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.RawDoc,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: defaultView,
 		})
 	fwopenapi.MountRaw(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/gadgets-raw",
 		rawH,
 		fwopenapi.RawSpec{
-			Summary:     "List gadgets with the RawDoc projector",
-			Description: "Paged read over the default `gadgets` view using fwresponses.RawDoc — the raw view document (map[string]any) passes through verbatim instead of a typed Response.",
+			Summary:     "List gadgets through the raw openapi mount channel",
+			Description: "Paged read over the default `gadgets` view mounted via fwopenapi.MountRaw. The projection is the ordinary typed FindGadgetsResponse — the read side has a single wire authority, so the payload matches GET /qa/gadgets exactly.",
 			Tags:        []string{"QA Gadgets"}, Public: true, Hidden: true,
 		})
 }
