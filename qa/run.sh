@@ -6,7 +6,6 @@
 #   ./qa/run.sh postgres     # one lane only (Postgres + Kafka)
 #   ./qa/run.sh mysql        #                (MySQL + NATS)
 #   SUITES="e2e employee" ./qa/run.sh   # subset (space-separated overrides)
-#   ./qa/run.sh --keep-going            # do NOT stop at the first RED suite
 #   QA_MAX_PARALLEL_LANES=4 ./qa/run.sh # full parallelism (needs a roomier Docker VM)
 #
 # The lanes exercise every leg of the engine × transport seams each run:
@@ -32,8 +31,8 @@
 #
 # FAIL-FAST is the default: the FIRST suite that goes RED (on either lane) trips a
 # shared sentinel and BOTH lanes stop at their next suite boundary (remaining runs
-# reported "never ran", exit 1). Pass --keep-going (or KEEP_GOING=1) to run every
-# scheduled suite regardless — the exhaustive sweep for sizing a change.
+# reported "never ran", exit 1). There is NO way to turn it off: the first RED
+# stops the run, always.
 #
 # Prerequisites: Docker and jq. The bench itself is managed HERE (wave up/stop
 # per lane group; shared infra up front; lanes A/B restored at the end — the
@@ -57,12 +56,19 @@ cd "$(dirname "$0")/.."
 STACK_ROOT="$(cd ../ && pwd)"
 
 BACKENDS="all"
-KEEP_GOING="${KEEP_GOING:-0}"
+# FAIL-FAST IS NOT OPTIONAL. Neither the flag nor the environment variable can
+# turn it off — both are refused before anything runs.
+if [ -n "${KEEP_GOING:-}" ]; then
+  echo "The AI always runs fail-fast, never keep-going" >&2
+  exit 2
+fi
 for arg in "$@"; do
   case "$arg" in
     all|postgres|mysql|sqlserver|oracle|sqlite) BACKENDS="$arg" ;;
-    --keep-going|-k)    KEEP_GOING=1 ;;
-    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle|sqlite] [--keep-going]" >&2; exit 2 ;;
+    --keep-going|-k)
+      echo "The AI always runs fail-fast, never keep-going" >&2
+      exit 2 ;;
+    *) echo "usage: qa/run.sh [all|postgres|mysql|sqlserver|oracle|sqlite]" >&2; exit 2 ;;
   esac
 done
 
@@ -121,7 +127,7 @@ RUN_BACKENDS="$BACKEND_LIST"; SKIP_BACKENDS=""
 # Server-dependent suites run first (server up), self-managed after (port free).
 # auth is last: it is the slowest (~5 min of validator-mode + cache-TTL waits).
 SERVER_SUITES="e2e employee person graphql openapi httpclient"
-SELF_SUITES="audit cache authz schema_evolution relational_evolution rebuild_scale projection_resilience projection_ripple config_validation migrations tracing status_mapping probes http_hardening view_options relational_view projection_convergence httpclient_middleware lifecycle_hooks filter_operators reserved_gate aggregates upstream_composition composed_view external_embed link_in_child view_embed fields integration_events transport auth grpc grpcclient grpc_security auth_selfissued"
+SELF_SUITES="audit cache authz schema_evolution relational_evolution rebuild_scale projection_resilience projection_ripple config_validation migrations tracing status_mapping probes http_hardening view_options relational_view projection_convergence httpclient_middleware lifecycle_hooks filter_operators reserved_gate aggregates upstream_composition composed_view external_embed link_in_child view_embed fields composite_vo integration_events transport auth grpc grpcclient grpc_security auth_selfissued"
 ALL_SUITES="$SERVER_SUITES $SELF_SUITES"
 SUITES="${SUITES:-$ALL_SUITES}"
 
@@ -368,12 +374,11 @@ abort_lane() { # abort_lane <backend> <reason>
   render_report "$(progress_footer)"   # a lane abort shows up live too
 }
 
-# fail_fast <suite> <backend> — trip the shared sentinel (unless --keep-going) so
+# fail_fast <suite> <backend> — trip the shared sentinel so
 # BOTH lanes stop at their next suite boundary.
 fail_fast() {
-  [ "$KEEP_GOING" = "1" ] && return 1
   touch "$LOG_DIR/failfast"
-  printf '%s fail-fast: %s (%s) went RED — stopping both lanes (pass --keep-going for the full sweep)\n' \
+  printf '%s fail-fast: %s (%s) went RED — stopping both lanes\n' \
     "$(red "✗")" "$1" "$2"
   return 0
 }
@@ -793,7 +798,7 @@ if [ "$RED_RUNS" = "0" ] && [ "$MISSING_RUNS" = "0" ] && [ "$COMPLETED_RUNS" != 
 else
   detail="$RED_RUNS red"
   [ "$MISSING_RUNS" != "0" ] && detail="$detail, $MISSING_RUNS never ran"
-  [ -f "$LOG_DIR/failfast" ] && detail="$detail (fail-fast — pass --keep-going for the full sweep)"
+  [ -f "$LOG_DIR/failfast" ] && detail="$detail (fail-fast)"
   render_report "**❌ RED — $detail of $EXPECTED_RUNS scheduled runs — ${elapsed}s total. Logs: \`$LOG_DIR\`**"
   FINALIZED=1   # real verdict on disk — disarm the aborted-report safety net
   printf '%s — %s of %s scheduled runs, %ss, report: %s, logs: %s\n' \

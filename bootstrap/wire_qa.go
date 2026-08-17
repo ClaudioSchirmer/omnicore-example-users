@@ -24,6 +24,7 @@ func qaFeatures(d bootstrap.Deps) []bootstrap.Feature {
 		NewAccountFeature(d),
 		NewProductFeature(d),
 		NewWidgetFeature(d),
+		NewContractFeature(d),
 	}
 }
 
@@ -35,11 +36,26 @@ func qaFeatures(d bootstrap.Deps) []bootstrap.Feature {
 // which store/checker they are talking to. Kept separate from qaFeatures
 // because it also needs to hand two values back to Wire() beyond the Feature
 // itself.
+// The two SEAMS are wired only when the profile declares `auth.issuer:` — the
+// self-issuance posture the AuthFeature exists to exercise. The routes are
+// always mounted (they are qa surface), but a TokenChecker handed to the
+// middleware SUPERSEDES `auth.externalValidator` by framework design
+// (web.AuthOptions: "Superseded by TokenChecker when both are set"), and this
+// service's in-process denylist knows nothing about a revocation performed at
+// the IdP. Wiring it unconditionally therefore silently disabled the external
+// validator on every qa-binary profile — including `prd-external*`, whose whole
+// point is that a Keycloak-revoked token must stop working, which is what
+// qa/auth.sh asserts. The two qa fixtures were contradicting each other; the
+// profile is what tells them apart.
 func qaAuthWiring(d bootstrap.Deps) (bootstrap.Feature, authcore.RefreshTokenStore, authcore.TokenChecker) {
 	if err := infraqa.ProvisionRefreshTokenTable(context.Background(), d.DB); err != nil {
 		panic("qaAuthWiring: provisioning qa_refresh_tokens failed: " + err.Error())
 	}
 	store := infraqa.NewRefreshTokenStore(d.DB)
 	checker := infraqa.NewRevocationChecker(d.SharedCache)
-	return NewAuthFeature(store, checker), store, checker
+	feature := NewAuthFeature(store, checker)
+	if d.Config == nil || d.Config.Auth.Issuer == nil {
+		return feature, nil, nil
+	}
+	return feature, store, checker
 }
