@@ -308,6 +308,19 @@ services:
       - "27028:27017"
     volumes:
       - mongo_data:/data/db
+    # The other two members are a HARD dependency of this one's healthcheck, not a
+    # convenience: the check below reports healthy only when this node is a
+    # writable PRIMARY, and the rs.initiate it runs declares a three-member set.
+    # One node alone never reaches majority, never elects, and stays unhealthy
+    # forever. Without this, `docker compose up -d --wait mongo` — what qa/run.sh
+    # does for the shared trio — waits on a node that cannot become healthy and
+    # aborts the run before a single suite starts. `service_healthy`, not
+    # `service_started`: a member not yet accepting connections cannot be voted in.
+    depends_on:
+      mongo2:
+        condition: service_healthy
+      mongo3:
+        condition: service_healthy
     # The healthcheck doubles as the replica-set initiator: it is idempotent
     # (rs.status() succeeds once initiated) and retried, which absorbs the race
     # where mongo2/mongo3 are not yet accepting connections. It reports healthy

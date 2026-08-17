@@ -34,9 +34,12 @@
 # reported "never ran", exit 1). There is NO way to turn it off: the first RED
 # stops the run, always.
 #
-# Prerequisites: Docker and jq. The bench itself is managed HERE (wave up/stop
-# per lane group; shared infra up front; lanes A/B restored at the end — the
-# documented default bench). Each lane builds its own single-transport binary;
+# Prerequisites: Docker and jq. The bench itself is managed HERE (a ONE-TIME
+# `down -v` reset after the unit gate, so every run starts on empty volumes and
+# no state crosses runs; then wave up/stop per lane group; shared infra up front;
+# lanes A/B restored at the end — the documented default bench). The reset is
+# preflight-only: waves stay warm stops, never downs. Each lane builds its own
+# single-transport binary;
 # the lane's relay is (re)started and proven streaming; the "running already"
 # suites run against a per-lane server this script starts and stops; the
 # self-managed suites get their lane's free port.
@@ -399,6 +402,31 @@ port_free() {
     sleep 1
   done
 }
+# migrate_boot runs the lane's binary once, just far enough to apply migrations,
+# then stops it. It exists to break a boot-order deadlock that only appears on an
+# EMPTY database, which is now every run: relay_setup below registers the CDC
+# relay BEFORE the suite server starts, but every dialect's relay arm needs the
+# `outbox` + `integration_events` tables to already exist — postgres waits for
+# them outright (register-connector.sh:189), sqlserver runs sp_cdc_enable_table
+# on them (:74), mysql and oracle wait for a stream those tables feed (:43,
+# :161). Nothing creates them but the app's own migrations (autoRun: true), and
+# the app only started AFTER the relay. On a persistent volume the tables
+# survived from a prior run and the wait returned instantly, which is exactly why
+# this stayed hidden until the bench started coming up empty. Every one of those
+# four error messages prescribes this remedy verbatim: boot the app once first.
+#
+# Idempotent and cheap: on an already-migrated DB the migration runner no-ops and
+# this costs one boot. Failure is NOT fatal here — relay_setup reports the real
+# diagnosis if the tables are genuinely missing, and a lane whose app cannot boot
+# at all fails louder a few lines later at the server branch's wait_health.
+migrate_boot() { # migrate_boot <binary> <logfile>
+  local bin="$1" log="$2" pid
+  APP_PROFILE=dev "$bin" > "$log" 2>&1 &
+  pid=$!
+  wait_health || echo "[$BACKEND] WARNING: migration boot never became healthy (see $log)" >&2
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  port_free || echo "[$BACKEND] WARNING: port $HTTP_PORT still busy after the migration boot" >&2
+}
 # relay_setup (re)starts the lane's CDC relay and confirms it is streaming.
 # register-connector.sh dispatches by dialect: Connect REST (postgres) or a
 # Debezium Server recreate (mysql). Both already block until streaming/RUNNING.
@@ -558,6 +586,10 @@ run_lane() {
   # run like SUITES="grpc" from silently reading a dead pipeline. Idempotent and
   # blocking-until-streaming, so the server branch below inherits it hot.
   if [ -n "$run_server_suites$run_self_suites" ] && ! stop_requested; then
+    # Migrations BEFORE the relay: the relay's dialect arm needs outbox +
+    # integration_events to exist, and on the now-always-empty bench only this
+    # boot creates them. See migrate_boot for the full ordering rationale.
+    migrate_boot "$SRV_BIN" "$LOG_DIR/migrate-$B.log"
     relay_setup "$B" "$LOG_DIR/connector-$B.log" \
       || echo "[$B] WARNING: relay (re)start failed (see $LOG_DIR/connector-$B.log)" >&2
   fi
@@ -646,6 +678,33 @@ if [ -n "$BACKEND_LIST" ]; then
   bold "unit-test gate — framework then example, all tags (no bench yet) ..."
   run_unit_matrix "$STACK_ROOT/omnicore" framework "${FW_UNIT_TAGS[@]}"
   run_unit_matrix "." example "${EX_UNIT_TAGS[@]}"
+
+  # ── Bench reset: ONCE, here, before any container comes up ─────────────────
+  # `down -v` — containers AND volumes. Not hygiene: persisted state is a bug
+  # surface no run ever asserts, because it is written by one run and read by the
+  # next. Two scars prove it. The Oracle FRA accumulated archived redo across runs
+  # until it hit db_recovery_file_dest_size and the instance refused to open
+  # (ORA-19809 → ORA-16038, lane D dead on a bench that had been green). And the
+  # `priority: 10` reconcile on the mongo healthcheck exists only because
+  # rs.initiate runs once in the life of mongo_data, so a set initiated before
+  # that invariant existed kept drifting — it cost a RED projection_resilience.
+  # Empty volumes make both classes unreachable instead of merely fixed.
+  #
+  # ONCE, and only here. NOT between waves: wave_down stays a warm `stop`, since a
+  # reset per wave would re-extract Oracle's datafiles mid-run and throw away the
+  # CDC setup the later waves depend on. This runs AFTER the unit gate — Docker is
+  # still untouched when the tags are checked, which is the gate's whole point —
+  # and BEFORE the shared trio, so every run starts from the same empty bench.
+  #
+  # Cost is one first boot per stateful service. The expensive one is Oracle, and
+  # it is bounded: gvenzl/oracle-free ships the database as /opt/oracle/FREE.7z
+  # (243MB) and the entrypoint EXTRACTS it — no DBCA run — then applies
+  # devops/oracle/init (grants + CDC), which today only ever ran on the volume's
+  # first boot and has been unasserted ever since. Both profiles ride the call so
+  # the lane C/D services and their volumes go with it. Scoped to the omnicore-qa
+  # project: the developer's omnicore-dev bench is never touched.
+  bold "bench reset — down -v (containers AND volumes; every run starts empty) ..."
+  $COMPOSE_CMD down -v --remove-orphans >/dev/null 2>&1 || true
 
   # Shared, wave-independent infra up front; each wave manages only its lanes.
   bold "shared infra up (mongo + keycloak + jaeger) ..."
