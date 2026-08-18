@@ -149,8 +149,8 @@ func MountUsers(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
-		fwresponses.AutoFromDoc[requests.FindUsersByParamsResponse],
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		requests.FindUsersByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodGet, "/",
@@ -172,9 +172,10 @@ func MountUsers(
 	// delimiter is a showcase of the mount-time CSV option.
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
+		requests.FindUsersByParamsResponse{}.FromResult,
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithDelimiter(','))
@@ -193,9 +194,10 @@ func MountUsers(
 	// per-level offset becomes the spreadsheet's own column offset.
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
+		requests.FindUsersByParamsResponse{}.FromResult,
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithSheetName("Users"))
@@ -210,8 +212,8 @@ func MountUsers(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindUserByIDRequest{},
-		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+		requests.FindUserByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery, appqueries.FindUserByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, users, fiber.MethodGet, "/:id",
@@ -256,7 +258,7 @@ func MountUsers(
 
 	findAddrH, findAddrSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindAddressByIDRequest{},
-		fwresponses.AutoFromDoc[requests.FindAddressByIDResponse],
+		requests.FindAddressByIDResponse{}.FromResult,
 		&appquery.FindAddressByIDQueryHandler{
 			Reader: d.ViewReader, View: viewName,
 		})
@@ -287,8 +289,8 @@ func MountUsersRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap.De
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindUsersByParamsRequest{},
-		fwresponses.AutoFromDoc[requests.FindUsersByParamsResponse],
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		requests.FindUsersByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -302,8 +304,8 @@ func MountUsersRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap.De
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		requests.FindUserByIDRequest{},
-		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+		requests.FindUserByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery, appqueries.FindUserByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -343,12 +345,10 @@ func MountUsersGraphQL(
 	d bootstrap.Deps,
 ) {
 	// READ → QueryWithParams `users(where, first, after, orderBy, …)` → Relay connection.
-	reg.Register(fwgraphql.QueryWithParams[
-		requests.FindUsersByParamsRequest,
-		requests.FindUsersByParamsResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[requests.FindUsersByParamsRequest](
 		"users", "User",
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		requests.FindUsersByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("users:read")))
@@ -359,12 +359,10 @@ func MountUsersGraphQL(
 	// so they share the one node type (the list's Response DTO registered
 	// first defines it; the two DTOs are wire-aligned). A missing id resolves
 	// to null with the canonical RecordNotFound error in errors[].
-	reg.Register(fwgraphql.QueryByID[
-		requests.FindUserByIDRequest,
-		requests.FindUserByIDResponse,
-	](
+	reg.Register(fwgraphql.QueryByID[requests.FindUserByIDRequest](
 		"user", "User",
-		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+		requests.FindUserByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery, appqueries.FindUserByIDResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("users:read")))
@@ -443,22 +441,18 @@ func MountUsersGraphQL(
 // (`addresses_…` in `where`) resolve to the typed
 // RelationalCapabilityNotification in errors[] — the 400 twin.
 func MountUsersRelGraphQL(reg *fwgraphql.Registry, relView *query.ViewDefinition, d bootstrap.Deps) {
-	reg.Register(fwgraphql.QueryWithParams[
-		requests.FindUsersByParamsRequest,
-		requests.FindUsersByParamsResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[requests.FindUsersByParamsRequest](
 		"usersRel", "User",
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		requests.FindUsersByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: relView.Name(),
 		},
 		fwgraphql.RequirePermission("users:read")))
 
-	reg.Register(fwgraphql.QueryByID[
-		requests.FindUserByIDRequest,
-		requests.FindUserByIDResponse,
-	](
+	reg.Register(fwgraphql.QueryByID[requests.FindUserByIDRequest](
 		"userRel", "User",
-		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+		requests.FindUserByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery, appqueries.FindUserByIDResult]{
 			Reader: d.ViewReader, View: relView.Name(),
 		},
 		fwgraphql.RequirePermission("users:read")))
@@ -468,7 +462,7 @@ func MountUsersRelGraphQL(reg *fwgraphql.Registry, relView *query.ViewDefinition
 // single gRPC registry — the gRPC twin of MountUsers (REST) and
 // MountUsersGraphQL: one declarative Register per RPC over the SAME
 // ingredients the REST Spec constructors consume (the Request DTOs with
-// their ToCommand/ToQuery, the Response DTOs' FromResult/AutoFromDoc).
+// their ToCommand/ToQuery, the Response DTOs' FromResult).
 // The framework bridges pb ↔ DTO mechanically at Register time (a
 // contract/DTO mismatch aborts boot), so this file carries no marshalling
 // — semantic transformation lives in the DTO seats, like every surface.
@@ -505,8 +499,8 @@ func MountUsersGRPC(
 	reg.Register(fwgrpc.QueryWithParams[usersv1.ListUsersRequest, usersv1.ListUsersResponse](
 		usersv1connect.UsersServiceListUsersProcedure,
 		requests.FindUsersByParamsRequest{},
-		fwresponses.AutoFromDoc[requests.FindUsersByParamsResponse],
-		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery]{
+		requests.FindUsersByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindUsersByParamsQuery, appqueries.FindUsersByParamsResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgrpc.RequirePermission("users:read")))
@@ -515,8 +509,8 @@ func MountUsersGRPC(
 		usersv1connect.UsersServiceGetUserProcedure,
 		(*usersv1.GetUserRequest).GetId,
 		requests.FindUserByIDRequest{},
-		fwresponses.AutoFromDoc[requests.FindUserByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery]{
+		requests.FindUserByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqueries.FindUserByIDQuery, appqueries.FindUserByIDResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgrpc.RequirePermission("users:read")))

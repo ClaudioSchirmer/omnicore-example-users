@@ -9,14 +9,20 @@ import (
 )
 
 // TestFindUsersCustomQueryHandler_HappyPath proves the handler forwards the Criteria
-// verbatim to the ViewReader and returns the Page unchanged — the wire
-// layer is responsible for the projection step.
+// verbatim to the ViewReader and returns the reader's Page as a typed
+// queries.PageOf — one Result per document (filled by the framework from the
+// canonical Go-keyed doc, then passed through the Query's FromQueryResult hook),
+// with the cursor envelope copied verbatim. The wire layer maps Result →
+// Response; the raw document never crosses the boundary.
 func TestFindUsersCustomQueryHandler_HappyPath(t *testing.T) {
 	reader := &fakeViewReader{
 		pageToReturn: queries.Page{
+			// Go-keyed documents — what the ViewReader hands the application
+			// layer after translating every physical column back through the
+			// view's TableSchema.
 			Items: []map[string]any{
-				{"id": "u-1", "name": "Jane", "email": "jane@example.com"},
-				{"id": "u-2", "name": "Bob", "email": "bob@example.com"},
+				{"ID": "u-1", "Name": "Jane", "Email": "jane@example.com"},
+				{"ID": "u-2", "Name": "Bob", "Email": "bob@example.com"},
 			},
 			HasNextPage: true,
 			EndCursor:   "cursor-X",
@@ -40,7 +46,14 @@ func TestFindUsersCustomQueryHandler_HappyPath(t *testing.T) {
 		t.Errorf("criteria not forwarded as expected: %+v", reader.gotCriteria)
 	}
 	if len(page.Items) != 2 {
-		t.Errorf("expected 2 items, got %d", len(page.Items))
+		t.Fatalf("expected 2 items, got %d", len(page.Items))
+	}
+	// Typed Results, filled by name from the canonical document.
+	if page.Items[0].Name == nil || *page.Items[0].Name != "Jane" {
+		t.Errorf("Items[0].Name: want Jane, got %v", page.Items[0].Name)
+	}
+	if page.Items[1].ID == nil || *page.Items[1].ID != "u-2" {
+		t.Errorf("Items[1].ID: want u-2, got %v", page.Items[1].ID)
 	}
 	if !page.HasNextPage || page.EndCursor != "cursor-X" || page.TotalCount != 42 {
 		t.Errorf("pagination metadata not preserved: %+v", page)

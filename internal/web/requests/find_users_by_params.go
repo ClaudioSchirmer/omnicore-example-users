@@ -2,6 +2,7 @@ package requests
 
 import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
@@ -68,9 +69,14 @@ func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *quer
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
 
 // FindUsersByParamsResponse is the wire projection of one User view document
-// in the GET /users list. The route pairs it with
-// fwresponses.AutoFromDoc[FindUsersByParamsResponse]; see
-// FindUserByIDResponse for the json: tag contract.
+// in the GET /users list — mapped from the application Result by FromResult
+// below, the SINGLE wire authority every surface consumes (REST, gRPC,
+// GraphQL, CSV/XLSX). A field absent here exists on no wire.
+//
+// json:"<wire>" names the field on the outgoing envelope; exportLabelKey
+// names the translation-catalog key the tabular exports render as the column
+// header (reuse the entity's labelKey value to converge on the same
+// translation; absent = the json name is the header).
 //
 // Every field — at every depth — is *T (or a slice) and carries ,omitempty
 // because the Request DTO declares `?fields=` and the framework's boot
@@ -80,19 +86,28 @@ func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *quer
 // Without pointers + omitempty, a stripped `name` would still render as
 // `"name":""` (zero value), defeating the point of the parameter.
 type FindUsersByParamsResponse struct {
-	ID                    *string                          `json:"id,omitempty"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
-	Name                  *string                          `json:"name,omitempty"              example:"Alice Pereira"`
-	Email                 *string                          `json:"email,omitempty"             example:"alice@example.com"`
-	Phone                 *string                          `json:"phone,omitempty"             example:"14155552671"`
-	Document              *string                          `json:"document,omitempty"              example:"12345678901"`
-	Ethnicity             *string                          `json:"ethnicity,omitempty"             example:"white"`
-	UserName              *string                          `json:"userName,omitempty"              example:"alice"`
-	UserProfile           *int                             `json:"userProfile,omitempty"           example:"1"`
-	EmailNotification     *bool                            `json:"emailNotification,omitempty"     example:"true"`
-	SmsNotification       *bool                            `json:"smsNotification,omitempty"       example:"false"`
-	NotificationEmail     *string                          `json:"notificationEmail,omitempty"     example:"alice.notify@example.com"`
-	NotificationFrequency *int                             `json:"notificationFrequency,omitempty" example:"2"`
+	fwresponses.Auto
+	ID                    *string                          `json:"id,omitempty"                                       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Name                  *string                          `json:"name,omitempty"                  exportLabelKey:"UserNameField"                  example:"Alice Pereira"`
+	Email                 *string                          `json:"email,omitempty"                 exportLabelKey:"UserEmailField"                 example:"alice@example.com"`
+	Phone                 *string                          `json:"phone,omitempty"                 exportLabelKey:"UserPhoneField"                 example:"14155552671"`
+	Document              *string                          `json:"document,omitempty"              exportLabelKey:"UserDocumentField"              example:"12345678901"`
+	Ethnicity             *string                          `json:"ethnicity,omitempty"             exportLabelKey:"PersonEthnicityField"             example:"white"`
+	UserName              *string                          `json:"userName,omitempty"              exportLabelKey:"UserUserNameField"              example:"alice"`
+	UserProfile           *int                             `json:"userProfile,omitempty"           exportLabelKey:"UserProfileField"           example:"1"`
+	EmailNotification     *bool                            `json:"emailNotification,omitempty"     exportLabelKey:"UserEmailNotificationField"     example:"true"`
+	SmsNotification       *bool                            `json:"smsNotification,omitempty"       exportLabelKey:"UserSmsNotificationField"       example:"false"`
+	NotificationEmail     *string                          `json:"notificationEmail,omitempty"     exportLabelKey:"UserNotificationEmailField"     example:"alice.notify@example.com"`
+	NotificationFrequency *int                             `json:"notificationFrequency,omitempty" exportLabelKey:"UserNotificationFrequencyField" example:"2"`
 	Addresses             []FindUsersByParamsAddressOutput `json:"addresses,omitempty"`
+}
+
+// FromResult is the wire mapping seat — the read-side twin of the command
+// Responses' FromResult. fwresponses.AutoFromResult is the generic name-based mapper
+// (Result field → same-named Response field, emitted under its json tag);
+// a Response needing more than the tags writes the mapping by hand instead.
+func (FindUsersByParamsResponse) FromResult(r queries.FindUsersByParamsResult) FindUsersByParamsResponse {
+	return fwresponses.AutoFromResult[FindUsersByParamsResponse](r)
 }
 
 // FindUsersByParamsAddressOutput is the nested wire shape of one Address
@@ -101,18 +116,18 @@ type FindUsersByParamsResponse struct {
 // every other field of the Address subdoc renders absent rather than as
 // the empty string. The MongoViewReader already translated each physical
 // column back to its Go field name via the view's AddressSchema (zip_code →
-// ZipCode), so AutoFromDoc keys by the Go field name and the json: tag is
+// ZipCode), so the Result carries the Go field name and the json: tag is
 // only the outgoing wire name — no view: source-key override.
 type FindUsersByParamsAddressOutput struct {
-	ID           *string `json:"id,omitempty"           example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
-	Label        *string `json:"label,omitempty"        example:"home"`
-	Street       *string `json:"street,omitempty"       example:"1 Infinite Loop"`
-	Number       *string `json:"number,omitempty"       example:"1"`
-	Complement   *string `json:"complement,omitempty"   example:"Apt 4B"`
-	Neighborhood *string `json:"neighborhood,omitempty" example:"Mariani"`
-	City         *string `json:"city,omitempty"         example:"Cupertino"`
-	State        *string `json:"state,omitempty"        example:"CA"`
-	ZipCode      *string `json:"zipCode,omitempty"      example:"95014"`
-	Country      *string `json:"country,omitempty"      example:"US"`
-	AddressType  *string `json:"addressType,omitempty"  example:"residential"`
+	ID           *string `json:"id,omitempty"                     example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
+	Label        *string `json:"label,omitempty"        exportLabelKey:"AddressLabelField"        example:"home"`
+	Street       *string `json:"street,omitempty"       exportLabelKey:"AddressStreetField"       example:"1 Infinite Loop"`
+	Number       *string `json:"number,omitempty"       exportLabelKey:"AddressNumberField"       example:"1"`
+	Complement   *string `json:"complement,omitempty"   exportLabelKey:"AddressComplementField"   example:"Apt 4B"`
+	Neighborhood *string `json:"neighborhood,omitempty" exportLabelKey:"AddressNeighborhoodField" example:"Mariani"`
+	City         *string `json:"city,omitempty"         exportLabelKey:"AddressCityField"         example:"Cupertino"`
+	State        *string `json:"state,omitempty"        exportLabelKey:"AddressStateField"        example:"CA"`
+	ZipCode      *string `json:"zipCode,omitempty"      exportLabelKey:"AddressZipCodeField"      example:"95014"`
+	Country      *string `json:"country,omitempty"      exportLabelKey:"AddressCountryField"      example:"US"`
+	AddressType  *string `json:"addressType,omitempty"  exportLabelKey:"AddressTypeField"  example:"residential"`
 }

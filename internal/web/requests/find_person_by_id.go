@@ -1,6 +1,9 @@
 package requests
 
 import (
+	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
+
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
 
@@ -13,12 +16,8 @@ type FindPersonByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindPersonByIDRequest) ToQuery() *queries.FindPersonByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &queries.FindPersonByIDQuery{IncludeArchived: arch}
+func (r FindPersonByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.FindPersonByIDQuery {
+	return &queries.FindPersonByIDQuery{Criteria: criteria}
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -28,6 +27,7 @@ func (r FindPersonByIDRequest) ToQuery() *queries.FindPersonByIDQuery {
 // per nested type). Role fields are pointers so an absent role (null segment)
 // disappears from the wire.
 type FindPersonByIDResponse struct {
+	fwresponses.Auto
 	ID        string  `json:"id"                 example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name      string  `json:"name"               example:"Alice Pereira"`
 	Email     string  `json:"email"              example:"alice@example.com"`
@@ -38,4 +38,10 @@ type FindPersonByIDResponse struct {
 	Addresses []FindUserByIDAddressOutput `json:"addresses"`
 	User      *PersonUserOutput           `json:"user,omitempty"`
 	Employee  *PersonEmployeeOutput       `json:"employee,omitempty"`
+}
+
+// FromResult is the wire mapping seat, delegating to the generic name-based
+// mapper (the Response opts in by embedding fwresponses.Auto) — the read-side twin of the command Responses' FromResult.
+func (FindPersonByIDResponse) FromResult(r queries.FindPersonByIDResult) FindPersonByIDResponse {
+	return fwresponses.AutoFromResult[FindPersonByIDResponse](r)
 }

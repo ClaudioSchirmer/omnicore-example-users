@@ -30,14 +30,8 @@ github.com/Azure/go-autorest/tracing v0.6.0 h1:TYi4+3m5t6K48TGI9AUdb+IzbnSxvnvUM
 github.com/Azure/go-autorest/tracing v0.6.0/go.mod h1:+vhtPC754Xsa23ID7GlGsrdKBpUA79WCAKPPZVC2DeU=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 h1:XRzhVemXdgvJqCH0sFfrBUTnUJSBrBf7++ypk+twtRs=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0/go.mod h1:HKpQxkWaGLJ+D/5H8QRpyQXA1eKjxkFlOMwck5+33Jk=
-github.com/ClaudioSchirmer/omnicore v0.49.1 h1:ZVYRF6k0H3caz3yzHtKZqxYGtLC/Ghyx8Jg/5lM55hE=
-github.com/ClaudioSchirmer/omnicore v0.49.1/go.mod h1:7IjhBCiQ7wGbiUEkxQ1g9hM15P+yIv/edPWVOJ4Ct5w=
-github.com/ClaudioSchirmer/omnicore v0.50.0 h1:XgrkqFP4wS7VEQHIG5ZTUYj5VrTYbO2iPLPVHbe8K3Y=
-github.com/ClaudioSchirmer/omnicore v0.50.0/go.mod h1:7IjhBCiQ7wGbiUEkxQ1g9hM15P+yIv/edPWVOJ4Ct5w=
-github.com/ClaudioSchirmer/omnicore v0.51.0 h1:Ondkl64e9DJsuZ5OWDefE1nFfftTNXyFi7zFHOlm9Fc=
-github.com/ClaudioSchirmer/omnicore v0.51.0/go.mod h1:7IjhBCiQ7wGbiUEkxQ1g9hM15P+yIv/edPWVOJ4Ct5w=
-github.com/ClaudioSchirmer/omnicore v0.52.0 h1:oDLA9yLQWa+u+J6Ae8h4EzalXnSV7z5+i/her2nneog=
-github.com/ClaudioSchirmer/omnicore v0.52.0/go.mod h1:7IjhBCiQ7wGbiUEkxQ1g9hM15P+yIv/edPWVOJ4Ct5w=
+github.com/ClaudioSchirmer/omnicore v0.53.0 h1:7layny8/YrCBMSBQnTktyLgIqGg0I1IO2FWQcbKOjIM=
+github.com/ClaudioSchirmer/omnicore v0.53.0/go.mod h1:7IjhBCiQ7wGbiUEkxQ1g9hM15P+yIv/edPWVOJ4Ct5w=
 github.com/MicahParks/jwkset v0.11.0 h1:yc0zG+jCvZpWgFDFmvs8/8jqqVBG9oyIbmBtmjOhoyQ=
 github.com/MicahParks/jwkset v0.11.0/go.mod h1:U2oRhRaLgDCLjtpGL2GseNKGmZtLs/3O7p+OZaL5vo0=
 github.com/MicahParks/keyfunc/v3 v3.8.0 h1:Hx2dgIjAXGk9slakM6rV9BOeaWDPEXXZ4Us8guNBfds=

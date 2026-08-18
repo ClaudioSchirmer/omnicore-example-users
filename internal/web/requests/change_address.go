@@ -2,6 +2,7 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
@@ -66,6 +67,8 @@ func (r ChangeAddressRequest) ToCommand() *commands.ChangeAddressCommand {
 // link-back. The address shape mirrors the canonical Address shape used
 // in Insert/Update/Get.
 type ChangeAddressResponse struct {
+	fwresponses.Auto
+
 	UserID  domain.ID                    `json:"userId"  example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Address ChangeAddressResponseAddress `json:"address"`
 }
@@ -89,19 +92,5 @@ type ChangeAddressResponseAddress struct {
 // FromResult is the application Result → wire Response mapper. Pure
 // field-by-field assignment.
 func (ChangeAddressResponse) FromResult(r commands.ChangeAddressResult) ChangeAddressResponse {
-	return ChangeAddressResponse{
-		UserID: r.UserID,
-		Address: ChangeAddressResponseAddress{
-			ID:           r.Address.ID,
-			Label:        r.Address.Label,
-			Street:       r.Address.Street,
-			Number:       r.Address.Number,
-			Complement:   r.Address.Complement,
-			Neighborhood: r.Address.Neighborhood,
-			City:         r.Address.City,
-			State:        r.Address.State,
-			ZipCode:      r.Address.ZipCode,
-			Country:      r.Address.Country,
-		},
-	}
+	return fwresponses.AutoFromResult[ChangeAddressResponse](r)
 }

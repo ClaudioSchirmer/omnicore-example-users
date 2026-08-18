@@ -2,6 +2,8 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwrequests "github.com/ClaudioSchirmer/omnicore/web/requests"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
 )
@@ -13,6 +15,8 @@ import (
 // tri-state (nil = absent; non-nil = apply). Address operations are not
 // patchable here (use PUT to replace the collection).
 type PatchUserRequest struct {
+	fwrequests.Auto
+
 	Name                  *string `json:"name,omitempty"                  example:"Alice Pereira"`
 	Email                 *string `json:"email,omitempty"                 example:"alice@example.com"`
 	Phone                 *string `json:"phone,omitempty"                 example:"14155552671"`
@@ -30,18 +34,7 @@ type PatchUserRequest struct {
 // application layer (Command.ApplyPartiallyTo) is where ctx interpretation
 // happens.
 func (r PatchUserRequest) ToCommand() *commands.PatchUserCommand {
-	return &commands.PatchUserCommand{
-		Name:                  r.Name,
-		Email:                 r.Email,
-		Phone:                 r.Phone,
-		Ethnicity:             r.Ethnicity,
-		UserName:              r.UserName,
-		UserProfile:           r.UserProfile,
-		EmailNotification:     r.EmailNotification,
-		SmsNotification:       r.SmsNotification,
-		NotificationEmail:     r.NotificationEmail,
-		NotificationFrequency: r.NotificationFrequency,
-	}
+	return fwrequests.AutoFromRequest[*commands.PatchUserCommand](r)
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -49,6 +42,8 @@ func (r PatchUserRequest) ToCommand() *commands.PatchUserCommand {
 // PatchUserResponse is the wire shape of PATCH /users/:id on success.
 // Carries the post-patch root snapshot.
 type PatchUserResponse struct {
+	fwresponses.Auto
+
 	ID                    domain.ID `json:"id"                              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name                  string    `json:"name"                            example:"Alice Pereira"`
 	Email                 string    `json:"email"                           example:"alice@example.com"`
@@ -64,18 +59,5 @@ type PatchUserResponse struct {
 }
 
 func (PatchUserResponse) FromResult(r commands.PatchUserResult) PatchUserResponse {
-	return PatchUserResponse{
-		ID:                    r.ID,
-		Name:                  r.Name,
-		Email:                 r.Email,
-		Phone:                 r.Phone,
-		Document:              r.Document,
-		Ethnicity:             r.Ethnicity,
-		UserName:              r.UserName,
-		UserProfile:           r.UserProfile,
-		EmailNotification:     r.EmailNotification,
-		SmsNotification:       r.SmsNotification,
-		NotificationEmail:     r.NotificationEmail,
-		NotificationFrequency: r.NotificationFrequency,
-	}
+	return fwresponses.AutoFromResult[PatchUserResponse](r)
 }

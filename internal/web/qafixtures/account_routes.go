@@ -65,8 +65,8 @@ func MountAccounts(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindAccountByIDRequest{},
-		fwresponses.AutoFromDoc[FindAccountByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindAccountByIDQuery]{
+		FindAccountByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindAccountByIDQuery, appqa.FindAccountByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -80,8 +80,8 @@ func MountAccounts(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindAccountsRequest{},
-		fwresponses.AutoFromDoc[FindAccountsListResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{
+		FindAccountsListResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery, appqa.FindAccountsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -94,8 +94,10 @@ func MountAccounts(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
-		FindAccountsRequest{}, view, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{Reader: d.ViewReader, View: viewName},
+		FindAccountsRequest{},
+		FindAccountsListResponse{}.FromResult,
+		view, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery, appqa.FindAccountsResult]{Reader: d.ViewReader, View: viewName},
 		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/accounts.csv",
 		csvH, csvSpec,
@@ -106,8 +108,10 @@ func MountAccounts(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
-		FindAccountsRequest{}, view, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{Reader: d.ViewReader, View: viewName},
+		FindAccountsRequest{},
+		FindAccountsListResponse{}.FromResult,
+		view, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery, appqa.FindAccountsResult]{Reader: d.ViewReader, View: viewName},
 		export.WithSheetName("Accounts"))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/accounts.xlsx",
 		xlsxH, xlsxSpec,
@@ -133,8 +137,8 @@ func MountAccountsRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindAccountsRequest{},
-		fwresponses.AutoFromDoc[FindAccountsListResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery]{
+		FindAccountsListResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindAccountsQuery, appqa.FindAccountsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -148,8 +152,8 @@ func MountAccountsRel(app *fiber.App, relView *query.ViewDefinition, d bootstrap
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindAccountByIDRequest{},
-		fwresponses.AutoFromDoc[FindAccountByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindAccountByIDQuery]{
+		FindAccountByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindAccountByIDQuery, appqa.FindAccountByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -235,20 +239,17 @@ type FindAccountByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindAccountByIDRequest) ToQuery() *appqa.FindAccountByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &appqa.FindAccountByIDQuery{IncludeArchived: arch}
+func (r FindAccountByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindAccountByIDQuery {
+	return &appqa.FindAccountByIDQuery{Criteria: criteria}
 }
 
-// FindAccountByIDResponse is the composed shared-base projection. AutoFromDoc
-// keys every nested segment by its Go field name: `AccountHolder` is the role
+// FindAccountByIDResponse is the composed shared-base projection. The
+// Result→Response mapping keys every nested segment by its Go field name: `AccountHolder` is the role
 // segment (the role's Go type name), `FeaturedItem`/`Items` are the embed .As
 // names. Segment fields carry the upstream_items external schema's Go names
 // (ID/Label/AccountID).
 type FindAccountByIDResponse struct {
+	fwresponses.Auto
 	ID             string               `json:"id"`
 	AccountRef     string               `json:"accountRef"`
 	DisplayName    string               `json:"displayName"`
@@ -260,6 +261,12 @@ type FindAccountByIDResponse struct {
 	// the person document); each line carries `item` — the EmbedInChild
 	// enrichment. Go field name MUST be AccountLines (the derived child segment).
 	AccountLines []AccountLineOutput `json:"accountLines,omitempty"`
+}
+
+// FromResult is the wire mapping seat — the generic name-based Result→Response
+// mapper, shared by the Mongo composed read and the RelationalSource twin.
+func (FindAccountByIDResponse) FromResult(r appqa.FindAccountByIDResult) FindAccountByIDResponse {
+	return fwresponses.AutoFromResult[FindAccountByIDResponse](r)
 }
 
 // AccountHolderOutput is the role sub-document (role-private fields only; the
@@ -348,6 +355,7 @@ func (r FindAccountsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.Fin
 // every field a pointer / omitempty slice so `?fields=` prunes cleanly,
 // including into the embed segments.
 type FindAccountsListResponse struct {
+	fwresponses.Auto
 	ID             *string              `json:"id,omitempty"`
 	AccountRef     *string              `json:"accountRef,omitempty"`
 	DisplayName    *string              `json:"displayName,omitempty"`
@@ -356,4 +364,11 @@ type FindAccountsListResponse struct {
 	FeaturedItem   *ItemSegmentOutput   `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput  `json:"items,omitempty"`
 	AccountLines   []AccountLineOutput  `json:"accountLines,omitempty"`
+}
+
+// FromResult is the wire mapping seat of the paged list — the SAME seat the
+// CSV/XLSX exports project through, which is why the tabular column set and
+// the JSON field set can no longer drift apart.
+func (FindAccountsListResponse) FromResult(r appqa.FindAccountsResult) FindAccountsListResponse {
+	return fwresponses.AutoFromResult[FindAccountsListResponse](r)
 }

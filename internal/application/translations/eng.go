@@ -35,6 +35,7 @@ func (eng) Translations() map[string]string {
 		// declares via the `labelKey:"..."` struct tag. Mirrored across all
 		// seven catalogs; see ptbr.go for the per-locale rationale.
 		"UserNameField":                  "Name",
+		"GadgetLabelField":               "Label",
 		"UserEmailField":                 "Email",
 		"UserPhoneField":                 "Phone",
 		"UserDocumentField":              "Document",

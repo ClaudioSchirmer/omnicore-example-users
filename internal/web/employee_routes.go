@@ -125,8 +125,8 @@ func MountEmployees(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		requests.FindEmployeesByParamsRequest{},
-		fwresponses.AutoFromDoc[requests.FindEmployeesByParamsResponse],
-		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery]{
+		requests.FindEmployeesByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery, appqueries.FindEmployeesByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, employees, fiber.MethodGet, "/",
@@ -143,9 +143,10 @@ func MountEmployees(
 	// Registered at the app root to avoid colliding with /employees/:id.
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
 		requests.FindEmployeesByParamsRequest{},
+		requests.FindEmployeesByParamsResponse{}.FromResult,
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery, appqueries.FindEmployeesByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithDelimiter(','))
@@ -161,9 +162,10 @@ func MountEmployees(
 	// XLSX export — identical surface, different encoder.
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
 		requests.FindEmployeesByParamsRequest{},
+		requests.FindEmployeesByParamsResponse{}.FromResult,
 		view,
 		d.Export,
-		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery]{
+		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery, appqueries.FindEmployeesByParamsResult]{
 			Reader: d.ViewReader, View: viewName,
 		},
 		export.WithSheetName("Employees"))
@@ -190,12 +192,10 @@ func MountEmployeesGraphQL(
 	view *query.ViewDefinition,
 	d bootstrap.Deps,
 ) {
-	reg.Register(fwgraphql.QueryWithParams[
-		requests.FindEmployeesByParamsRequest,
-		requests.FindEmployeesByParamsResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[requests.FindEmployeesByParamsRequest](
 		"employees", "Employee",
-		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery]{
+		requests.FindEmployeesByParamsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqueries.FindEmployeesByParamsQuery, appqueries.FindEmployeesByParamsResult]{
 			Reader: d.ViewReader, View: view.Name(),
 		},
 		fwgraphql.RequirePermission("employees:read")))

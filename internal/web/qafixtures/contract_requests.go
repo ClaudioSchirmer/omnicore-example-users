@@ -6,6 +6,7 @@ import (
 	"time"
 
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 )
@@ -100,6 +101,7 @@ func (r FindContractsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.Fi
 // out-of-set stored value to the Unknown sentinel, exactly as a root enum
 // value-object field does.
 type FindContractsResponse struct {
+	fwresponses.Auto
 	ID             *string    `json:"id,omitempty"`
 	Code           *string    `json:"code,omitempty"`
 	SalaryAmount   *int64     `json:"salaryAmount,omitempty"`
@@ -108,14 +110,17 @@ type FindContractsResponse struct {
 	TrialTo        *time.Time `json:"trialTo,omitempty"`
 }
 
+// FromResult is the wire mapping seat — one method serving the list, the
+// by-id read and BOTH backings (Mongo projection + relational twin), which is
+// what makes any divergence between them a decomposition bug.
+func (FindContractsResponse) FromResult(r appqa.FindContractsResult) FindContractsResponse {
+	return fwresponses.AutoFromResult[FindContractsResponse](r)
+}
+
 type FindContractByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindContractByIDRequest) ToQuery() *appqa.FindContractByIDQuery {
-	q := &appqa.FindContractByIDQuery{}
-	if r.IncludeArchived != nil {
-		q.IncludeArchived = *r.IncludeArchived
-	}
-	return q
+func (r FindContractByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindContractByIDQuery {
+	return &appqa.FindContractByIDQuery{Criteria: criteria}
 }

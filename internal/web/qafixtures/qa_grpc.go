@@ -17,7 +17,6 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	"github.com/ClaudioSchirmer/omnicore/domain"
 	fwgrpc "github.com/ClaudioSchirmer/omnicore/web/grpc"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 	"github.com/ClaudioSchirmer/omnicore-example-users/proto/gen/qafixturesv1"
@@ -317,8 +316,8 @@ func MountQAGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
 	reg.Register(fwgrpc.QueryWithParams[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse](
 		qafixturesv1connect.QAServiceListGadgetsProcedure,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: "gadgets",
 		}))
 
@@ -330,8 +329,8 @@ func MountQAGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
 	reg.Register(fwgrpc.QueryWithParams[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse](
 		qafixturesv1connect.QAServiceListGadgetsBareProcedure,
 		FindGadgetsBareRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: "gadgets",
 		}))
 
@@ -343,8 +342,8 @@ func MountQAGRPC(reg *fwgrpc.Registry, d bootstrap.Deps) {
 	reg.Register(fwgrpc.QueryWithParams[qafixturesv1.ListGadgetsRequest, qafixturesv1.ListGadgetsResponse](
 		qafixturesv1connect.QAServiceListGadgetsRelProcedure,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: "gadgets_rel",
 		}))
 

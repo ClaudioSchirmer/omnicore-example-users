@@ -24,7 +24,7 @@ func TestFindPersonsByParamsQuery_ToCriteria_Passthrough(t *testing.T) {
 }
 
 func TestFindPersonByIDQuery_ToCriteria(t *testing.T) {
-	crit, err := FindPersonByIDQuery{IncludeArchived: true}.ToCriteria(nil)
+	crit, err := FindPersonByIDQuery{Criteria: fwqueries.ReadCriteria{IncludeArchived: true}}.ToCriteria(nil)
 	if err != nil {
 		t.Fatalf("ToCriteria: %v", err)
 	}

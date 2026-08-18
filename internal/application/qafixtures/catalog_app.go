@@ -58,14 +58,57 @@ var _ pipeline.InsertCommand[*qadomain.Catalog, CatalogResult] = (*InsertCatalog
 // the flat catalog plus the two external embeds (FeaturedItem 1:1 + Items 1:N).
 type FindCatalogByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindCatalogByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+
+func (q FindCatalogByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindCatalogByIDResult) (FindCatalogByIDResult, error) {
+	return r, nil
 }
 
 func (q FindCatalogByIDQuery) ContextName() string { return "Catalog" }
+
+// FindCatalogByIDResult is the by-id Result of the composed normal-view
+// document: the flat catalog plus the 1:1 FeaturedItem embed, the 1:N Items
+// array and the native child lines (each carrying the materialized `Item`
+// EmbedInChild sub-document and, on the qa_catalog_full ComposedView, the
+// read-time `LiveItem` twin). The by-id endpoint declares no `?fields=`, so
+// the root leaves are plain values.
+type FindCatalogByIDResult struct {
+	ID             string
+	Name           string
+	FeaturedItemID *string
+	FeaturedItem   *ItemSegmentResult
+	Items          []ItemSegmentResult
+	CatalogLines   []CatalogLineResult
+}
+
+// FindCatalogsResult is the paged listing's Result — pointers/slices
+// throughout because the endpoint opts into `?fields=`, including into the
+// embed segments.
+type FindCatalogsResult struct {
+	ID             *string
+	Name           *string
+	FeaturedItemID *string
+	FeaturedItem   *ItemSegmentResult
+	Items          []ItemSegmentResult
+	CatalogLines   []CatalogLineResult
+}
+
+// CatalogLineResult is one enriched native child line: its own identity
+// (ID/ParentID) and fields, the materialized `Item` EmbedInChild segment and
+// the read-time `LiveItem` LinkInChild twin.
+type CatalogLineResult struct {
+	ID       *string
+	ParentID *string
+	ItemID   *string
+	Note     *string
+	Item     *ItemSegmentResult
+	LiveItem *ItemSegmentResult
+}
 
 // FindCatalogsQuery is the paged LIST read of qa_catalog_view (a regular view):
 // root + embed-segment filters, sort, ?fields= and pagination over the
@@ -78,4 +121,8 @@ type FindCatalogsQuery struct {
 
 func (q FindCatalogsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return q.Criteria, nil
+}
+
+func (q FindCatalogsQuery) FromQueryResult(_ *configuration.AppContext, r FindCatalogsResult) (FindCatalogsResult, error) {
+	return r, nil
 }

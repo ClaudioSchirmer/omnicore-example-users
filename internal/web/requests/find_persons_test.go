@@ -5,7 +5,8 @@ import (
 
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
+
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
 
 func TestFindPersonsByParamsRequest_ToQueryReturnsCriteria(t *testing.T) {
@@ -25,13 +26,12 @@ func TestFindPersonsByParamsRequest_ToQueryReturnsCriteria(t *testing.T) {
 }
 
 func TestFindPersonByIDRequest_ToQuery(t *testing.T) {
-	arch := true
-	q := FindPersonByIDRequest{IncludeArchived: &arch}.ToQuery()
-	if !q.IncludeArchived {
+	q := FindPersonByIDRequest{}.ToQuery(fwqueries.ReadCriteria{IncludeArchived: true})
+	if !q.Criteria.IncludeArchived {
 		t.Error("IncludeArchived=true must propagate")
 	}
-	if q2 := (FindPersonByIDRequest{}).ToQuery(); q2.IncludeArchived {
-		t.Error("nil IncludeArchived must default to false")
+	if q2 := (FindPersonByIDRequest{}).ToQuery(fwqueries.ReadCriteria{}); q2.Criteria.IncludeArchived {
+		t.Error("an unset includeArchived must default to false")
 	}
 }
 
@@ -67,8 +67,16 @@ func readerGoPersonDoc() map[string]any {
 	}
 }
 
-func TestFindPersonsByParamsResponse_AutoFromDoc_RoleSegments(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindPersonsByParamsResponse](readerGoPersonDoc())
+// personsResponseFromDoc walks the two hops between the reader document and
+// the wire: the framework fills the application-layer Result, then the
+// Response's FromResult maps it onto the wire shape.
+func personsResponseFromDoc(doc map[string]any) FindPersonsByParamsResponse {
+	result := fwqueries.ResultFromDoc[queries.FindPersonsByParamsResult](doc)
+	return FindPersonsByParamsResponse{}.FromResult(result)
+}
+
+func TestFindPersonsByParamsResponse_FromResult_RoleSegments(t *testing.T) {
+	got := personsResponseFromDoc(readerGoPersonDoc())
 	if strDeref(got.Name) != "Ana Souza" || strDeref(got.Document) != "70000000001" {
 		t.Errorf("root fields: got %+v", got)
 	}
@@ -95,10 +103,10 @@ func TestFindPersonsByParamsResponse_AutoFromDoc_RoleSegments(t *testing.T) {
 	}
 }
 
-func TestFindPersonsByParamsResponse_AutoFromDoc_AbsentRoleIsNil(t *testing.T) {
+func TestFindPersonsByParamsResponse_FromResult_AbsentRoleIsNil(t *testing.T) {
 	doc := readerGoPersonDoc()
 	delete(doc, "Employee") // a user-only person: the reader dropped the null segment
-	got := fwresponses.AutoFromDoc[FindPersonsByParamsResponse](doc)
+	got := personsResponseFromDoc(doc)
 	if got.Employee != nil {
 		t.Errorf("absent role must project as nil (omitted on the wire), got %+v", got.Employee)
 	}
@@ -107,8 +115,9 @@ func TestFindPersonsByParamsResponse_AutoFromDoc_AbsentRoleIsNil(t *testing.T) {
 	}
 }
 
-func TestFindPersonByIDResponse_AutoFromDoc(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindPersonByIDResponse](readerGoPersonDoc())
+func TestFindPersonByIDResponse_FromResult(t *testing.T) {
+	result := fwqueries.ResultFromDoc[queries.FindPersonByIDResult](readerGoPersonDoc())
+	got := FindPersonByIDResponse{}.FromResult(result)
 	if got.Name != "Ana Souza" || got.Document != "70000000001" {
 		t.Errorf("root fields: got %+v", got)
 	}

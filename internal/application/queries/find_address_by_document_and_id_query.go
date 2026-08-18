@@ -31,3 +31,9 @@ func (q FindAddressByDocumentAndIDQuery) ToCriteria(_ *configuration.AppContext)
 		IncludeArchived: q.IncludeArchived,
 	}, nil
 }
+
+// FromQueryResult is the mandatory read-side projection hook — the manual twin of
+// the canonical address read carries the same seat.
+func (q FindAddressByDocumentAndIDQuery) FromQueryResult(_ *configuration.AppContext, r AddressResult) (AddressResult, error) {
+	return r, nil
+}

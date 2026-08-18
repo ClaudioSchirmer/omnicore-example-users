@@ -3,7 +3,7 @@
 # opts into, on the qa-only Gadget mirror (`//go:build qa`):
 #
 #   MaxLimit(N)      — a per-view ?first ceiling; ?first>N is rejected (400)
-#   RawDoc projector — the raw view document passes through (map[string]any)
+#   MountRaw channel — the raw openapi mount serves the reflected mount's payload
 #   DeleteOnArchive  — archived rows are DROPPED from the view (vs kept-hidden)
 #
 # Three views share the `gadgets` root: `gadgets` (default, keep-by-default),
@@ -105,28 +105,32 @@ st=$(curl -sS -o /dev/null -w "%{http_code}" "$BASE/qa/gadgets?first=100")
 [ "$st" = "200" ] && ok "default view ?first=100 accepted" || bad "default ?first=100 status $st"
 
 ##############################################################################
-sec "2. RawDoc projector — raw view document passthrough"
+sec "2. MountRaw channel — the same typed payload as the reflected mount"
 ##############################################################################
-title "2.1 GET /qa/gadgets-raw → raw docs keyed by Go field names (NOT the json wire names)"
-# The RawDoc projector passes the reader's doc through verbatim, so the keys are
-# the Go field names the reader translated the physical columns into (Code, Name,
-# _id) — NOT the json wire names (code, name) a typed Response would emit. That
-# divergence IS the point: proving RawDoc bypasses the per-Response json mapping.
-RAW=$(curl -sS "$BASE/qa/gadgets-raw?code.startswith=RX&first=3")
+title "2.1 GET /qa/gadgets-raw serves GET /qa/gadgets' payload verbatim"
+# /qa/gadgets-raw mounts the SAME handler over the SAME view through the RAW
+# openapi channel (fwopenapi.MountRaw + a hidden RawSpec) instead of the
+# reflected one. The read side has a single wire authority — the Response DTO —
+# so the mount channel cannot reshape the payload. Comparing the two responses
+# for one query is what proves the channels are interchangeable for a read.
+Q="code.startswith=RX&first=3"
+RAW=$(curl -sS "$BASE/qa/gadgets-raw?$Q")
+REF=$(curl -sS "$BASE/qa/gadgets?$Q")
 echo "$RAW" | python3 -m json.tool 2>/dev/null | head -16
-HASRAW=$(echo "$RAW" | python3 -c 'import sys,json
+SAME=$(RAWJ="$RAW" REFJ="$REF" python3 -c 'import os,json
+try:
+  a=json.loads(os.environ["RAWJ"]).get("data",[]); b=json.loads(os.environ["REFJ"]).get("data",[])
+  print("y" if a and a==b else "n")
+except Exception: print("n")' 2>/dev/null)
+[ "$SAME" = y ] && ok "the raw mount channel serves the reflected mount's payload verbatim" || bad "raw and reflected mounts disagree on the payload"
+# And that shared payload speaks the json wire vocabulary: the Response DTO's
+# tags name every key, so the Go field names never reach the wire.
+WIRE=$(echo "$RAW" | python3 -c 'import sys,json
 try:
   d=json.load(sys.stdin); items=d.get("data",[])
-  # raw passthrough → Go names present (Code/_id), json wire name (code) absent
-  print("y" if items and any(("Code" in x or "_id" in x) and "code" not in x for x in items) else "n")
+  print("y" if items and "code" in items[0] and "Code" not in items[0] and "_id" not in items[0] else "n")
 except Exception: print("n")' 2>/dev/null)
-[ "$HASRAW" = y ] && ok "raw docs pass through Go-named keys (Code/_id), not the json wire names" || bad "raw projector did not return the expected raw doc shape"
-# Contrast: the typed /qa/gadgets list emits the json wire name (lowercase code).
-TYPED=$(curl -sS "$BASE/qa/gadgets?code.eq=RX-1" | python3 -c 'import sys,json
-try:
-  d=json.load(sys.stdin); items=d.get("data",[]); print("y" if items and "code" in items[0] else "n")
-except Exception: print("n")' 2>/dev/null)
-[ "$TYPED" = y ] && ok "typed view emits the json wire name (lowercase code) — the projector difference is real" || bad "typed view shape unexpected"
+[ "$WIRE" = y ] && ok "payload speaks the json wire names (code), never the Go field names (Code/_id)" || bad "unexpected wire vocabulary on the raw mount"
 
 ##############################################################################
 sec "3. DeleteOnArchive — archived rows DROP from gadgets_hot, KEPT in gadgets"

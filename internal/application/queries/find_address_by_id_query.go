@@ -19,12 +19,19 @@ import (
 // not the root.
 type FindAddressByIDQuery struct {
 	fwqueries.QueryByIDBase
-	AddressID       string
-	IncludeArchived bool
+	AddressID string
+	Criteria  fwqueries.ReadCriteria
 }
 
 func (q FindAddressByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+
+// FromQueryResult is the mandatory read-side projection hook. The hand-written
+// handler already picked the address sub-document out of the parent doc and
+// filled the Result; nothing further to compute here.
+func (q FindAddressByIDQuery) FromQueryResult(_ *configuration.AppContext, r AddressResult) (AddressResult, error) {
+	return r, nil
 }
 
 // ContextName aligns the 404 NotificationContext with the entity the

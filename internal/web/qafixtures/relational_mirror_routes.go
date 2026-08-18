@@ -15,7 +15,6 @@ import (
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	"github.com/ClaudioSchirmer/omnicore/web/export"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 
@@ -44,8 +43,8 @@ func MountGadgetsRel(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: listView.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -59,8 +58,8 @@ func MountGadgetsRel(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetByIDRequest{},
-		fwresponses.AutoFromDoc[FindGadgetByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{
+		FindGadgetByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery, appqa.FindGadgetByIDResult]{
 			Reader: d.ViewReader, View: listView.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -73,8 +72,10 @@ func MountGadgetsRel(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
-		FindGadgetsRequest{}, listView, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{Reader: d.ViewReader, View: listView.Name()},
+		FindGadgetsRequest{},
+		FindGadgetsResponse{}.FromResult,
+		listView, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{Reader: d.ViewReader, View: listView.Name()},
 		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/rel/gadgets.csv",
 		csvH, csvSpec,
@@ -85,8 +86,10 @@ func MountGadgetsRel(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
-		FindGadgetsRequest{}, listView, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{Reader: d.ViewReader, View: listView.Name()},
+		FindGadgetsRequest{},
+		FindGadgetsResponse{}.FromResult,
+		listView, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{Reader: d.ViewReader, View: listView.Name()},
 		export.WithSheetName("Gadgets"))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/rel/gadgets.xlsx",
 		xlsxH, xlsxSpec,
@@ -100,8 +103,8 @@ func MountGadgetsRel(
 	cg := app.Group("/qa/rel/gadgets-capped")
 	cListH, cListSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: cappedView.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, cg, fiber.MethodGet, "/",
@@ -114,8 +117,10 @@ func MountGadgetsRel(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	cCsvH, cCsvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
-		FindGadgetsRequest{}, cappedView, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{Reader: d.ViewReader, View: cappedView.Name()},
+		FindGadgetsRequest{},
+		FindGadgetsResponse{}.FromResult,
+		cappedView, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{Reader: d.ViewReader, View: cappedView.Name()},
 		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/rel/gadgets-capped.csv",
 		cCsvH, cCsvSpec,
@@ -135,8 +140,8 @@ func MountGadgetEvolve(app *fiber.App, viewName string, d bootstrap.Deps) {
 	g := app.Group("/qa/gadgets-evolve")
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindGadgetsRequest{},
-		fwresponses.AutoFromDoc[FindGadgetsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -157,8 +162,8 @@ func MountLensBrandsRel(app *fiber.App, listView *query.ViewDefinition, d bootst
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensBrandsRequest{},
-		fwresponses.AutoFromDoc[FindLensBrandsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensBrandsQuery]{
+		FindLensBrandsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensBrandsQuery, appqa.FindLensBrandsResult]{
 			Reader: d.ViewReader, View: listView.Name(),
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",

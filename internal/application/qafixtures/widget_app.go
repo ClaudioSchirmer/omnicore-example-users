@@ -52,11 +52,15 @@ var _ pipeline.InsertCommand[*qadomain.Widget, WidgetResult] = (*InsertWidgetCom
 // WidgetParts array).
 type FindWidgetByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindWidgetByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+
+func (q FindWidgetByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindWidgetsResult) (FindWidgetsResult, error) {
+	return r, nil
 }
 
 func (q FindWidgetByIDQuery) ContextName() string { return "Widget" }
@@ -71,4 +75,28 @@ type FindWidgetsQuery struct {
 
 func (q FindWidgetsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return q.Criteria, nil
+}
+
+func (q FindWidgetsQuery) FromQueryResult(_ *configuration.AppContext, r FindWidgetsResult) (FindWidgetsResult, error) {
+	return r, nil
+}
+
+// FindWidgetsResult is the application Result of one widget document: the
+// root, its flat Material sibling and the WidgetParts child array. The by-id
+// read serves the SAME wire shape, so it shares this Result — one document
+// shape, one Result. Pointers throughout: the list endpoint opts into
+// `?fields=`.
+type FindWidgetsResult struct {
+	ID          *string
+	Name        *string
+	Material    *string
+	WidgetParts []WidgetPartResult
+}
+
+// WidgetPartResult is one element of the WidgetParts child array (its own
+// fields plus the flat child-level sibling Tag).
+type WidgetPartResult struct {
+	Label *string
+	Slot  *int
+	Tag   *string
 }

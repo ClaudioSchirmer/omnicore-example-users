@@ -2,9 +2,10 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwrequests "github.com/ClaudioSchirmer/omnicore/web/requests"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
-	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -15,6 +16,8 @@ import (
 // employee_bank_accounts row; each dependent's plan block behaves the
 // same one level down.
 type InsertEmployeeRequest struct {
+	fwrequests.Auto
+
 	Name           string  `json:"name"            example:"Alice Pereira"`
 	Email          string  `json:"email"           example:"alice@example.com"`
 	Phone          *string `json:"phone,omitempty" example:"14155552671"`
@@ -35,33 +38,7 @@ type InsertEmployeeRequest struct {
 // ToCommand converts the Request DTO into the Command — boundary
 // web→application, pure body assignment.
 func (r InsertEmployeeRequest) ToCommand() *commands.InsertEmployeeCommand {
-	addrs := make([]dtos.AddressInput, len(r.Addresses))
-	for i, a := range r.Addresses {
-		addrs[i] = a.ToAddressInput()
-	}
-	deps := make([]dtos.DependentInput, len(r.Dependents))
-	for i, d := range r.Dependents {
-		deps[i] = d.ToDependentInput()
-	}
-	hists := make([]dtos.JobHistoryInput, len(r.JobHistories))
-	for i, h := range r.JobHistories {
-		hists[i] = h.ToJobHistoryInput()
-	}
-	return &commands.InsertEmployeeCommand{
-		Name:           r.Name,
-		Email:          r.Email,
-		Phone:          r.Phone,
-		Document:       r.Document,
-		Ethnicity:      r.Ethnicity,
-		EmployeeNumber: r.EmployeeNumber,
-		Bank:           r.Bank,
-		Branch:         r.Branch,
-		Account:        r.Account,
-		Pix:            r.Pix,
-		Addresses:      addrs,
-		Dependents:     deps,
-		JobHistories:   hists,
-	}
+	return fwrequests.AutoFromRequest[*commands.InsertEmployeeCommand](r)
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -69,6 +46,8 @@ func (r InsertEmployeeRequest) ToCommand() *commands.InsertEmployeeCommand {
 // InsertEmployeeResponse is the wire shape of POST /employees on
 // success — root + sibling snapshot (children are read through the view).
 type InsertEmployeeResponse struct {
+	fwresponses.Auto
+
 	ID             domain.ID `json:"id"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name           string    `json:"name"              example:"Alice Pereira"`
 	Email          string    `json:"email"             example:"alice@example.com"`
@@ -85,17 +64,5 @@ type InsertEmployeeResponse struct {
 // FromResult is the symmetric inverse of ToCommand — application Result →
 // wire Response.
 func (InsertEmployeeResponse) FromResult(r commands.InsertEmployeeResult) InsertEmployeeResponse {
-	return InsertEmployeeResponse{
-		ID:             r.ID,
-		Name:           r.Name,
-		Email:          r.Email,
-		Phone:          r.Phone,
-		Document:       r.Document,
-		Ethnicity:      r.Ethnicity,
-		EmployeeNumber: r.EmployeeNumber,
-		Bank:           r.Bank,
-		Branch:         r.Branch,
-		Account:        r.Account,
-		Pix:            r.Pix,
-	}
+	return fwresponses.AutoFromResult[InsertEmployeeResponse](r)
 }

@@ -1,11 +1,13 @@
 package requests
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/ClaudioSchirmer/omnicore/application/configuration"
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
+
+	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/queries"
 )
 
 func TestFindUsersByParamsRequest_ToQueryReturnsCriteria(t *testing.T) {
@@ -78,8 +80,19 @@ func strDeref(p *string) string {
 	return *p
 }
 
-func TestFindUsersByParamsResponse_AutoFromDoc_AllRootFieldsPopulated(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](readerGoDocList())
+// responseFromDocList runs the FULL read path the remodel installed: the
+// framework fills the application-layer Result from the reader's Go-keyed
+// document (fwqueries.ResultFromDoc — the step the query handler performs),
+// then the Response's FromResult maps that Result onto the wire shape. The
+// raw document never reaches the web layer any more, so a doc→wire assertion
+// has to walk both hops.
+func responseFromDocList(doc map[string]any) FindUsersByParamsResponse {
+	result := fwqueries.ResultFromDoc[queries.FindUsersByParamsResult](doc)
+	return FindUsersByParamsResponse{}.FromResult(result)
+}
+
+func TestFindUsersByParamsResponse_FromResult_AllRootFieldsPopulated(t *testing.T) {
+	got := responseFromDocList(readerGoDocList())
 	if strDeref(got.ID) != "user-1" {
 		t.Errorf("ID: want user-1, got %q", strDeref(got.ID))
 	}
@@ -94,8 +107,8 @@ func TestFindUsersByParamsResponse_AutoFromDoc_AllRootFieldsPopulated(t *testing
 	}
 }
 
-func TestFindUsersByParamsResponse_AutoFromDoc_AllAddressFieldsPopulated(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](readerGoDocList())
+func TestFindUsersByParamsResponse_FromResult_AllAddressFieldsPopulated(t *testing.T) {
+	got := responseFromDocList(readerGoDocList())
 	if len(got.Addresses) != 1 {
 		t.Fatalf("expected 1 address, got %d", len(got.Addresses))
 	}
@@ -126,17 +139,102 @@ func TestFindUsersByParamsResponse_AutoFromDoc_AllAddressFieldsPopulated(t *test
 	}
 }
 
-func TestFindUsersByParamsResponse_AutoFromDoc_FallsBackToUnderscoreID(t *testing.T) {
+func TestFindUsersByParamsResponse_FromResult_FallsBackToUnderscoreID(t *testing.T) {
 	doc := map[string]any{"_id": "user-2", "Name": "Bob", "Email": "bob@example.com"}
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](doc)
+	got := responseFromDocList(doc)
 	if strDeref(got.ID) != "user-2" {
 		t.Errorf("expected ID from _id fallback, got %q", strDeref(got.ID))
 	}
 }
 
-func TestFindUsersByParamsResponse_AutoFromDoc_NilAddressesBecomeEmptySlice(t *testing.T) {
-	got := fwresponses.AutoFromDoc[FindUsersByParamsResponse](map[string]any{"ID": "x"})
+func TestFindUsersByParamsResponse_FromResult_NilAddressesBecomeEmptySlice(t *testing.T) {
+	got := responseFromDocList(map[string]any{"ID": "x"})
 	if got.Addresses == nil {
-		t.Error("expected non-nil Addresses slice (normalizeSlices invariant — even though omitempty will elide it at the JSON wire layer)")
+		t.Error("expected non-nil Addresses slice (the nil-slice normalization invariant — even though omitempty will elide it at the JSON wire layer)")
+	}
+}
+
+// TestFindUsersByParamsResponse_FromResult_RenamesOntoWireNames locks the seat
+// FromResult now owns: the Result is application-pure (Go field names, NO
+// tags) and the Response's json tags are the ONLY place the wire vocabulary
+// is declared. Marshalling the mapped Response must therefore emit the json
+// names — never the Result's Go names — at the root AND inside the nested
+// address, and a Result field the Response does not declare must reach no wire.
+func TestFindUsersByParamsResponse_FromResult_RenamesOntoWireNames(t *testing.T) {
+	id, name, userName := "user-1", "Jane", "jane"
+	profile, freq := 1, 2
+	zip, addrType := "95014", "residential"
+	result := queries.FindUsersByParamsResult{
+		ID:                    &id,
+		Name:                  &name,
+		UserName:              &userName,
+		UserProfile:           &profile,
+		NotificationFrequency: &freq,
+		Addresses: []queries.FindUsersByParamsAddressResult{
+			{ZipCode: &zip, AddressType: &addrType},
+		},
+	}
+
+	raw, err := json.Marshal(FindUsersByParamsResponse{}.FromResult(result))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	for goName, wireName := range map[string]string{
+		"UserName":              "userName",
+		"UserProfile":           "userProfile",
+		"NotificationFrequency": "notificationFrequency",
+	} {
+		if _, ok := wire[goName]; ok {
+			t.Errorf("the Result's Go name %q must not reach the wire", goName)
+		}
+		if _, ok := wire[wireName]; !ok {
+			t.Errorf("expected wire key %q, got %v", wireName, wire)
+		}
+	}
+	if wire["name"] != "Jane" || wire["id"] != "user-1" {
+		t.Errorf("root values not carried under their json names: %v", wire)
+	}
+
+	addresses, ok := wire["addresses"].([]any)
+	if !ok || len(addresses) != 1 {
+		t.Fatalf("expected one address on the wire, got %v", wire["addresses"])
+	}
+	addr, _ := addresses[0].(map[string]any)
+	if _, hasGo := addr["ZipCode"]; hasGo {
+		t.Error("the nested Result's Go name ZipCode must not reach the wire")
+	}
+	if addr["zipCode"] != "95014" || addr["addressType"] != "residential" {
+		t.Errorf("nested renaming did not apply: %v", addr)
+	}
+}
+
+// TestFindUsersByParamsResponse_FromResult_SparseFieldsStayAbsent locks the
+// `?fields=` contract end to end: a column Mongo stripped arrives absent on
+// the Result (nil pointer), stays nil through FromResult and is elided by
+// omitempty — it must never render as a zero value.
+func TestFindUsersByParamsResponse_FromResult_SparseFieldsStayAbsent(t *testing.T) {
+	got := responseFromDocList(map[string]any{"ID": "user-9", "Name": "Jane"})
+	if got.Email != nil {
+		t.Errorf("expected nil Email for a projected-out column, got %v", got.Email)
+	}
+
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := wire["email"]; ok {
+		t.Errorf("a stripped column must be omitted, not rendered as \"\": %v", wire)
+	}
+	if wire["name"] != "Jane" {
+		t.Errorf("the projected columns must still render: %v", wire)
 	}
 }

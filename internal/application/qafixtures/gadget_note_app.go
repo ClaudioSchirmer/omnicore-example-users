@@ -83,6 +83,20 @@ func (q FindGadgetNotesQuery) ToCriteria(_ *configuration.AppContext) (fwqueries
 	return q.Criteria, nil
 }
 
+func (q FindGadgetNotesQuery) FromQueryResult(_ *configuration.AppContext, r FindGadgetNotesResult) (FindGadgetNotesResult, error) {
+	return r, nil
+}
+
+// FindGadgetNotesResult is the application Result of one `gadget_notes`
+// document — pure data, no wire tags, field names identical to the view
+// document's Go keys.
+type FindGadgetNotesResult struct {
+	ID       *string
+	GadgetID *string
+	Text     *string
+	Kind     *string
+}
+
 // ─── Composed reads (gadgets_full) ───────────────────────────────────────────
 
 // FindGadgetsFullQuery is the paged composed read AND the security-overlay ×
@@ -110,6 +124,38 @@ func (q FindGadgetsFullQuery) ToCriteria(_ *configuration.AppContext) (fwqueries
 	return crit, nil
 }
 
+func (q FindGadgetsFullQuery) FromQueryResult(_ *configuration.AppContext, r FindGadgetsFullResult) (FindGadgetsFullResult, error) {
+	return r, nil
+}
+
+// FindGadgetsFullResult is the composed listing's Result: the primary gadget
+// plus the two read-time legs. Every field is a pointer / slice because the
+// endpoint opts into `?fields=` — including into the segments.
+type FindGadgetsFullResult struct {
+	ID             *string
+	Code           *string
+	Name           *string
+	Category       *string
+	Status         *string
+	UpstreamMirror *GadgetFullMirrorResult
+	Notes          []GadgetFullNoteResult
+}
+
+// GadgetFullMirrorResult is the 1:1 external leg — null while the upstream
+// copy is not materialized (LEFT semantics).
+type GadgetFullMirrorResult struct {
+	ID   *string
+	Code *string
+	Name *string
+}
+
+// GadgetFullNoteResult is one entry of the 1:N internal leg.
+type GadgetFullNoteResult struct {
+	ID   *string
+	Text *string
+	Kind *string
+}
+
 // FindGadgetFullByIDQuery is the composed by-id read AND the per-leg
 // authorization showcase (R9): ToCriteria overlays a segment-prefixed filter
 // ("Notes.Kind" = "public") through the same channel wire segment filters
@@ -119,22 +165,39 @@ func (q FindGadgetsFullQuery) ToCriteria(_ *configuration.AppContext) (fwqueries
 // or leak primary rows (framework guarantee, R2).
 type FindGadgetFullByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindGadgetFullByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{
-		IncludeArchived: q.IncludeArchived,
-		Filter: map[string]any{
-			// The per-leg overlay: full developer responsibility, declared here
-			// in ToCriteria (D1/R9) — the single read-side authz seam. Segment
-			// paths resolve at every level of the linked document.
-			"Notes.Kind": "public",
-			// The same row overlay the paged surface applies: the composed
-			// surface as a whole never serves non-active gadgets (404 here).
-			"Status": "active",
-		},
-	}, nil
+	crit := q.Criteria
+	crit.Filter = map[string]any{
+		// The per-leg overlay: full developer responsibility, declared here
+		// in ToCriteria (D1/R9) — the single read-side authz seam. Segment
+		// paths resolve at every level of the linked document.
+		"Notes.Kind": "public",
+		// The same row overlay the paged surface applies: the composed
+		// surface as a whole never serves non-active gadgets (404 here).
+		"Status": "active",
+	}
+	return crit, nil
+}
+
+func (q FindGadgetFullByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindGadgetFullByIDResult) (FindGadgetFullByIDResult, error) {
+	return r, nil
 }
 
 func (q FindGadgetFullByIDQuery) ContextName() string { return "Gadget" }
+
+// FindGadgetFullByIDResult is the composed by-id Result: the flat gadget plus
+// the 1:1 mirror (absent until materialized) and the notes window. The by-id
+// endpoint declares no `?fields=`, so the primary's own leaves are plain
+// values; the legs keep their LEFT-join optionality.
+type FindGadgetFullByIDResult struct {
+	ID             string
+	Code           string
+	Name           string
+	Category       string
+	Status         string
+	UpstreamMirror *GadgetFullMirrorResult
+	Notes          []GadgetFullNoteResult
+}

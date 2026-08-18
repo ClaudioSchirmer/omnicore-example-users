@@ -51,8 +51,8 @@ func MountCatalogs(
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindCatalogByIDRequest{},
-		fwresponses.AutoFromDoc[FindCatalogByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindCatalogByIDQuery]{
+		FindCatalogByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindCatalogByIDQuery, appqa.FindCatalogByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",
@@ -66,8 +66,8 @@ func MountCatalogs(
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindCatalogsRequest{},
-		fwresponses.AutoFromDoc[FindCatalogsListResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{
+		FindCatalogsListResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery, appqa.FindCatalogsResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/",
@@ -80,8 +80,10 @@ func MountCatalogs(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
-		FindCatalogsRequest{}, view, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName},
+		FindCatalogsRequest{},
+		FindCatalogsListResponse{}.FromResult,
+		view, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery, appqa.FindCatalogsResult]{Reader: d.ViewReader, View: viewName},
 		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/catalogs.csv",
 		csvH, csvSpec,
@@ -92,8 +94,10 @@ func MountCatalogs(
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	xlsxH, xlsxSpec := fwweb.QueryAsXLSXSpec(d.Pipeline,
-		FindCatalogsRequest{}, view, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName},
+		FindCatalogsRequest{},
+		FindCatalogsListResponse{}.FromResult,
+		view, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery, appqa.FindCatalogsResult]{Reader: d.ViewReader, View: viewName},
 		export.WithSheetName("Catalogs"))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/catalogs.xlsx",
 		xlsxH, xlsxSpec,
@@ -147,18 +151,15 @@ type FindCatalogByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindCatalogByIDRequest) ToQuery() *appqa.FindCatalogByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &appqa.FindCatalogByIDQuery{IncludeArchived: arch}
+func (r FindCatalogByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindCatalogByIDQuery {
+	return &appqa.FindCatalogByIDQuery{Criteria: criteria}
 }
 
-// FindCatalogByIDResponse is the composed normal-view projection. AutoFromDoc
-// keys the embed segments by their Go .As names (FeaturedItem / Items); the
+// FindCatalogByIDResponse is the composed normal-view projection. The
+// Result→Response mapping keys the embed segments by their Go .As names (FeaturedItem / Items); the
 // segment shape (ItemSegmentOutput) is shared with the shared-base AccountView.
 type FindCatalogByIDResponse struct {
+	fwresponses.Auto
 	ID             string              `json:"id"`
 	Name           string              `json:"name"`
 	FeaturedItemID *string             `json:"featuredItemId,omitempty"`
@@ -167,8 +168,14 @@ type FindCatalogByIDResponse struct {
 	// CatalogLines is the native child array; each line carries its own fields
 	// plus `item` — the EmbedInChild enrichment (the upstream item the line's
 	// item_id points at). The Go field name MUST be CatalogLines (the derived
-	// child doc segment) so AutoFromDoc maps it.
+	// child doc segment) — the Result→Response mapping is name-based.
 	CatalogLines []CatalogLineOutput `json:"catalogLines,omitempty"`
+}
+
+// FromResult is the wire mapping seat, shared by the materialized
+// qa_catalog_view by-id read and the qa_catalog_full ComposedView twin.
+func (FindCatalogByIDResponse) FromResult(r appqa.FindCatalogByIDResult) FindCatalogByIDResponse {
+	return fwresponses.AutoFromResult[FindCatalogByIDResponse](r)
 }
 
 // CatalogLineOutput is one enriched native child line. `Item` (Go segment
@@ -235,12 +242,20 @@ func (r FindCatalogsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.Fin
 // FindCatalogsListResponse is the per-item wire projection of the paged catalog
 // list — pointer fields for `?fields=` pruning into the embed segments.
 type FindCatalogsListResponse struct {
+	fwresponses.Auto
 	ID             *string             `json:"id,omitempty"`
 	Name           *string             `json:"name,omitempty"`
 	FeaturedItemID *string             `json:"featuredItemId,omitempty"`
 	FeaturedItem   *ItemSegmentOutput  `json:"featuredItem,omitempty"`
 	Items          []ItemSegmentOutput `json:"items,omitempty"`
 	CatalogLines   []CatalogLineOutput `json:"catalogLines,omitempty"`
+}
+
+// FromResult is the wire mapping seat of the paged list — the SAME seat the
+// CSV/XLSX exports project through, on both the materialized view and the
+// read-time qa_catalog_full composition.
+func (FindCatalogsListResponse) FromResult(r appqa.FindCatalogsResult) FindCatalogsListResponse {
+	return fwresponses.AutoFromResult[FindCatalogsListResponse](r)
 }
 
 // MountCatalogsFull registers /qa/catalogs-full — the READ-TIME LinkInChild
@@ -257,8 +272,8 @@ func MountCatalogsFull(app *fiber.App, composed *query.ComposedViewDefinition, d
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindCatalogByIDRequest{},
-		fwresponses.AutoFromDoc[FindCatalogByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindCatalogByIDQuery]{Reader: d.ViewReader, View: viewName})
+		FindCatalogByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindCatalogByIDQuery, appqa.FindCatalogByIDResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id", byIDH, byIDSpec,
 		fwopenapi.Doc{
 			Summary:     "Get a catalog by id (read-time LinkInChild)",
@@ -269,8 +284,8 @@ func MountCatalogsFull(app *fiber.App, composed *query.ComposedViewDefinition, d
 
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindCatalogsRequest{},
-		fwresponses.AutoFromDoc[FindCatalogsListResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName})
+		FindCatalogsListResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery, appqa.FindCatalogsResult]{Reader: d.ViewReader, View: viewName})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/", listH, listSpec,
 		fwopenapi.Doc{
 			Summary:     "List catalogs (read-time LinkInChild; filter/fields into liveItem)",
@@ -280,8 +295,10 @@ func MountCatalogsFull(app *fiber.App, composed *query.ComposedViewDefinition, d
 		fwopenapi.RequirePermission("gadgets:read"))
 
 	csvH, csvSpec := fwweb.QueryAsCSVSpec(d.Pipeline,
-		FindCatalogsRequest{}, composed, d.Export,
-		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery]{Reader: d.ViewReader, View: viewName},
+		FindCatalogsRequest{},
+		FindCatalogsListResponse{}.FromResult,
+		composed, d.Export,
+		&handlers.FindByParamsQueryHandler[*appqa.FindCatalogsQuery, appqa.FindCatalogsResult]{Reader: d.ViewReader, View: viewName},
 		export.WithDelimiter(','))
 	fwopenapi.Mount(d.OpenAPIRegistry, app, fiber.MethodGet, "/qa/catalogs-full.csv", csvH, csvSpec,
 		fwopenapi.Doc{Summary: "Export qa_catalog_full as CSV (incl. liveItem branch)", Tags: []string{"QA Catalogs (read-time LinkInChild)"}},

@@ -142,12 +142,35 @@ func (q FindContractsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.R
 	return q.Criteria, nil
 }
 
+func (q FindContractsQuery) FromQueryResult(_ *configuration.AppContext, r FindContractsResult) (FindContractsResult, error) {
+	return r, nil
+}
+
+// FindContractsResult mirrors the storage: FLAT parts, no nested composite.
+// The read side never learns a composite value object exists — that
+// transparency is the design, and this Result is where it becomes visible.
+// Pointers throughout because the endpoint opts into `?fields=`. Both read
+// backings (the Mongo projection and the RelationalSource twin) fill the same
+// shape, and the by-id read serves the identical document — so both queries
+// share this Result.
+type FindContractsResult struct {
+	ID             *string
+	Code           *string
+	SalaryAmount   *int64
+	SalaryCurrency *string
+	TrialFrom      *time.Time
+	TrialTo        *time.Time
+}
+
 type FindContractByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindContractByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+func (q FindContractByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindContractsResult) (FindContractsResult, error) {
+	return r, nil
 }
 func (q FindContractByIDQuery) ContextName() string { return "Contract" }

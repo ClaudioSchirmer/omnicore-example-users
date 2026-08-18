@@ -9,6 +9,7 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
 
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 )
@@ -131,11 +132,43 @@ func (r FindGadgetsBareRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.
 // FindGadgetsResponse is the per-item wire projection of the list read. Every
 // field is *T + ,omitempty so `?fields=` sparse rendering elides absent leaves.
 type FindGadgetsResponse struct {
+	fwresponses.Auto
 	ID       *string `json:"id,omitempty"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Code     *string `json:"code,omitempty"     example:"WIDGET-001"`
 	Name     *string `json:"name,omitempty"     example:"Widget One"`
 	Category *string `json:"category,omitempty" example:"tools"`
 	Status   *string `json:"status,omitempty"   example:"active"`
+}
+
+// FromResult is the wire mapping seat — the read-side twin of the command
+// Responses' FromResult. fwresponses.AutoFromResult is the generic name-based mapper
+// (Result field → same-named Response field, emitted under its json tag).
+func (FindGadgetsResponse) FromResult(r appqa.FindGadgetsResult) FindGadgetsResponse {
+	return fwresponses.AutoFromResult[FindGadgetsResponse](r)
+}
+
+// FindGadgetsComputedResponse is the COMPUTED-field showcase: `label` carries
+// no column — the Query's FromQueryResult derives it — so the field declares
+// the Result fields that feed it via `computed:"Code,Name"`.
+//
+// Note what is NOT here: `Name`. A computed source need not appear on the
+// Response; it is read so the derivation has data and then never reaches the
+// wire. `?fields=label` therefore reads code+name from the store and answers
+// with label alone.
+//
+// The two refusals this shape locks in: `?orderBy=label` is 400
+// ComputedFieldNotSortableNotification (ordering happens in the store, and the
+// keyset cursor is built from stored values), and a `filter:` tag over label
+// would be a boot panic (there is no column to filter on).
+type FindGadgetsComputedResponse struct {
+	fwresponses.Auto
+	ID    *string `json:"id,omitempty"    example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
+	Code  *string `json:"code,omitempty"  example:"WIDGET-001"`
+	Label *string `json:"label,omitempty" exportLabelKey:"GadgetLabelField" computed:"Code,Name" example:"WIDGET-001 · Widget One"`
+}
+
+func (FindGadgetsComputedResponse) FromResult(r appqa.FindGadgetsResult) FindGadgetsComputedResponse {
+	return fwresponses.AutoFromResult[FindGadgetsComputedResponse](r)
 }
 
 // ─── By id ───────────────────────────────────────────────────────────────────
@@ -152,25 +185,26 @@ type FindGadgetByIDRequest struct {
 // being silently ignored.
 type FindGadgetBareByIDRequest struct{}
 
-func (r FindGadgetBareByIDRequest) ToQuery() *appqa.FindGadgetByIDQuery {
-	return &appqa.FindGadgetByIDQuery{}
+func (r FindGadgetBareByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetByIDQuery {
+	return &appqa.FindGadgetByIDQuery{Criteria: criteria}
 }
 
-func (r FindGadgetByIDRequest) ToQuery() *appqa.FindGadgetByIDQuery {
-	arch := false
-	if r.IncludeArchived != nil {
-		arch = *r.IncludeArchived
-	}
-	return &appqa.FindGadgetByIDQuery{IncludeArchived: arch}
+func (r FindGadgetByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetByIDQuery {
+	return &appqa.FindGadgetByIDQuery{Criteria: criteria}
 }
 
 // FindGadgetByIDResponse is the wire projection of the by-id read.
 type FindGadgetByIDResponse struct {
+	fwresponses.Auto
 	ID       string `json:"id"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Code     string `json:"code"     example:"WIDGET-001"`
 	Name     string `json:"name"     example:"Widget One"`
 	Category string `json:"category" example:"tools"`
 	Status   string `json:"status"   example:"active"`
+}
+
+func (FindGadgetByIDResponse) FromResult(r appqa.FindGadgetByIDResult) FindGadgetByIDResponse {
+	return fwresponses.AutoFromResult[FindGadgetByIDResponse](r)
 }
 
 // ─── Embedded by id (root gadget + one-to-one upstream mirror) ───────────────
@@ -181,16 +215,21 @@ type FindGadgetByIDResponse struct {
 // the `upstream_gadgets` projection. UpstreamMirror is a pointer + omitempty so
 // it elides while the upstream copy has not been materialized yet (the composer
 // omits an unresolved embed); once the ripple recomposes, it carries the
-// allow-listed [id, code, name]. AutoFromDoc keys the nested segment by the Go
-// field name "UpstreamMirror" (the view's .As), so the field name — not the json
-// tag — is the mapping handle.
+// allow-listed [id, code, name]. The Result→Response mapping keys the nested
+// segment by the Go field name "UpstreamMirror" (the view's .As), so the field
+// name — not the json tag — is the mapping handle.
 type FindGadgetEmbeddedByIDResponse struct {
+	fwresponses.Auto
 	ID             string                      `json:"id"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Code           string                      `json:"code"     example:"WIDGET-001"`
 	Name           string                      `json:"name"     example:"Widget One"`
 	Category       string                      `json:"category" example:"tools"`
 	Status         string                      `json:"status"   example:"active"`
 	UpstreamMirror *GadgetUpstreamMirrorOutput `json:"upstreamMirror,omitempty"`
+}
+
+func (FindGadgetEmbeddedByIDResponse) FromResult(r appqa.FindGadgetByIDResult) FindGadgetEmbeddedByIDResponse {
+	return fwresponses.AutoFromResult[FindGadgetEmbeddedByIDResponse](r)
 }
 
 // GadgetUpstreamMirrorOutput is the nested projection of the `upstream_gadgets`

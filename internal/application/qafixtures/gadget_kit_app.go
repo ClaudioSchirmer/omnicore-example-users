@@ -49,14 +49,43 @@ var _ pipeline.InsertCommand[*qadomain.GadgetKit, GadgetKitResult] = (*InsertGad
 // kit + its enriched child lines).
 type FindGadgetKitByIDQuery struct {
 	fwqueries.QueryByIDBase
-	IncludeArchived bool
+	Criteria fwqueries.ReadCriteria
 }
 
 func (q FindGadgetKitByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return fwqueries.ReadCriteria{IncludeArchived: q.IncludeArchived}, nil
+	return q.Criteria, nil
+}
+
+func (q FindGadgetKitByIDQuery) FromQueryResult(_ *configuration.AppContext, r FindGadgetKitByIDResult) (FindGadgetKitByIDResult, error) {
+	return r, nil
 }
 
 func (q FindGadgetKitByIDQuery) ContextName() string { return "GadgetKit" }
+
+// FindGadgetKitByIDResult is the by-id Result: the kit plus its enriched
+// child lines. The by-id endpoint declares no `?fields=`, so the root leaves
+// are plain values.
+type FindGadgetKitByIDResult struct {
+	ID             string
+	Name           string
+	GadgetKitLines []GadgetKitLineResult
+}
+
+// GadgetKitLineResult is one enriched native child line — its own fields plus
+// the EmbedInChild `Gadget` sub-document.
+type GadgetKitLineResult struct {
+	GadgetID *string
+	Note     *string
+	Gadget   *GadgetMirrorResult
+}
+
+// GadgetMirrorResult is one embedded `upstream_gadgets` document (the
+// enrichment); field names match the mirror's external schema Go names.
+type GadgetMirrorResult struct {
+	ID   *string
+	Code *string
+	Name *string
+}
 
 // FindGadgetKitsQuery is the paged LIST read (root + nested enriched-child
 // filters, sort, ?fields=, pagination).
@@ -67,4 +96,17 @@ type FindGadgetKitsQuery struct {
 
 func (q FindGadgetKitsQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
 	return q.Criteria, nil
+}
+
+func (q FindGadgetKitsQuery) FromQueryResult(_ *configuration.AppContext, r FindGadgetKitsResult) (FindGadgetKitsResult, error) {
+	return r, nil
+}
+
+// FindGadgetKitsResult is the paged listing's Result — pointers/slices
+// throughout because the endpoint opts into `?fields=`, including into the
+// enriched child lines.
+type FindGadgetKitsResult struct {
+	ID             *string
+	Name           *string
+	GadgetKitLines []GadgetKitLineResult
 }

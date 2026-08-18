@@ -2,9 +2,10 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwrequests "github.com/ClaudioSchirmer/omnicore/web/requests"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
-	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -19,6 +20,8 @@ import (
 // removes that dependent's health-plan row — the PUT sibling semantics the
 // QA suite asserts.
 type UpdateEmployeeRequest struct {
+	fwrequests.Auto
+
 	Name           string  `json:"name"            example:"Alice Pereira"`
 	Email          string  `json:"email"           example:"alice@example.com"`
 	Phone          *string `json:"phone,omitempty" example:"14155552671"`
@@ -37,32 +40,7 @@ type UpdateEmployeeRequest struct {
 
 // ToCommand converts the Request DTO into the Command — pure body assignment.
 func (r UpdateEmployeeRequest) ToCommand() *commands.UpdateEmployeeCommand {
-	addrs := make([]dtos.AddressInput, len(r.Addresses))
-	for i, a := range r.Addresses {
-		addrs[i] = a.ToAddressInput()
-	}
-	deps := make([]dtos.DependentInput, len(r.Dependents))
-	for i, d := range r.Dependents {
-		deps[i] = d.ToDependentInput()
-	}
-	hists := make([]dtos.JobHistoryInput, len(r.JobHistories))
-	for i, h := range r.JobHistories {
-		hists[i] = h.ToJobHistoryInput()
-	}
-	return &commands.UpdateEmployeeCommand{
-		Name:           r.Name,
-		Email:          r.Email,
-		Phone:          r.Phone,
-		Ethnicity:      r.Ethnicity,
-		EmployeeNumber: r.EmployeeNumber,
-		Bank:           r.Bank,
-		Branch:         r.Branch,
-		Account:        r.Account,
-		Pix:            r.Pix,
-		Addresses:      addrs,
-		Dependents:     deps,
-		JobHistories:   hists,
-	}
+	return fwrequests.AutoFromRequest[*commands.UpdateEmployeeCommand](r)
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -70,6 +48,8 @@ func (r UpdateEmployeeRequest) ToCommand() *commands.UpdateEmployeeCommand {
 // UpdateEmployeeResponse is the wire shape of PUT /employees/:id on
 // success — the post-update root + sibling snapshot.
 type UpdateEmployeeResponse struct {
+	fwresponses.Auto
+
 	ID             domain.ID `json:"id"                example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name           string    `json:"name"              example:"Alice Pereira"`
 	Email          string    `json:"email"             example:"alice@example.com"`
@@ -84,17 +64,5 @@ type UpdateEmployeeResponse struct {
 }
 
 func (UpdateEmployeeResponse) FromResult(r commands.UpdateEmployeeResult) UpdateEmployeeResponse {
-	return UpdateEmployeeResponse{
-		ID:             r.ID,
-		Name:           r.Name,
-		Email:          r.Email,
-		Phone:          r.Phone,
-		Document:       r.Document,
-		Ethnicity:      r.Ethnicity,
-		EmployeeNumber: r.EmployeeNumber,
-		Bank:           r.Bank,
-		Branch:         r.Branch,
-		Account:        r.Account,
-		Pix:            r.Pix,
-	}
+	return fwresponses.AutoFromResult[UpdateEmployeeResponse](r)
 }

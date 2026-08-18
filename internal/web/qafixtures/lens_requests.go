@@ -4,6 +4,7 @@ package qafixtures
 
 import (
 	fwqueries "github.com/ClaudioSchirmer/omnicore/application/queries"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 )
@@ -58,8 +59,15 @@ func (r FindLensBrandsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.F
 }
 
 type FindLensBrandsResponse struct {
+	fwresponses.Auto
 	ID   *string `json:"id,omitempty"`
 	Name *string `json:"name,omitempty"`
+}
+
+// FromResult is the wire mapping seat — the generic name-based Result→Response
+// mapper, shared by the Mongo list and its RelationalSource twin.
+func (FindLensBrandsResponse) FromResult(r appqa.FindLensBrandsResult) FindLensBrandsResponse {
+	return fwresponses.AutoFromResult[FindLensBrandsResponse](r)
 }
 
 // ─── LensKit writes ──────────────────────────────────────────────────────────
@@ -194,6 +202,7 @@ type LensBrandSegmentOutput struct {
 }
 
 type FindLensPartsResponse struct {
+	fwresponses.Auto
 	ID       *string                  `json:"id,omitempty"`
 	KitID    *string                  `json:"kitId,omitempty"`
 	GadgetID *string                  `json:"gadgetId,omitempty"`
@@ -204,18 +213,19 @@ type FindLensPartsResponse struct {
 	Brand    *LensBrandSegmentOutput  `json:"brand,omitempty"`
 }
 
+// FromResult is the wire mapping seat, serving the hop-1 list AND by-id reads.
+func (FindLensPartsResponse) FromResult(r appqa.FindLensPartsResult) FindLensPartsResponse {
+	return fwresponses.AutoFromResult[FindLensPartsResponse](r)
+}
+
 // The by-id requests declare ONLY the recognized query knob: the framework's
 // QueryByID binds the path id itself and rejects a Request that redeclares it.
 type FindLensPartByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindLensPartByIDRequest) ToQuery() *appqa.FindLensPartByIDQuery {
-	q := &appqa.FindLensPartByIDQuery{}
-	if r.IncludeArchived != nil {
-		q.IncludeArchived = *r.IncludeArchived
-	}
-	return q
+func (r FindLensPartByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensPartByIDQuery {
+	return &appqa.FindLensPartByIDQuery{Criteria: criteria}
 }
 
 // ─── Hop 2 reads: qa_lens_kits_view (kit + parts[] + parts[].gadget) ────────
@@ -263,19 +273,22 @@ type LensPartSegmentOutput struct {
 }
 
 type FindLensKitsResponse struct {
+	fwresponses.Auto
 	ID    *string                  `json:"id,omitempty"`
 	Name  *string                  `json:"name,omitempty"`
 	Parts []*LensPartSegmentOutput `json:"parts,omitempty"`
+}
+
+// FromResult is the wire mapping seat, serving the hop-2 list AND by-id reads
+// (including the descending-order twin projection).
+func (FindLensKitsResponse) FromResult(r appqa.FindLensKitsResult) FindLensKitsResponse {
+	return fwresponses.AutoFromResult[FindLensKitsResponse](r)
 }
 
 type FindLensKitByIDRequest struct {
 	IncludeArchived *bool `query:"includeArchived"`
 }
 
-func (r FindLensKitByIDRequest) ToQuery() *appqa.FindLensKitByIDQuery {
-	q := &appqa.FindLensKitByIDQuery{}
-	if r.IncludeArchived != nil {
-		q.IncludeArchived = *r.IncludeArchived
-	}
-	return q
+func (r FindLensKitByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensKitByIDQuery {
+	return &appqa.FindLensKitByIDQuery{Criteria: criteria}
 }

@@ -2,9 +2,10 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwrequests "github.com/ClaudioSchirmer/omnicore/web/requests"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
-	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -13,6 +14,8 @@ import (
 // to InsertUserCommand (Name/Email mandatory; Phone/Addresses optional).
 // ToCommand is a 1:1 assignment.
 type InsertUserRequest struct {
+	fwrequests.Auto
+
 	Name                  string           `json:"name"                            example:"Alice Pereira"`
 	Email                 string           `json:"email"                           example:"alice@example.com"`
 	Phone                 *string          `json:"phone,omitempty"                 example:"14155552671"`
@@ -33,24 +36,7 @@ type InsertUserRequest struct {
 // AppContext does NOT enter here — identity-derived translation belongs to
 // the application layer (Command.ApplyTo receives ctx).
 func (r InsertUserRequest) ToCommand() *commands.InsertUserCommand {
-	addrs := make([]dtos.AddressInput, len(r.Addresses))
-	for i, a := range r.Addresses {
-		addrs[i] = a.ToAddressInput()
-	}
-	return &commands.InsertUserCommand{
-		Name:                  r.Name,
-		Email:                 r.Email,
-		Phone:                 r.Phone,
-		Document:              r.Document,
-		UserName:              r.UserName,
-		Ethnicity:             r.Ethnicity,
-		UserProfile:           r.UserProfile,
-		EmailNotification:     r.EmailNotification,
-		SmsNotification:       r.SmsNotification,
-		NotificationEmail:     r.NotificationEmail,
-		NotificationFrequency: r.NotificationFrequency,
-		Addresses:             addrs,
-	}
+	return fwrequests.AutoFromRequest[*commands.InsertUserCommand](r)
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -61,6 +47,8 @@ func (r InsertUserRequest) ToCommand() *commands.InsertUserCommand {
 // framework dispatches via responseProjection (this struct's FromResult) and
 // wraps the envelope around it.
 type InsertUserResponse struct {
+	fwresponses.Auto
+
 	ID                    domain.ID                   `json:"id"                              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name                  string                      `json:"name"                            example:"Alice Pereira"`
 	Email                 string                      `json:"email"                           example:"alice@example.com"`
@@ -94,45 +82,9 @@ type InsertUserResponseAddress struct {
 	AddressType  string  `json:"addressType"          example:"residential"`
 }
 
-// insertUserResponseAddresses maps the Result's address snapshots to the wire
-// rows. Shared with UpdateUserResponse.FromResult.
-func insertUserResponseAddresses(in []commands.AddressResult) []InsertUserResponseAddress {
-	out := make([]InsertUserResponseAddress, 0, len(in))
-	for _, a := range in {
-		out = append(out, InsertUserResponseAddress{
-			ID:           a.ID,
-			Label:        a.Label,
-			Street:       a.Street,
-			Number:       a.Number,
-			Complement:   a.Complement,
-			Neighborhood: a.Neighborhood,
-			City:         a.City,
-			State:        a.State,
-			ZipCode:      a.ZipCode,
-			Country:      a.Country,
-			AddressType:  a.AddressType,
-		})
-	}
-	return out
-}
-
 // FromResult is the symmetric inverse of ToCommand — application Result →
 // wire Response. Co-located with the Request so the full "Insert User" wire
 // surface (input shape + output shape + both boundaries) lives in one file.
 func (InsertUserResponse) FromResult(r commands.InsertUserResult) InsertUserResponse {
-	return InsertUserResponse{
-		ID:                    r.ID,
-		Name:                  r.Name,
-		Email:                 r.Email,
-		Phone:                 r.Phone,
-		Document:              r.Document,
-		UserName:              r.UserName,
-		Ethnicity:             r.Ethnicity,
-		UserProfile:           r.UserProfile,
-		EmailNotification:     r.EmailNotification,
-		SmsNotification:       r.SmsNotification,
-		NotificationEmail:     r.NotificationEmail,
-		NotificationFrequency: r.NotificationFrequency,
-		Addresses:             insertUserResponseAddresses(r.Addresses),
-	}
+	return fwresponses.AutoFromResult[InsertUserResponse](r)
 }

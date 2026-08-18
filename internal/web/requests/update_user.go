@@ -2,9 +2,10 @@ package requests
 
 import (
 	"github.com/ClaudioSchirmer/omnicore/domain"
+	fwrequests "github.com/ClaudioSchirmer/omnicore/web/requests"
+	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/commands"
-	"github.com/ClaudioSchirmer/omnicore-example-users/internal/application/dtos"
 )
 
 // ─── INPUT ──────────────────────────────────────────────────────────────────
@@ -19,6 +20,8 @@ import (
 // sibling by sending them null (a full replace with both null removes the
 // user_configurations row).
 type UpdateUserRequest struct {
+	fwrequests.Auto
+
 	Name                  string           `json:"name"                            example:"Alice Pereira"`
 	Email                 string           `json:"email"                           example:"alice@example.com"`
 	Phone                 *string          `json:"phone,omitempty"                 example:"14155552671"`
@@ -36,23 +39,7 @@ type UpdateUserRequest struct {
 // web→application: pure body assignment. AppContext is NOT received — the
 // application layer (Command.ApplyTo) is where ctx interpretation happens.
 func (r UpdateUserRequest) ToCommand() *commands.UpdateUserCommand {
-	addrs := make([]dtos.AddressInput, len(r.Addresses))
-	for i, a := range r.Addresses {
-		addrs[i] = a.ToAddressInput()
-	}
-	return &commands.UpdateUserCommand{
-		Name:                  r.Name,
-		Email:                 r.Email,
-		Phone:                 r.Phone,
-		Ethnicity:             r.Ethnicity,
-		UserName:              r.UserName,
-		UserProfile:           r.UserProfile,
-		EmailNotification:     r.EmailNotification,
-		SmsNotification:       r.SmsNotification,
-		NotificationEmail:     r.NotificationEmail,
-		NotificationFrequency: r.NotificationFrequency,
-		Addresses:             addrs,
-	}
+	return fwrequests.AutoFromRequest[*commands.UpdateUserCommand](r)
 }
 
 // ─── OUTPUT ─────────────────────────────────────────────────────────────────
@@ -61,6 +48,8 @@ func (r UpdateUserRequest) ToCommand() *commands.UpdateUserCommand {
 // the post-update root snapshot + the FULL aggregate mirror (the replaced
 // address collection, with the ids the persister minted).
 type UpdateUserResponse struct {
+	fwresponses.Auto
+
 	ID                    domain.ID                   `json:"id"                              example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name                  string                      `json:"name"                            example:"Alice Pereira"`
 	Email                 string                      `json:"email"                           example:"alice@example.com"`
@@ -77,19 +66,5 @@ type UpdateUserResponse struct {
 }
 
 func (UpdateUserResponse) FromResult(r commands.UpdateUserResult) UpdateUserResponse {
-	return UpdateUserResponse{
-		ID:                    r.ID,
-		Name:                  r.Name,
-		Email:                 r.Email,
-		Phone:                 r.Phone,
-		Document:              r.Document,
-		Ethnicity:             r.Ethnicity,
-		UserName:              r.UserName,
-		UserProfile:           r.UserProfile,
-		EmailNotification:     r.EmailNotification,
-		SmsNotification:       r.SmsNotification,
-		NotificationEmail:     r.NotificationEmail,
-		NotificationFrequency: r.NotificationFrequency,
-		Addresses:             insertUserResponseAddresses(r.Addresses),
-	}
+	return fwresponses.AutoFromResult[UpdateUserResponse](r)
 }

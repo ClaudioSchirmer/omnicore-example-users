@@ -180,7 +180,7 @@ func (f *GadgetFeature) ComposedViews() []*query.ComposedViewDefinition {
 func (f *GadgetFeature) Mount(app *fiber.App, d bootstrap.Deps) {
 	appqa.UseJournal(f.journal)
 	appqa.UsePublisher(f.publisher)
-	webqa.MountGadgets(app, f.repo, f.journal, f.publisher, f.view.Name(), d)
+	webqa.MountGadgets(app, f.repo, f.journal, f.publisher, f.view, d)
 	webqa.MountGadgetShowcase(app, f.hotView.Name(), f.cappedView.Name(), f.view.Name(), d)
 	// Relational-source read twins (/qa/rel/gadgets*): parity + the 4xx and
 	// MaxLimit/MaxExportRows surfaces the relational_view suite drives.
@@ -252,12 +252,10 @@ func (f *GadgetFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) 
 	// two readers reach the surface through the same queries.Page, and totalCount
 	// reads Page.Total. Registered BEFORE the upstream gate below — a relational
 	// view carries no CDC/upstream dependency, so it mounts under every profile.
-	reg.Register(fwgraphql.QueryWithParams[
-		webqa.FindGadgetsRequest,
-		webqa.FindGadgetsResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[webqa.FindGadgetsRequest](
 		"gadgetsRel", "GadgetRel",
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		webqa.FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: f.relView.Name(),
 		},
 		fwgraphql.RequirePermission("gadgets:read")))
@@ -268,12 +266,10 @@ func (f *GadgetFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) 
 	// playground never advertise them, and gqlparser rejects them as unknown
 	// arguments before any resolver runs. The natural selections (projection,
 	// only-total shape) stay valid — they are the language, not arguments.
-	reg.Register(fwgraphql.QueryWithParams[
-		webqa.FindGadgetsBareRequest,
-		webqa.FindGadgetsResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[webqa.FindGadgetsBareRequest](
 		"gadgetsBare", "GadgetBare",
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery]{
+		webqa.FindGadgetsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsQuery, appqa.FindGadgetsResult]{
 			Reader: d.ViewReader, View: f.view.Name(),
 		},
 		fwgraphql.RequirePermission("gadgets:read")))
@@ -281,12 +277,10 @@ func (f *GadgetFeature) MountGraphQL(reg *fwgraphql.Registry, d bootstrap.Deps) 
 	if !declaresUpstreamCollection(d, "upstream_gadgets") {
 		return
 	}
-	reg.Register(fwgraphql.QueryWithParams[
-		webqa.FindGadgetsFullRequest,
-		webqa.FindGadgetsFullResponse,
-	](
+	reg.Register(fwgraphql.QueryWithParams[webqa.FindGadgetsFullRequest](
 		"gadgetsFull", "GadgetFull",
-		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery]{
+		webqa.FindGadgetsFullResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindGadgetsFullQuery, appqa.FindGadgetsFullResult]{
 			Reader: d.ViewReader, View: "gadgets_full",
 		},
 		fwgraphql.RequirePermission("gadgets:read")))

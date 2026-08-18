@@ -7,7 +7,6 @@ import (
 	"github.com/ClaudioSchirmer/omnicore/bootstrap"
 	fwweb "github.com/ClaudioSchirmer/omnicore/web"
 	fwopenapi "github.com/ClaudioSchirmer/omnicore/web/openapi"
-	fwresponses "github.com/ClaudioSchirmer/omnicore/web/responses"
 
 	appqa "github.com/ClaudioSchirmer/omnicore-example-users/internal/application/qafixtures"
 
@@ -31,8 +30,8 @@ func MountGadgetEmbedded(app *fiber.App, viewName string, d bootstrap.Deps) {
 
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindGadgetByIDRequest{},
-		fwresponses.AutoFromDoc[FindGadgetEmbeddedByIDResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery]{
+		FindGadgetEmbeddedByIDResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindGadgetByIDQuery, appqa.FindGadgetByIDResult]{
 			Reader: d.ViewReader, View: viewName,
 		})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id",

@@ -63,6 +63,12 @@ SCHEMA_SRC="$REPO_ROOT/internal/infra/schemas/user_schema.go"
 ENTITY_SRC="$REPO_ROOT/internal/domain/user.go"
 DTO_ID_SRC="$REPO_ROOT/internal/web/requests/find_user_by_id.go"
 DTO_LIST_SRC="$REPO_ROOT/internal/web/requests/find_users_by_params.go"
+# The application Results those two Responses map FROM. The read side is
+# Result-intermediated: a Response field with no same-named Result field never
+# renders, so an auto-mapped Response fails ValidateResultAlignment at Mount.
+# Patch web and application TOGETHER or the V2 pods panic before rebuilding.
+RESULT_ID_SRC="$REPO_ROOT/internal/application/queries/find_user_by_id_query.go"
+RESULT_LIST_SRC="$REPO_ROOT/internal/application/queries/find_users_by_params_query.go"
 # write side (PATCH): the request + command so a non-null nickname can be SET
 # through the endpoint, not merely projected — this is what makes the value
 # proof in Phase 3 an end-to-end (write→column→CDC→view→read) round-trip.
@@ -78,7 +84,8 @@ JOBHIST_SCHEMA_SRC="$REPO_ROOT/internal/infra/schemas/job_history_schema.go"
 JOBHIST_REQ_SRC="$REPO_ROOT/internal/web/requests/job_history.go"
 JOBHIST_DTO_SRC="$REPO_ROOT/internal/application/dtos/job_history_input.go"
 PATCHED=("$VIEW_SRC" "$PERSON_VIEW_SRC" "$SCHEMA_SRC" "$ENTITY_SRC" "$DTO_ID_SRC" "$DTO_LIST_SRC" "$PATCH_REQ_SRC" "$PATCH_CMD_SRC" \
-         "$EMPLOYEE_VIEW_SRC" "$JOBHIST_ENTITY_SRC" "$JOBHIST_SCHEMA_SRC" "$JOBHIST_REQ_SRC" "$JOBHIST_DTO_SRC")
+         "$EMPLOYEE_VIEW_SRC" "$JOBHIST_ENTITY_SRC" "$JOBHIST_SCHEMA_SRC" "$JOBHIST_REQ_SRC" "$JOBHIST_DTO_SRC" \
+         "$RESULT_ID_SRC" "$RESULT_LIST_SRC")
 
 # POD B on the lane ports (BASE / GRPC_PORT), the others on +offset. Same sync
 # group / DB / Mongo / broker → one competing-consumer group. run.sh runs this
@@ -281,6 +288,10 @@ patch_add_nickname(){
   # 4) read DTOs: surface it on GET /users/:id and GET /users
   perl -0pi -e 's/(UserName\s+string\s+`json:"userName"[^\n]*\n)/$1\tNickname *string `json:"nickname,omitempty"`\n/' "$DTO_ID_SRC"
   perl -0pi -e 's/(UserName\s+\*string\s+`json:"userName,omitempty"[^\n]*\n)/$1\tNickname         *string `json:"nickname,omitempty"`\n/' "$DTO_LIST_SRC"
+  # 4b) …and the application Results behind them, in the SAME breath: the wire
+  #     side and the application side of one field always move together.
+  perl -0pi -e 's/(\tUserName\s+string\n)/$1\tNickname              *string\n/'  "$RESULT_ID_SRC"
+  perl -0pi -e 's/(\tUserName\s+\*string\n)/$1\tNickname              *string\n/' "$RESULT_LIST_SRC"
   # 5) WRITE side (PATCH): request field + ToCommand mapping, then command field
   #    + ApplyPartiallyTo tri-state mapping. Both entity + command Nickname are
   #    *string, so the mapping is a straight pointer copy (nil = field not sent).
@@ -397,8 +408,11 @@ if wait_ready "$B_BASE" "$REBUILD_TIMEOUT"; then
   # Performance yardstick: the pure backfill time for $SEED_COUNT full aggregates
   # (recompose from the relational source → bulk Mongo upsert), directly
   # comparable across engines at equal N. Printed, not asserted.
-  bd_ns=$(grep -aoE '"view":"users"[^}]*"duration":[0-9]+' /tmp/omnicore-rs-B.log 2>/dev/null | grep -oE 'duration":[0-9]+' | head -1 | sed 's/duration"://')
-  [ -n "$bd_ns" ] && awk -v ns="$bd_ns" -v n="$SEED_COUNT" -v e="$REL_DIALECT" 'BEGIN{printf "  \033[1;36m⏱ PERF\033[0m first-rebuild backfill: %.2fs for %s aggregates on %s (%.0f/s)\n", ns/1e9, n, e, n/(ns/1e9)}'
+  # view.rebuild.end reports durationMs (float milliseconds) — the framework
+  # stopped logging bare time.Duration values, which slog rendered as a
+  # unit-less nanosecond count.
+  bd_ms=$(grep -aoE '"view":"users"[^}]*"durationMs":[0-9.]+' /tmp/omnicore-rs-B.log 2>/dev/null | grep -oE 'durationMs":[0-9.]+' | head -1 | sed 's/durationMs"://')
+  [ -n "$bd_ms" ] && awk -v ms="$bd_ms" -v n="$SEED_COUNT" -v e="$REL_DIALECT" 'BEGIN{printf "  \033[1;36m⏱ PERF\033[0m first-rebuild backfill: %.2fs for %s aggregates on %s (%.0f/s)\n", ms/1e3, n, e, n/(ms/1e3)}'
 else
   FAIL=$((FAIL+1)); echo "✘ first rebuild never became ready"; tail -40 /tmp/omnicore-rs-B.log
 fi
@@ -409,6 +423,33 @@ title "ALTER users ADD nickname + employee_job_histories ADD notes + patch (enti
 add_nickname_col
 add_notes_col
 patch_add_nickname || { echo "FATAL: source patch failed"; FAIL=$((FAIL+1)); }
+# The patch edits source TEXT with perl, so a refactor upstream can silently
+# stop a regex from matching. Verify every field landed on BOTH sides of the
+# boundary before building: a web DTO that gained a field whose application
+# counterpart is missing does not fail here — it fails 40 lines later as an
+# opaque boot panic on a pod that never comes up, which is exactly how this
+# suite once burned two hours of timeouts.
+verify_patch_pairs(){
+  local missing=0
+  _has(){ grep -q "$2" "$1" || { echo "  ✘ $3 missing in $(basename "$1")"; missing=1; }; }
+  # root scalar: wire (Response) and application (Result) must move together
+  _has "$DTO_ID_SRC"      'Nickname'  "Nickname (web: by-id Response)"
+  _has "$RESULT_ID_SRC"   'Nickname'  "Nickname (application: by-id Result)"
+  _has "$DTO_LIST_SRC"    'Nickname'  "Nickname (web: list Response)"
+  _has "$RESULT_LIST_SRC" 'Nickname'  "Nickname (application: list Result)"
+  # and the write side of the same field
+  _has "$ENTITY_SRC"      'Nickname'  "Nickname (domain entity)"
+  _has "$SCHEMA_SRC"      'nickname'  "nickname (table schema)"
+  # own-child column: wire request and application DTO likewise
+  _has "$JOBHIST_REQ_SRC" 'Notes'     "Notes (web: job-history request)"
+  _has "$JOBHIST_DTO_SRC" 'Notes'     "Notes (application: job-history DTO)"
+  return $missing
+}
+verify_patch_pairs || {
+  echo "FATAL: the source patch did not land on both sides of the web/application boundary"
+  echo "       (a perl regex above stopped matching — fix the patch, not the guard)"
+  FAIL=$((FAIL+1)); exit 1
+}
 ( cd "$REPO_ROOT" && go build -tags "$QA_BUILD_TAGS" -o "$BIN_V2" ./bootstrap ) && echo "BIN_V2 built (Version 2 + nickname)" || { echo "FATAL: V2 build failed"; FAIL=$((FAIL+1)); }
 restore_src   # tree clean again; BIN_V2 keeps the change
 

@@ -93,6 +93,7 @@ type LensFieldsBrandOutput struct {
 }
 
 type FindLensFieldsForeverResponse struct {
+	fwresponses.Auto
 	ID      *string                       `json:"id,omitempty"`
 	Label   *string                       `json:"label,omitempty"`
 	Slot    *int                          `json:"slot,omitempty"`
@@ -100,12 +101,27 @@ type FindLensFieldsForeverResponse struct {
 	Brand   *LensFieldsForeverBrandOutput `json:"brand,omitempty"`
 }
 
+// FromResult maps the SHARED hop-1 Result onto the forever cut's wire shape:
+// the Result carries the union of what any projection over this root can
+// materialize, and the Response is what THIS route admits — brand.deletedAt
+// is simply not declared here, so it exists on no wire of this endpoint.
+func (FindLensFieldsForeverResponse) FromResult(r appqa.FindLensPartsResult) FindLensFieldsForeverResponse {
+	return fwresponses.AutoFromResult[FindLensFieldsForeverResponse](r)
+}
+
 type FindLensFieldsPartsResponse struct {
+	fwresponses.Auto
 	ID      *string                `json:"id,omitempty"`
 	Label   *string                `json:"label,omitempty"`
 	Slot    *int                   `json:"slot,omitempty"`
 	BrandID *string                `json:"brandId,omitempty"`
 	Brand   *LensFieldsBrandOutput `json:"brand,omitempty"`
+}
+
+// FromResult maps the same shared hop-1 Result onto the lifecycle cut, which
+// DOES declare brand.deletedAt — the archive switch made visible on the wire.
+func (FindLensFieldsPartsResponse) FromResult(r appqa.FindLensPartsResult) FindLensFieldsPartsResponse {
+	return fwresponses.AutoFromResult[FindLensFieldsPartsResponse](r)
 }
 
 // ─── kits: the 1:N capped elements ───────────────────────────────────────────
@@ -137,9 +153,17 @@ type LensFieldsPartElementOutput struct {
 }
 
 type FindLensFieldsKitsResponse struct {
+	fwresponses.Auto
 	ID    *string                       `json:"id,omitempty"`
 	Name  *string                       `json:"name,omitempty"`
 	Parts []LensFieldsPartElementOutput `json:"parts,omitempty"`
+}
+
+// FromResult maps the shared hop-2 Result onto the capped kits wire shape:
+// the element admits Label + Slot + the whole Brand segment, and nothing else
+// — the Gadget segment the leg cut away is not declared here.
+func (FindLensFieldsKitsResponse) FromResult(r appqa.FindLensKitsResult) FindLensFieldsKitsResponse {
+	return fwresponses.AutoFromResult[FindLensFieldsKitsResponse](r)
 }
 
 // MountLensFields registers the three read groups, one per projection.
@@ -153,15 +177,15 @@ func MountLensFields(app *fiber.App, foreverView, lifecycleView, kitsView string
 		"brand.deletedAt is not declared, so the token is 400 at the wire."
 	fListH, fListSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensFieldsForeverRequest{},
-		fwresponses.AutoFromDoc[FindLensFieldsForeverResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensPartsQuery]{Reader: d.ViewReader, View: foreverView})
+		FindLensFieldsForeverResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensPartsQuery, appqa.FindLensPartsResult]{Reader: d.ViewReader, View: foreverView})
 	fwopenapi.Mount(d.OpenAPIRegistry, gf, fiber.MethodGet, "/", fListH, fListSpec,
 		fwopenapi.Doc{Summary: "Parts with the brand capped to Fields(\"Name\") — no archive rule", Description: foreverDesc, Tags: tags},
 		fwopenapi.RequirePermission("gadgets:read"))
 	fByIDH, fByIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindLensPartByIDRequest{},
-		fwresponses.AutoFromDoc[FindLensFieldsForeverResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindLensPartByIDQuery]{Reader: d.ViewReader, View: foreverView})
+		FindLensFieldsForeverResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindLensPartByIDQuery, appqa.FindLensPartsResult]{Reader: d.ViewReader, View: foreverView})
 	fwopenapi.Mount(d.OpenAPIRegistry, gf, fiber.MethodGet, "/:id", fByIDH, fByIDSpec,
 		fwopenapi.Doc{Summary: "Part by id, brand capped — no archive rule", Description: foreverDesc, Tags: tags},
 		fwopenapi.RequirePermission("gadgets:read"))
@@ -172,15 +196,15 @@ func MountLensFields(app *fiber.App, foreverView, lifecycleView, kitsView string
 		"real query. The pair of routes is the archive switch made observable."
 	lListH, lListSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensFieldsLifecycleRequest{},
-		fwresponses.AutoFromDoc[FindLensFieldsPartsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensPartsQuery]{Reader: d.ViewReader, View: lifecycleView})
+		FindLensFieldsPartsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensPartsQuery, appqa.FindLensPartsResult]{Reader: d.ViewReader, View: lifecycleView})
 	fwopenapi.Mount(d.OpenAPIRegistry, gl, fiber.MethodGet, "/", lListH, lListSpec,
 		fwopenapi.Doc{Summary: "Parts with the brand capped to Fields(\"Name\", \"DeletedAt\") — follows the archive", Description: lifecycleDesc, Tags: tags},
 		fwopenapi.RequirePermission("gadgets:read"))
 	lByIDH, lByIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindLensPartByIDRequest{},
-		fwresponses.AutoFromDoc[FindLensFieldsPartsResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindLensPartByIDQuery]{Reader: d.ViewReader, View: lifecycleView})
+		FindLensFieldsPartsResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindLensPartByIDQuery, appqa.FindLensPartsResult]{Reader: d.ViewReader, View: lifecycleView})
 	fwopenapi.Mount(d.OpenAPIRegistry, gl, fiber.MethodGet, "/:id", lByIDH, lByIDSpec,
 		fwopenapi.Doc{Summary: "Part by id, brand capped — follows the archive", Description: lifecycleDesc, Tags: tags},
 		fwopenapi.RequirePermission("gadgets:read"))
@@ -188,8 +212,8 @@ func MountLensFields(app *fiber.App, foreverView, lifecycleView, kitsView string
 	g := app.Group("/qa/lens-fields-kits")
 	listH, listSpec := fwweb.QueryWithParamsSpec(d.Pipeline,
 		FindLensFieldsKitsRequest{},
-		fwresponses.AutoFromDoc[FindLensFieldsKitsResponse],
-		&handlers.FindByParamsQueryHandler[*appqa.FindLensKitsQuery]{Reader: d.ViewReader, View: kitsView})
+		FindLensFieldsKitsResponse{}.FromResult,
+		&handlers.FindByParamsQueryHandler[*appqa.FindLensKitsQuery, appqa.FindLensKitsResult]{Reader: d.ViewReader, View: kitsView})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/", listH, listSpec,
 		fwopenapi.Doc{
 			Summary: "Kits whose 1:N parts are capped to Fields(\"Label\", \"Slot\", \"Brand\")",
@@ -200,8 +224,8 @@ func MountLensFields(app *fiber.App, foreverView, lifecycleView, kitsView string
 		fwopenapi.RequirePermission("gadgets:read"))
 	byIDH, byIDSpec := fwweb.QueryByIDSpec(d.Pipeline,
 		FindLensKitByIDRequest{},
-		fwresponses.AutoFromDoc[FindLensFieldsKitsResponse],
-		&handlers.FindByIDQueryHandler[*appqa.FindLensKitByIDQuery]{Reader: d.ViewReader, View: kitsView})
+		FindLensFieldsKitsResponse{}.FromResult,
+		&handlers.FindByIDQueryHandler[*appqa.FindLensKitByIDQuery, appqa.FindLensKitsResult]{Reader: d.ViewReader, View: kitsView})
 	fwopenapi.Mount(d.OpenAPIRegistry, g, fiber.MethodGet, "/:id", byIDH, byIDSpec,
 		fwopenapi.Doc{
 			Summary:     "Kit by id, parts capped by the leg's Fields",

@@ -14,12 +14,11 @@ import (
 // path via ViewReader.ReadByID; the by-document lookup needs an arbitrary
 // filter, which is what ReadPage already supports.
 //
-// Returns the raw Mongo document (map[string]any) and lets the web layer
-// project it into a wire-format response (FindUserByDocumentCustomResponse,
-// co-located with its Request in web/requests/).
-// Keeping the projection on the web side preserves the canonical
-// application → wire boundary — application speaks documents, web speaks
-// JSON.
+// Returns the TYPED Result the Query declares (the framework's
+// queries.ResultFromDoc fills it from the canonical document, then the
+// Query's FromQueryResult hook runs). The web layer maps that Result to its wire
+// Response — application speaks Results, web speaks JSON, and the raw
+// document never crosses the boundary.
 type FindUserByDocumentCustomQueryHandler struct {
 	Reader queries.ViewReader
 	View   string
@@ -27,10 +26,11 @@ type FindUserByDocumentCustomQueryHandler struct {
 
 func (h *FindUserByDocumentCustomQueryHandler) Handle(
 	ctx *configuration.AppContext, q *appqueries.FindUserByDocumentQuery,
-) (map[string]any, error) {
+) (appqueries.FindUserByDocumentResult, error) {
+	var zero appqueries.FindUserByDocumentResult
 	criteria, err := q.ToCriteria(ctx)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 	if criteria.Filter == nil {
 		criteria.Filter = map[string]any{}
@@ -67,10 +67,10 @@ func (h *FindUserByDocumentCustomQueryHandler) Handle(
 
 	page, err := h.Reader.ReadPage(ctx, h.View, criteria)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 	if len(page.Items) == 0 {
-		return nil, domain.NotFoundError("User", "document", q.Document)
+		return zero, domain.NotFoundError("User", "document", q.Document)
 	}
-	return page.Items[0], nil
+	return q.FromQueryResult(ctx, queries.ResultFromDoc[appqueries.FindUserByDocumentResult](page.Items[0]))
 }
