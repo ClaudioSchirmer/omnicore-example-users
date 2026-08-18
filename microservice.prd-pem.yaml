@@ -61,6 +61,23 @@ audit:
     - slog
     - database
 
+  # Read surface over the audit trail, SERVED BY THE FRAMEWORK — no route, no
+  # handler, no DTO in this service. Its presence is the switch.
+  #
+  # IT READS THE DATABASE. Every read answers from the audit_events table, so
+  # `database` must stay among the destinations above; declaring this block
+  # without it ABORTS the boot rather than mounting a surface that could only
+  # ever answer an empty timeline. A deployment that routes audit only to slog
+  # builds its own read surface over the log stream instead — the framework's
+  # audit.RenderLabels / audit.RenderLabelsInJSON translate the field labels
+  # there just the same, independent of where the events are stored.
+  endpoint:
+    renderLabels: true                   # default; false keeps the raw fieldLabelKey (machine consumers)
+    maxLimit: 20                         # default; rows per timeline read (NOT inherited from query.maxLimit)
+    rest:
+      path: /audit                       # GET /audit/{entityType}/{aggregateId}[?first=N]
+      permission: audit:read             # Layer-1 gate; inert until auth.authorization.enabled=true
+
 # Cross-service integration events — defaults seeded; producer / subscriber
 # entries land here when the service starts emitting or consuming events.
 integration:

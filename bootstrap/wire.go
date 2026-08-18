@@ -43,12 +43,15 @@ func Wire(d bootstrap.Deps) bootstrap.Wiring {
 	// qaFeatures' members, also needs its store/checker surfaced on Wiring
 	// itself (below) — everything here is the ONLY canonical touch for the
 	// QA fixtures; the rest lives under //go:build qa in qafixtures/.
+	// No audit feature: the audit read endpoint is served by the FRAMEWORK,
+	// switched on by the `audit.endpoint.rest` block in each profile's yaml.
+	// It reads audit_events, so the same yaml must route audit to `database`
+	// (the boot aborts otherwise).
 	features := append([]bootstrap.Feature{
 		users,
 		employees,
 		persons,
 		NewUserCustomFeature(d),
-		NewAuditFeature(),
 	}, qaFeatures(d)...)
 	if authFeature != nil {
 		features = append(features, authFeature)

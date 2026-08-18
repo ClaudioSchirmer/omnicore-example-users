@@ -1071,13 +1071,22 @@ if addrs:
 sec "18. Field labels — READ path renders fieldLabelKey → translated fieldLabel"
 ##############################################################################
 # §17 pins the WRITE path (the stored raw catalog key on the slog echo). The
-# complement is the READ endpoint GET /audit/:aggregateId, which runs
+# complement is the READ endpoint GET /audit/{entityType}/{aggregateId} — served
+# by the FRAMEWORK from the `audit.endpoint.rest` block in the yaml, not by any
+# route in this service. With renderLabels on (the default), it runs
 # audit.RenderLabels in the actor's locale (Accept-Language) BEFORE
 # serialization: every FieldChange must carry the translated `fieldLabel` and
-# the raw `fieldLabelKey` must be GONE (RenderLabelsInJSON deletes it so the
-# read shape matches the notification-envelope wire shape). Same aggregate the
+# the raw `fieldLabelKey` must be GONE (the renderer pops it so the read shape
+# matches the notification-envelope wire shape). Same aggregate the
 # §17 PATCH (Name) + PUT (Address.zipCode) mutated — its timeline still exists
 # because the cleanup DELETE runs only after this section.
+#
+# NOTE the window: the endpoint answers at most audit.endpoint.maxLimit rows
+# (20 in every profile of this service), newest first. The assertions below
+# search the returned rows for a specific change, and this aggregate's timeline
+# is far shorter than the window, so the cap never hides an expected row.
+
+AUDIT_TIMELINE="$BASE/audit/User/$LABEL_USER_ID"
 
 # audit_read_assert <name> <accept_language> <python-check-on `rows`>
 audit_read_assert() {
@@ -1085,10 +1094,10 @@ audit_read_assert() {
   title "$name"
   local tmp; tmp=$(mktemp)
   local status
-  status=$(curl -sS -o "$tmp" -w "%{http_code}" "$BASE/audit/$LABEL_USER_ID" \
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" "$AUDIT_TIMELINE" \
     -H "Authorization: Bearer $VALID" -H "Accept-Language: $lang")
   if [ "$status" != "200" ]; then
-    printf '\033[1;31mFAIL\033[0m GET /audit/%s → %s (want 200); body=%s\n' \
+    printf '\033[1;31mFAIL\033[0m GET /audit/User/%s → %s (want 200); body=%s\n' \
       "$LABEL_USER_ID" "$status" "$(head -c 300 "$tmp")"
     FAIL=$((FAIL+1)); rm -f "$tmp"; return
   fi
@@ -1182,6 +1191,115 @@ at_hits = [c for c in child_changes("Address") if c.get("field") == "AddressType
 if at_hits:
     eq(at_hits[0].get("fieldLabel"), "Tipo de endereço", "AddressType fieldLabel (PT-BR)")
 '
+
+##############################################################################
+sec "19. Framework audit endpoint — window, coordinates and rejections"
+##############################################################################
+# §18 proves the endpoint's PAYLOAD. This section proves its CONTRACT: the
+# window control, the two path coordinates and the rejections. Everything here
+# is framework code driven by `audit.endpoint.rest` in the yaml — this service
+# contributes no route, so a regression here is a framework regression.
+
+# audit_status <name> <url> <want-status> [grep-in-body]
+audit_status() {
+  local name="$1" url="$2" want="$3" needle="${4:-}"
+  title "$name"
+  local tmp; tmp=$(mktemp)
+  local status
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" "$url" -H "Authorization: Bearer $VALID")
+  if [ "$status" != "$want" ]; then
+    printf '\033[1;31mFAIL\033[0m %s → %s (want %s); body=%s\n' \
+      "$url" "$status" "$want" "$(head -c 300 "$tmp")"
+    FAIL=$((FAIL+1)); rm -f "$tmp"; return
+  fi
+  if [ -n "$needle" ] && ! grep -q "$needle" "$tmp"; then
+    printf '\033[1;31mFAIL\033[0m %s → %s but body lacks %q; body=%s\n' \
+      "$url" "$status" "$needle" "$(head -c 300 "$tmp")"
+    FAIL=$((FAIL+1)); rm -f "$tmp"; return
+  fi
+  printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1)); rm -f "$tmp"
+}
+
+# 19.1 `?first=1` narrows the window to exactly one event — the cap is applied
+# in SQL, so this is also the proof the dialect rendered it.
+title "19.1 ?first=1 returns exactly one event"
+FIRST_TMP=$(mktemp)
+FIRST_STATUS=$(curl -sS -o "$FIRST_TMP" -w "%{http_code}" "$AUDIT_TIMELINE?first=1" \
+  -H "Authorization: Bearer $VALID")
+if [ "$FIRST_STATUS" = "200" ] && [ "$(jq '.data | length' "$FIRST_TMP")" = "1" ]; then
+  printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m ?first=1 → %s, rows=%s\n' \
+    "$FIRST_STATUS" "$(jq -c '.data | length' "$FIRST_TMP" 2>/dev/null)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$FIRST_TMP"
+
+# 19.2 The default window returns MORE than one — otherwise 19.1 would prove
+# nothing (a one-event timeline would satisfy it by accident).
+title "19.2 the default window returns the whole (short) timeline"
+ALL_TMP=$(mktemp)
+curl -sS -o "$ALL_TMP" "$AUDIT_TIMELINE" -H "Authorization: Bearer $VALID"
+ALL_ROWS=$(jq '.data | length' "$ALL_TMP" 2>/dev/null)
+if [ "${ALL_ROWS:-0}" -gt 1 ]; then
+  printf '\033[1;32mPASS\033[0m (%s events)\n' "$ALL_ROWS"; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m default window returned %s event(s), want >1\n' "${ALL_ROWS:-0}"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$ALL_TMP"
+
+# 19.3 Above the configured ceiling (maxLimit: 20) the request is REFUSED, not
+# truncated — the consumer must be able to tell a short page from a capped one.
+audit_status "19.3 ?first above maxLimit → 400 LimitExceededNotification" \
+  "$AUDIT_TIMELINE?first=21" 400 "LimitExceededNotification"
+
+# 19.4 A non-numeric window is a wire-level schema violation.
+audit_status "19.4 non-numeric ?first → 400" "$AUDIT_TIMELINE?first=many" 400 "first"
+
+# 19.5 A malformed aggregate id is rejected at the boundary — never reaches the
+# driver as a 500.
+audit_status "19.5 malformed aggregateId → 400" "$BASE/audit/User/not-a-uuid" 400
+
+# 19.6 entityType is a real coordinate: the same id under another type has no
+# rows, and an empty timeline is 200 + [] (NOT a 404 — the aggregate exists).
+title "19.6 unknown entityType → 200 with an empty timeline"
+EMPTY_TMP=$(mktemp)
+EMPTY_STATUS=$(curl -sS -o "$EMPTY_TMP" -w "%{http_code}" \
+  "$BASE/audit/Nonexistent/$LABEL_USER_ID" -H "Authorization: Bearer $VALID")
+if [ "$EMPTY_STATUS" = "200" ] && [ "$(jq -c '.data' "$EMPTY_TMP")" = "[]" ]; then
+  printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m unknown entityType → %s, data=%s\n' \
+    "$EMPTY_STATUS" "$(jq -c '.data' "$EMPTY_TMP" 2>/dev/null)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$EMPTY_TMP"
+
+# 19.7 An aggregate that was never audited answers the same way — the empty
+# timeline is about the ROWS, not about the id being unknown.
+title "19.7 never-audited aggregate → 200 with an empty timeline"
+UNSEEN_TMP=$(mktemp)
+UNSEEN_STATUS=$(curl -sS -o "$UNSEEN_TMP" -w "%{http_code}" \
+  "$BASE/audit/User/00000000-0000-4000-8000-000000000000" -H "Authorization: Bearer $VALID")
+if [ "$UNSEEN_STATUS" = "200" ] && [ "$(jq -c '.data' "$UNSEEN_TMP")" = "[]" ]; then
+  printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m never-audited aggregate → %s, data=%s\n' \
+    "$UNSEEN_STATUS" "$(jq -c '.data' "$UNSEEN_TMP" 2>/dev/null)"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$UNSEEN_TMP"
+
+# 19.8 The route is in the OpenAPI document: the framework registers it through
+# the same Mount seat a service route uses, so it is documented like any other.
+title "19.8 the audit route is documented in /openapi.json"
+if curl -sS "$BASE/openapi.json" | jq -e '.paths["/audit/{entityType}/{aggregateId}"].get' >/dev/null 2>&1; then
+  printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+else
+  printf '\033[1;31mFAIL\033[0m the audit route is missing from the OpenAPI document\n'
+  FAIL=$((FAIL+1))
+fi
 
 # Cleanup — leave the table in the state §16 expects.
 capture_audit DELETE "/users/$LABEL_USER_ID" "" "$VALID" 204
