@@ -50,6 +50,7 @@ func (r FindAddressByDocumentAndIDRequest) ToQuery(criteria fwqueries.ReadCriter
 // handles both sparse (*T+omitempty) and non-sparse (string) shapes
 // uniformly.
 type FindAddressByDocumentAndIDResponse struct {
+	fwresponses.Auto
 	ID          string `json:"id"          example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Street      string `json:"street"      example:"1 Infinite Loop"`
 	City        string `json:"city"        example:"Cupertino"`
@@ -58,8 +59,8 @@ type FindAddressByDocumentAndIDResponse struct {
 }
 
 // FromResult is the wire mapping seat, delegating to the generic name-based
-// mapper. The Response deliberately exposes a SUBSET of the Result — proving
+// mapper (the Response opts in by embedding fwresponses.Auto). The Response deliberately exposes a SUBSET of the Result — proving
 // wire format and read model stay independent concerns.
 func (FindAddressByDocumentAndIDResponse) FromResult(r queries.AddressResult) FindAddressByDocumentAndIDResponse {
-	return fwresponses.Map[FindAddressByDocumentAndIDResponse](r)
+	return fwresponses.AutoFromResult[FindAddressByDocumentAndIDResponse](r)
 }

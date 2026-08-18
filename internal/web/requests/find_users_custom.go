@@ -59,6 +59,8 @@ func (r FindUsersCustomRequest) ToQuery(criteria fwqueries.ReadCriteria) *querie
 // fields, ctx-aware shaping) belongs in the Query's FromQueryResult hook, not
 // here, so every surface sees the same values.
 type FindUsersCustomResponse struct {
+	fwresponses.Auto
+
 	ID    *string `json:"id,omitempty"    example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name  *string `json:"name,omitempty"  example:"Alice Pereira"`
 	Email *string `json:"email,omitempty" example:"alice@example.com"`
@@ -67,5 +69,5 @@ type FindUsersCustomResponse struct {
 // FromResult is the wire mapping seat, delegating to the generic name-based
 // mapper.
 func (FindUsersCustomResponse) FromResult(r queries.FindUsersCustomResult) FindUsersCustomResponse {
-	return fwresponses.Map[FindUsersCustomResponse](r)
+	return fwresponses.AutoFromResult[FindUsersCustomResponse](r)
 }

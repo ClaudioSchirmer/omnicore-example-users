@@ -88,6 +88,7 @@ type WidgetPartOutput struct {
 }
 
 type FindWidgetsResponse struct {
+	fwresponses.Auto
 	ID          *string            `json:"id,omitempty"`
 	Name        *string            `json:"name,omitempty"`
 	Material    *string            `json:"material,omitempty"`
@@ -98,7 +99,7 @@ type FindWidgetsResponse struct {
 // mapper. The by-id read serves the same shape (FindWidgetByIDResponse is an
 // alias), so this one method feeds both routes and both backings.
 func (FindWidgetsResponse) FromResult(r appqa.FindWidgetsResult) FindWidgetsResponse {
-	return fwresponses.Map[FindWidgetsResponse](r)
+	return fwresponses.AutoFromResult[FindWidgetsResponse](r)
 }
 
 type FindWidgetByIDRequest struct {

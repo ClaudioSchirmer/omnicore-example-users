@@ -40,6 +40,7 @@ func (r FindAddressByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *querie
 // mapped from the shared queries.AddressResult. Mirrors the shape of
 // FindUserByIDAddressOutput; the json tag is purely the outgoing wire name.
 type FindAddressByIDResponse struct {
+	fwresponses.Auto
 	ID           string  `json:"id"                   example:"d8e6f4a2-1a3b-4c5d-9e7f-8a9b0c1d2e3f"`
 	Label        *string `json:"label,omitempty"      example:"home"`
 	Street       string  `json:"street"               example:"1 Infinite Loop"`
@@ -54,7 +55,7 @@ type FindAddressByIDResponse struct {
 }
 
 // FromResult is the wire mapping seat, delegating to the generic name-based
-// mapper.
+// mapper (the Response opts in by embedding fwresponses.Auto).
 func (FindAddressByIDResponse) FromResult(r queries.AddressResult) FindAddressByIDResponse {
-	return fwresponses.Map[FindAddressByIDResponse](r)
+	return fwresponses.AutoFromResult[FindAddressByIDResponse](r)
 }

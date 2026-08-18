@@ -69,6 +69,7 @@ func (r FindEmployeesByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *
 // The shared Person fields and the bank sibling render FLAT at the root,
 // exactly as the composer stores them.
 type FindEmployeesByParamsResponse struct {
+	fwresponses.Auto
 	ID             *string `json:"id,omitempty"        example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name           *string `json:"name,omitempty" exportLabelKey:"UserNameField"      example:"Alice Pereira"`
 	Email          *string `json:"email,omitempty" exportLabelKey:"UserEmailField"     example:"alice@example.com"`
@@ -87,9 +88,9 @@ type FindEmployeesByParamsResponse struct {
 }
 
 // FromResult is the wire mapping seat, delegating to the generic name-based
-// mapper — the read-side twin of the command Responses' FromResult.
+// mapper (the Response opts in by embedding fwresponses.Auto) — the read-side twin of the command Responses' FromResult.
 func (FindEmployeesByParamsResponse) FromResult(r queries.FindEmployeesByParamsResult) FindEmployeesByParamsResponse {
-	return fwresponses.Map[FindEmployeesByParamsResponse](r)
+	return fwresponses.AutoFromResult[FindEmployeesByParamsResponse](r)
 }
 
 // FindEmployeesByParamsDependentOutput is the nested wire shape of one

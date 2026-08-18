@@ -40,6 +40,7 @@ func (r FindUserByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries.F
 // nested address shape stays per-endpoint to keep the by-id and list
 // surfaces independent if either evolves.
 type FindUserByIDResponse struct {
+	fwresponses.Auto
 	ID       string  `json:"id"                          example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name     string  `json:"name"                        example:"Alice Pereira"`
 	Email    string  `json:"email"                       example:"alice@example.com"`
@@ -63,7 +64,7 @@ type FindUserByIDResponse struct {
 // FromResult is the wire mapping seat — the read-side twin of the command
 // Responses' FromResult, delegating to the generic name-based mapper.
 func (FindUserByIDResponse) FromResult(r queries.FindUserByIDResult) FindUserByIDResponse {
-	return fwresponses.Map[FindUserByIDResponse](r)
+	return fwresponses.AutoFromResult[FindUserByIDResponse](r)
 }
 
 // FindUserByIDAddressOutput is the nested wire shape of one Address inside

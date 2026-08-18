@@ -144,13 +144,14 @@ type GadgetKitLineOutput struct {
 // FindGadgetKitByIDResponse — Go field GadgetKitLines matches the derived child
 // segment, which is the mapping handle from the Result.
 type FindGadgetKitByIDResponse struct {
+	fwresponses.Auto
 	ID             string                `json:"id"`
 	Name           string                `json:"name"`
 	GadgetKitLines []GadgetKitLineOutput `json:"gadgetKitLines,omitempty"`
 }
 
 func (FindGadgetKitByIDResponse) FromResult(r appqa.FindGadgetKitByIDResult) FindGadgetKitByIDResponse {
-	return fwresponses.Map[FindGadgetKitByIDResponse](r)
+	return fwresponses.AutoFromResult[FindGadgetKitByIDResponse](r)
 }
 
 // ─── List DTOs ───────────────────────────────────────────────────────────────
@@ -188,6 +189,7 @@ func (r FindGadgetKitsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.F
 }
 
 type FindGadgetKitsListResponse struct {
+	fwresponses.Auto
 	ID             *string               `json:"id,omitempty"`
 	Name           *string               `json:"name,omitempty"`
 	GadgetKitLines []GadgetKitLineOutput `json:"gadgetKitLines,omitempty"`
@@ -196,5 +198,5 @@ type FindGadgetKitsListResponse struct {
 // FromResult is the wire mapping seat of the paged list and of the CSV export
 // (which now derives its columns from this DTO).
 func (FindGadgetKitsListResponse) FromResult(r appqa.FindGadgetKitsResult) FindGadgetKitsListResponse {
-	return fwresponses.Map[FindGadgetKitsListResponse](r)
+	return fwresponses.AutoFromResult[FindGadgetKitsListResponse](r)
 }

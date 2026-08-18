@@ -59,6 +59,7 @@ func (r FindLensBrandsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.F
 }
 
 type FindLensBrandsResponse struct {
+	fwresponses.Auto
 	ID   *string `json:"id,omitempty"`
 	Name *string `json:"name,omitempty"`
 }
@@ -66,7 +67,7 @@ type FindLensBrandsResponse struct {
 // FromResult is the wire mapping seat — the generic name-based Result→Response
 // mapper, shared by the Mongo list and its RelationalSource twin.
 func (FindLensBrandsResponse) FromResult(r appqa.FindLensBrandsResult) FindLensBrandsResponse {
-	return fwresponses.Map[FindLensBrandsResponse](r)
+	return fwresponses.AutoFromResult[FindLensBrandsResponse](r)
 }
 
 // ─── LensKit writes ──────────────────────────────────────────────────────────
@@ -201,6 +202,7 @@ type LensBrandSegmentOutput struct {
 }
 
 type FindLensPartsResponse struct {
+	fwresponses.Auto
 	ID       *string                  `json:"id,omitempty"`
 	KitID    *string                  `json:"kitId,omitempty"`
 	GadgetID *string                  `json:"gadgetId,omitempty"`
@@ -213,7 +215,7 @@ type FindLensPartsResponse struct {
 
 // FromResult is the wire mapping seat, serving the hop-1 list AND by-id reads.
 func (FindLensPartsResponse) FromResult(r appqa.FindLensPartsResult) FindLensPartsResponse {
-	return fwresponses.Map[FindLensPartsResponse](r)
+	return fwresponses.AutoFromResult[FindLensPartsResponse](r)
 }
 
 // The by-id requests declare ONLY the recognized query knob: the framework's
@@ -271,6 +273,7 @@ type LensPartSegmentOutput struct {
 }
 
 type FindLensKitsResponse struct {
+	fwresponses.Auto
 	ID    *string                  `json:"id,omitempty"`
 	Name  *string                  `json:"name,omitempty"`
 	Parts []*LensPartSegmentOutput `json:"parts,omitempty"`
@@ -279,7 +282,7 @@ type FindLensKitsResponse struct {
 // FromResult is the wire mapping seat, serving the hop-2 list AND by-id reads
 // (including the descending-order twin projection).
 func (FindLensKitsResponse) FromResult(r appqa.FindLensKitsResult) FindLensKitsResponse {
-	return fwresponses.Map[FindLensKitsResponse](r)
+	return fwresponses.AutoFromResult[FindLensKitsResponse](r)
 }
 
 type FindLensKitByIDRequest struct {

@@ -86,6 +86,7 @@ func (r FindUsersByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *quer
 // Without pointers + omitempty, a stripped `name` would still render as
 // `"name":""` (zero value), defeating the point of the parameter.
 type FindUsersByParamsResponse struct {
+	fwresponses.Auto
 	ID                    *string                          `json:"id,omitempty"                                       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name                  *string                          `json:"name,omitempty"                  exportLabelKey:"UserNameField"                  example:"Alice Pereira"`
 	Email                 *string                          `json:"email,omitempty"                 exportLabelKey:"UserEmailField"                 example:"alice@example.com"`
@@ -102,11 +103,11 @@ type FindUsersByParamsResponse struct {
 }
 
 // FromResult is the wire mapping seat — the read-side twin of the command
-// Responses' FromResult. fwresponses.Map is the generic name-based mapper
+// Responses' FromResult. fwresponses.AutoFromResult is the generic name-based mapper
 // (Result field → same-named Response field, emitted under its json tag);
 // a Response needing more than the tags writes the mapping by hand instead.
 func (FindUsersByParamsResponse) FromResult(r queries.FindUsersByParamsResult) FindUsersByParamsResponse {
-	return fwresponses.Map[FindUsersByParamsResponse](r)
+	return fwresponses.AutoFromResult[FindUsersByParamsResponse](r)
 }
 
 // FindUsersByParamsAddressOutput is the nested wire shape of one Address

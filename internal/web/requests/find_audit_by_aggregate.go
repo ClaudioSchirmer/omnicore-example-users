@@ -55,6 +55,7 @@ func (r FindAuditByAggregateRequest) ToQuery() *queries.FindAuditByAggregateQuer
 // actor's locale (the handler resolves the catalog key before building the
 // Result).
 type FindAuditByAggregateResponse struct {
+	fwresponses.Auto
 	ThreadID    string         `json:"threadId"`
 	TraceID     string         `json:"traceId,omitempty"`
 	EntityType  string         `json:"entityType"`
@@ -90,7 +91,7 @@ type AuditChildEventOutput struct {
 }
 
 // FromResult is the wire mapping seat, delegating to the generic name-based
-// mapper — the same seat every other read Response carries.
+// mapper (the Response opts in by embedding fwresponses.Auto) — the same seat every other read Response carries.
 func (FindAuditByAggregateResponse) FromResult(r queries.FindAuditByAggregateResult) FindAuditByAggregateResponse {
-	return fwresponses.Map[FindAuditByAggregateResponse](r)
+	return fwresponses.AutoFromResult[FindAuditByAggregateResponse](r)
 }

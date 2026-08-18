@@ -27,6 +27,7 @@ func (r FindPersonByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *queries
 // per nested type). Role fields are pointers so an absent role (null segment)
 // disappears from the wire.
 type FindPersonByIDResponse struct {
+	fwresponses.Auto
 	ID        string  `json:"id"                 example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name      string  `json:"name"               example:"Alice Pereira"`
 	Email     string  `json:"email"              example:"alice@example.com"`
@@ -40,7 +41,7 @@ type FindPersonByIDResponse struct {
 }
 
 // FromResult is the wire mapping seat, delegating to the generic name-based
-// mapper — the read-side twin of the command Responses' FromResult.
+// mapper (the Response opts in by embedding fwresponses.Auto) — the read-side twin of the command Responses' FromResult.
 func (FindPersonByIDResponse) FromResult(r queries.FindPersonByIDResult) FindPersonByIDResponse {
-	return fwresponses.Map[FindPersonByIDResponse](r)
+	return fwresponses.AutoFromResult[FindPersonByIDResponse](r)
 }

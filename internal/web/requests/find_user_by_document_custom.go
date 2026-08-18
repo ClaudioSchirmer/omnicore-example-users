@@ -57,6 +57,8 @@ func (r FindUserByDocumentCustomRequest) ToQuery(criteria fwqueries.ReadCriteria
 // FromResult below delegates to the generic name-based mapper — the same
 // seat the canonical /users surface uses.
 type FindUserByDocumentCustomResponse struct {
+	fwresponses.Auto
+
 	ID       *string `json:"id,omitempty"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name     *string `json:"name,omitempty"     example:"Alice Pereira"`
 	Email    *string `json:"email,omitempty"    example:"alice@example.com"`
@@ -66,5 +68,5 @@ type FindUserByDocumentCustomResponse struct {
 // FromResult is the wire mapping seat, delegating to the generic name-based
 // mapper.
 func (FindUserByDocumentCustomResponse) FromResult(r queries.FindUserByDocumentResult) FindUserByDocumentCustomResponse {
-	return fwresponses.Map[FindUserByDocumentCustomResponse](r)
+	return fwresponses.AutoFromResult[FindUserByDocumentCustomResponse](r)
 }

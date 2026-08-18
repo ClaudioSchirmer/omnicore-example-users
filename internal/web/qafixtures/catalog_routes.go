@@ -159,6 +159,7 @@ func (r FindCatalogByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.
 // Result→Response mapping keys the embed segments by their Go .As names (FeaturedItem / Items); the
 // segment shape (ItemSegmentOutput) is shared with the shared-base AccountView.
 type FindCatalogByIDResponse struct {
+	fwresponses.Auto
 	ID             string              `json:"id"`
 	Name           string              `json:"name"`
 	FeaturedItemID *string             `json:"featuredItemId,omitempty"`
@@ -174,7 +175,7 @@ type FindCatalogByIDResponse struct {
 // FromResult is the wire mapping seat, shared by the materialized
 // qa_catalog_view by-id read and the qa_catalog_full ComposedView twin.
 func (FindCatalogByIDResponse) FromResult(r appqa.FindCatalogByIDResult) FindCatalogByIDResponse {
-	return fwresponses.Map[FindCatalogByIDResponse](r)
+	return fwresponses.AutoFromResult[FindCatalogByIDResponse](r)
 }
 
 // CatalogLineOutput is one enriched native child line. `Item` (Go segment
@@ -241,6 +242,7 @@ func (r FindCatalogsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.Fin
 // FindCatalogsListResponse is the per-item wire projection of the paged catalog
 // list — pointer fields for `?fields=` pruning into the embed segments.
 type FindCatalogsListResponse struct {
+	fwresponses.Auto
 	ID             *string             `json:"id,omitempty"`
 	Name           *string             `json:"name,omitempty"`
 	FeaturedItemID *string             `json:"featuredItemId,omitempty"`
@@ -253,7 +255,7 @@ type FindCatalogsListResponse struct {
 // CSV/XLSX exports project through, on both the materialized view and the
 // read-time qa_catalog_full composition.
 func (FindCatalogsListResponse) FromResult(r appqa.FindCatalogsResult) FindCatalogsListResponse {
-	return fwresponses.Map[FindCatalogsListResponse](r)
+	return fwresponses.AutoFromResult[FindCatalogsListResponse](r)
 }
 
 // MountCatalogsFull registers /qa/catalogs-full — the READ-TIME LinkInChild

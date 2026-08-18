@@ -249,6 +249,7 @@ func (r FindAccountByIDRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.
 // names. Segment fields carry the upstream_items external schema's Go names
 // (ID/Label/AccountID).
 type FindAccountByIDResponse struct {
+	fwresponses.Auto
 	ID             string               `json:"id"`
 	AccountRef     string               `json:"accountRef"`
 	DisplayName    string               `json:"displayName"`
@@ -265,7 +266,7 @@ type FindAccountByIDResponse struct {
 // FromResult is the wire mapping seat — the generic name-based Result→Response
 // mapper, shared by the Mongo composed read and the RelationalSource twin.
 func (FindAccountByIDResponse) FromResult(r appqa.FindAccountByIDResult) FindAccountByIDResponse {
-	return fwresponses.Map[FindAccountByIDResponse](r)
+	return fwresponses.AutoFromResult[FindAccountByIDResponse](r)
 }
 
 // AccountHolderOutput is the role sub-document (role-private fields only; the
@@ -354,6 +355,7 @@ func (r FindAccountsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.Fin
 // every field a pointer / omitempty slice so `?fields=` prunes cleanly,
 // including into the embed segments.
 type FindAccountsListResponse struct {
+	fwresponses.Auto
 	ID             *string              `json:"id,omitempty"`
 	AccountRef     *string              `json:"accountRef,omitempty"`
 	DisplayName    *string              `json:"displayName,omitempty"`
@@ -368,5 +370,5 @@ type FindAccountsListResponse struct {
 // CSV/XLSX exports project through, which is why the tabular column set and
 // the JSON field set can no longer drift apart.
 func (FindAccountsListResponse) FromResult(r appqa.FindAccountsResult) FindAccountsListResponse {
-	return fwresponses.Map[FindAccountsListResponse](r)
+	return fwresponses.AutoFromResult[FindAccountsListResponse](r)
 }

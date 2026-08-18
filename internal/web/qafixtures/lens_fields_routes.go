@@ -93,6 +93,7 @@ type LensFieldsBrandOutput struct {
 }
 
 type FindLensFieldsForeverResponse struct {
+	fwresponses.Auto
 	ID      *string                       `json:"id,omitempty"`
 	Label   *string                       `json:"label,omitempty"`
 	Slot    *int                          `json:"slot,omitempty"`
@@ -105,10 +106,11 @@ type FindLensFieldsForeverResponse struct {
 // materialize, and the Response is what THIS route admits — brand.deletedAt
 // is simply not declared here, so it exists on no wire of this endpoint.
 func (FindLensFieldsForeverResponse) FromResult(r appqa.FindLensPartsResult) FindLensFieldsForeverResponse {
-	return fwresponses.Map[FindLensFieldsForeverResponse](r)
+	return fwresponses.AutoFromResult[FindLensFieldsForeverResponse](r)
 }
 
 type FindLensFieldsPartsResponse struct {
+	fwresponses.Auto
 	ID      *string                `json:"id,omitempty"`
 	Label   *string                `json:"label,omitempty"`
 	Slot    *int                   `json:"slot,omitempty"`
@@ -119,7 +121,7 @@ type FindLensFieldsPartsResponse struct {
 // FromResult maps the same shared hop-1 Result onto the lifecycle cut, which
 // DOES declare brand.deletedAt — the archive switch made visible on the wire.
 func (FindLensFieldsPartsResponse) FromResult(r appqa.FindLensPartsResult) FindLensFieldsPartsResponse {
-	return fwresponses.Map[FindLensFieldsPartsResponse](r)
+	return fwresponses.AutoFromResult[FindLensFieldsPartsResponse](r)
 }
 
 // ─── kits: the 1:N capped elements ───────────────────────────────────────────
@@ -151,6 +153,7 @@ type LensFieldsPartElementOutput struct {
 }
 
 type FindLensFieldsKitsResponse struct {
+	fwresponses.Auto
 	ID    *string                       `json:"id,omitempty"`
 	Name  *string                       `json:"name,omitempty"`
 	Parts []LensFieldsPartElementOutput `json:"parts,omitempty"`
@@ -160,7 +163,7 @@ type FindLensFieldsKitsResponse struct {
 // the element admits Label + Slot + the whole Brand segment, and nothing else
 // — the Gadget segment the leg cut away is not declared here.
 func (FindLensFieldsKitsResponse) FromResult(r appqa.FindLensKitsResult) FindLensFieldsKitsResponse {
-	return fwresponses.Map[FindLensFieldsKitsResponse](r)
+	return fwresponses.AutoFromResult[FindLensFieldsKitsResponse](r)
 }
 
 // MountLensFields registers the three read groups, one per projection.

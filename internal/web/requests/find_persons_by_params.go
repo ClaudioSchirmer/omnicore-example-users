@@ -75,6 +75,7 @@ func (r FindPersonsByParamsRequest) ToQuery(criteria fwqueries.ReadCriteria) *qu
 // omitted on default reads and carries its deletedAt under
 // ?includeArchived=true.
 type FindPersonsByParamsResponse struct {
+	fwresponses.Auto
 	ID        *string `json:"id,omitempty"       example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`
 	Name      *string `json:"name,omitempty" exportLabelKey:"UserNameField"     example:"Alice Pereira"`
 	Email     *string `json:"email,omitempty" exportLabelKey:"UserEmailField"    example:"alice@example.com"`
@@ -88,9 +89,9 @@ type FindPersonsByParamsResponse struct {
 }
 
 // FromResult is the wire mapping seat, delegating to the generic name-based
-// mapper — the read-side twin of the command Responses' FromResult.
+// mapper (the Response opts in by embedding fwresponses.Auto) — the read-side twin of the command Responses' FromResult.
 func (FindPersonsByParamsResponse) FromResult(r queries.FindPersonsByParamsResult) FindPersonsByParamsResponse {
-	return fwresponses.Map[FindPersonsByParamsResponse](r)
+	return fwresponses.AutoFromResult[FindPersonsByParamsResponse](r)
 }
 
 // PersonUserOutput is the User role segment on the wire: role-private fields
