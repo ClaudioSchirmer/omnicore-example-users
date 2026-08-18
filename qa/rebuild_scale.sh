@@ -408,8 +408,11 @@ if wait_ready "$B_BASE" "$REBUILD_TIMEOUT"; then
   # Performance yardstick: the pure backfill time for $SEED_COUNT full aggregates
   # (recompose from the relational source → bulk Mongo upsert), directly
   # comparable across engines at equal N. Printed, not asserted.
-  bd_ns=$(grep -aoE '"view":"users"[^}]*"duration":[0-9]+' /tmp/omnicore-rs-B.log 2>/dev/null | grep -oE 'duration":[0-9]+' | head -1 | sed 's/duration"://')
-  [ -n "$bd_ns" ] && awk -v ns="$bd_ns" -v n="$SEED_COUNT" -v e="$REL_DIALECT" 'BEGIN{printf "  \033[1;36m⏱ PERF\033[0m first-rebuild backfill: %.2fs for %s aggregates on %s (%.0f/s)\n", ns/1e9, n, e, n/(ns/1e9)}'
+  # view.rebuild.end reports durationMs (float milliseconds) — the framework
+  # stopped logging bare time.Duration values, which slog rendered as a
+  # unit-less nanosecond count.
+  bd_ms=$(grep -aoE '"view":"users"[^}]*"durationMs":[0-9.]+' /tmp/omnicore-rs-B.log 2>/dev/null | grep -oE 'durationMs":[0-9.]+' | head -1 | sed 's/durationMs"://')
+  [ -n "$bd_ms" ] && awk -v ms="$bd_ms" -v n="$SEED_COUNT" -v e="$REL_DIALECT" 'BEGIN{printf "  \033[1;36m⏱ PERF\033[0m first-rebuild backfill: %.2fs for %s aggregates on %s (%.0f/s)\n", ms/1e3, n, e, n/(ms/1e3)}'
 else
   FAIL=$((FAIL+1)); echo "✘ first rebuild never became ready"; tail -40 /tmp/omnicore-rs-B.log
 fi
