@@ -39,6 +39,39 @@ wait_for_view() {
   return 1
 }
 
+# wait_for_view_revision <id> [timeout] — poll until the users PROJECTION has
+# caught up with the users ROW, comparing the document's _revision against the
+# row's revision column.
+#
+# Why this exists next to wait_for_view: a status gate can only observe a
+# TRANSITION. It is the right tool after a delete (200→404) or after an
+# unarchive that a previous step already drove to 404. It is the WRONG tool for
+# an archive→unarchive PAIR, which leaves the document reading exactly as it did
+# before — so "reads 200" is equally true of a projection that has consumed both
+# events and of one that has consumed neither. On a fast lane the events land
+# before the gate runs and nothing shows; on a slow lane the gate returns
+# instantly on the stale document and the next assertion races the archive
+# landing. Seen on sqlserver 2026-08-19: 9.0b reported ready, 9.1 got 404, and
+# 9.2 listed the same user active with its patches applied moments later.
+#
+# The revision comparison has no such blind spot: revision only ever grows, so
+# the gate cannot be satisfied by a state older than the write being waited for.
+wait_for_view_revision() {
+  local id="$1" timeout="${2:-30}" want coll got deadline
+  want=$(qa_db_query "SELECT revision FROM users WHERE id=$(qa_uuid_lit "$id");" | head -1 | tr -d '[:space:]\r')
+  case "$want" in ''|*[!0-9]*) return 1 ;; esac
+  coll=$(qa_view_coll users)
+  deadline=$(( $(date +%s) + timeout ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    got=$(docker exec "$QA_MONGO_CONTAINER" mongosh "$QA_MONGO_DB" --quiet --eval \
+      "var d=db.getCollection('$coll').findOne({_id:'$id'}); print(d?Number(d._revision):-1)" 2>/dev/null | tr -d '[:space:]\r')
+    case "$got" in ''|*[!0-9-]*) got=-1 ;; esac
+    [ "$got" -ge "$want" ] 2>/dev/null && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
 hr() { printf '\n\033[1;36m%s\033[0m\n' "============================================================"; }
 sec() { hr; printf '\033[1;33m== %s ==\033[0m\n' "$1"; }
 title() { printf '\n\033[1;37m--- %s ---\033[0m\n' "$1"; }
@@ -755,19 +788,23 @@ title "9.0 Polling Mongo via GET /users/$USER_C2 until 404 (the 8.1 delete mater
 # workers apply different aggregates' events independently, so USER_C2's delete
 # materializing says nothing about USER_A's archive/unarchive pair. Gate each
 # entity on its own doc: C2 flipping 200→404 proves the delete (for the 9.2
-# listing), and USER_A answering 200 proves its unarchive+PATCHes converged
-# (its transient state while archived is 404, waited out here — seen live on
-# the oracle lane, 2026-07-28).
+# listing), and USER_A is gated on REVISION PARITY rather than on a status,
+# because its archive→unarchive pair ends where it began and a status gate
+# cannot tell "consumed both" from "consumed neither" (seen on the oracle lane
+# 2026-07-28 and again on sqlserver 2026-08-19).
 if wait_for_view "$USER_C2" "404" 30; then
   echo "view ready (delete materialized)"
 else
   echo "TIMEOUT waiting for view (30s)"
 fi
-title "9.0b Polling Mongo via GET /users/$USER_A until 200 (its own archive→unarchive pair consolidated)"
-if wait_for_view "$USER_A" "200" 30; then
-  echo "view ready (USER_A active again)"
+title "9.0b Waiting for USER_A's projection to reach the row revision (its archive→unarchive pair consolidated)"
+# Revision parity, not a status gate: the pair leaves the document reading 200
+# exactly as it did before it, so a status gate is satisfied by a projection
+# that has not consumed either event. See wait_for_view_revision.
+if wait_for_view_revision "$USER_A" 30; then
+  echo "view ready (USER_A projection caught up with the row)"
 else
-  echo "TIMEOUT waiting for view (30s)"
+  echo "TIMEOUT waiting for the projection to reach USER_A's row revision (30s)"
 fi
 
 show "9.1 GET /users/USER_A (with PATCHes already applied via CDC)" GET "/users/$USER_A" "" 200

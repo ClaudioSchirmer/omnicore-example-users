@@ -128,7 +128,7 @@ func resetState(t *testing.T, eng core.RelationalEngine) {
 		"persons",
 		"outbox",
 	} {
-		if err := q.Exec(ctx, "DELETE FROM "+table); err != nil {
+		if err := core.Exec(q, ctx, "DELETE FROM "+table); err != nil {
 			t.Skipf("cannot reset the configured database (reachable and migrated?): %v", err)
 		}
 	}
