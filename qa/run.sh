@@ -419,11 +419,42 @@ port_free() {
 # this costs one boot. Failure is NOT fatal here — relay_setup reports the real
 # diagnosis if the tables are genuinely missing, and a lane whose app cannot boot
 # at all fails louder a few lines later at the server branch's wait_health.
+# wait_sync_stream blocks until the app has created OMNICORE_EVENTS, the
+# JetStream stream the NATS relay publishes into. NATS lanes only — Kafka
+# auto-creates its topics, so this is a no-op there.
+#
+# It exists because /livez goes green BEFORE that stream is created: the health
+# endpoint answers as soon as the HTTP server is listening, while the
+# SyncEngine's EnsureTopics runs several seconds later (measured at 7.0s on the
+# mysql lane, 2026-08-19). migrate_boot used to kill the app the moment health
+# went green, so on the empty volume the `down -v` above now guarantees, the
+# stream did not exist when relay_setup started the relay a moment later. The
+# relay's first publish answered "503 No Responders Available For Request", the
+# Debezium engine terminated for good, and the lane then ran its whole suite
+# list against a dead CDC pipeline — e2e alone reported 139 failures, all of
+# them the same empty projection.
+#
+# This is the SAME class of ordering bug as the one migrate_boot itself was
+# written for, and it hid for the same reason: on a surviving volume the stream
+# was left over from an earlier run, so the ordering never mattered.
+wait_sync_stream() {
+  [ "${QA_TRANSPORT_TAG:-kafka}" = nats ] || return 0
+  local deadline=$(( $(date +%s) + 90 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    docker run --rm --network omnicore-qa_default natsio/nats-box:latest \
+      nats -s "${QA_NATS_URL:-nats://nats:4222}" stream info OMNICORE_EVENTS >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  echo "[$BACKEND] WARNING: OMNICORE_EVENTS did not appear within 90s of the migration boot — the relay will publish into a stream that does not exist" >&2
+  return 1
+}
 migrate_boot() { # migrate_boot <binary> <logfile>
   local bin="$1" log="$2" pid
   APP_PROFILE=dev "$bin" > "$log" 2>&1 &
   pid=$!
   wait_health || echo "[$BACKEND] WARNING: migration boot never became healthy (see $log)" >&2
+  # Health is not the post-condition the relay depends on; the stream is.
+  wait_sync_stream
   kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
   port_free || echo "[$BACKEND] WARNING: port $HTTP_PORT still busy after the migration boot" >&2
 }
@@ -587,8 +618,9 @@ run_lane() {
   # blocking-until-streaming, so the server branch below inherits it hot.
   if [ -n "$run_server_suites$run_self_suites" ] && ! stop_requested; then
     # Migrations BEFORE the relay: the relay's dialect arm needs outbox +
-    # integration_events to exist, and on the now-always-empty bench only this
-    # boot creates them. See migrate_boot for the full ordering rationale.
+    # integration_events to exist, and the NATS arms additionally need the
+    # OMNICORE_EVENTS stream. On the now-always-empty bench only this boot
+    # creates either. See migrate_boot for the full ordering rationale.
     migrate_boot "$SRV_BIN" "$LOG_DIR/migrate-$B.log"
     relay_setup "$B" "$LOG_DIR/connector-$B.log" \
       || echo "[$B] WARNING: relay (re)start failed (see $LOG_DIR/connector-$B.log)" >&2
