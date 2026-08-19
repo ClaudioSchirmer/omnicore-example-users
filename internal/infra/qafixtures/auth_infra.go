@@ -88,7 +88,7 @@ func (s *RefreshTokenStore) Save(ctx context.Context, rec authcore.RefreshTokenR
 	// write and read must agree on ONE zone or comparisons against time.Now()
 	// silently drift by the host's UTC offset (caught in manual smoke testing
 	// — a 3600s-TTL token read back as already-expired).
-	return s.eng.Querier().Exec(ctx, sql,
+	return fwdb.Exec(s.eng.Querier(), ctx, sql,
 		rec.Hash, rec.FamilyID, rec.Subject, strings.Join(rec.Audience, ","),
 		rec.ExpiresAt.UTC(), false, false,
 	)
@@ -137,13 +137,13 @@ func (s *RefreshTokenStore) Lookup(ctx context.Context, hash string) (authcore.R
 func (s *RefreshTokenStore) MarkUsed(ctx context.Context, hash string) error {
 	d := s.eng.Dialect()
 	sql := fmt.Sprintf("UPDATE qa_refresh_tokens SET used = %s WHERE hash = %s", d.Placeholder(1), d.Placeholder(2))
-	return s.eng.Querier().Exec(ctx, sql, true, hash)
+	return fwdb.Exec(s.eng.Querier(), ctx, sql, true, hash)
 }
 
 func (s *RefreshTokenStore) RevokeFamily(ctx context.Context, familyID string) error {
 	d := s.eng.Dialect()
 	sql := fmt.Sprintf("UPDATE qa_refresh_tokens SET revoked = %s WHERE family_id = %s", d.Placeholder(1), d.Placeholder(2))
-	return s.eng.Querier().Exec(ctx, sql, true, familyID)
+	return fwdb.Exec(s.eng.Querier(), ctx, sql, true, familyID)
 }
 
 // ─── Dialect-portable scan helpers ───────────────────────────────────────────

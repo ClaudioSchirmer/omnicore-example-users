@@ -275,7 +275,7 @@ func (a *GadgetEventSinkAdapter) Record(
 		)
 	}
 
-	return q.Exec(ctx, sql,
+	return fwdb.Exec(q, ctx, sql,
 		d.EncodeArg(domain.NewID(cmd.GadgetID)),
 		cmd.Code, cmd.Name, cmd.Category, cmd.Status,
 	)

@@ -34,7 +34,7 @@ func qaExecDDL(ctx context.Context, eng fwdb.RelationalEngine, stmts ...string) 
 		if rewrite != nil {
 			stmt = rewrite(stmt)
 		}
-		if err := q.Exec(ctx, stmt); err != nil {
+		if err := fwdb.Exec(q, ctx, stmt); err != nil {
 			return err
 		}
 	}
