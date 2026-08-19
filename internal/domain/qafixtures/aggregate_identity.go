@@ -29,3 +29,9 @@ func (GadgetKitLine) CollectionName() string { return "GadgetKitLines" }
 func (CatalogLine) CollectionName() string   { return "CatalogLines" }
 func (AccountLine) CollectionName() string   { return "AccountLines" }
 func (WidgetPart) CollectionName() string    { return "WidgetParts" }
+
+func (s TenantSeat) IsSameBusinessIdentity(other domain.AggregateValueObject) bool {
+	return domain.IsSameByBusinessFields(s, other)
+}
+
+func (TenantSeat) CollectionName() string { return "TenantSeats" }
