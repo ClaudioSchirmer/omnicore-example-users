@@ -18,12 +18,12 @@ import (
 // ?jobHistories.department=Platform resolve to Go field paths the reader
 // translates to the physical Mongo paths via the view's schemas.
 type FindEmployeesByParamsRequest struct {
-	Name           *string `query:"name"      filter:"eq,startswith,icontains,istartswith"`
-	Email          *string `query:"email"     filter:"eq,in,ieq"`
-	Document       *string `query:"document"  filter:"eq,in,startswith"`
-	Ethnicity      *string `query:"ethnicity" filter:"eq,in"`
-	EmployeeNumber *string `query:"employeeNumber" filter:"eq,in,startswith"`
-	Bank           *string `query:"bank"     filter:"eq,in"`
+	Name           *string `query:"name"      filter:"eq,startswith,icontains,istartswith" sort:"asc,desc"`
+	Email          *string `query:"email"     filter:"eq,in,ieq" sort:"asc,desc"`
+	Document       *string `query:"document"  filter:"eq,in,startswith" sort:"asc,desc"`
+	Ethnicity      *string `query:"ethnicity" filter:"eq,in" sort:"asc,desc"`
+	EmployeeNumber *string `query:"employeeNumber" filter:"eq,in,startswith" sort:"asc,desc"`
+	Bank           *string `query:"bank"     filter:"eq,in" sort:"asc,desc"`
 
 	Addresses    AddressFilterParams    `query:"addresses"`
 	Dependents   DependentFilterParams  `query:"dependents"`
@@ -33,7 +33,6 @@ type FindEmployeesByParamsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
@@ -44,7 +43,7 @@ type FindEmployeesByParamsRequest struct {
 // dependents child — includes a sibling-backed leaf (healthPlanProvider) so the QA
 // suite can filter by a child-sibling field.
 type DependentFilterParams struct {
-	Name               *string `query:"name"       filter:"eq,istartswith,icontains"`
+	Name               *string `query:"name"       filter:"eq,istartswith,icontains" sort:"asc,desc"`
 	Relationship       *string `query:"relationship" filter:"eq,in"`
 	HealthPlanProvider *string `query:"healthPlanProvider"  filter:"eq,in"`
 	HealthPlanType     *string `query:"healthPlanType" filter:"eq,in"`

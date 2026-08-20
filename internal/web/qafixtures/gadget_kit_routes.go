@@ -170,7 +170,7 @@ type GadgetKitLineFilter struct {
 }
 
 type FindGadgetKitsRequest struct {
-	Name *string `query:"name" filter:"eq,icontains"`
+	Name *string `query:"name" filter:"eq,icontains" sort:"asc,desc"`
 
 	GadgetKitLines GadgetKitLineFilter `query:"gadgetKitLines"`
 
@@ -178,7 +178,6 @@ type FindGadgetKitsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`

@@ -75,8 +75,8 @@ func (FindGadgetNotesResponse) FromResult(r appqa.FindGadgetNotesResult) FindGad
 // enters each item's Notes array, never which gadgets appear — R2). A `?orderBy=`
 // into `notes.*` is rejected with 400: segment order is declared on the link.
 type FindGadgetsFullRequest struct {
-	Code *string `query:"code" filter:"eq,startswith"`
-	Name *string `query:"name" filter:"eq,icontains"`
+	Code *string `query:"code" filter:"eq,startswith" sort:"asc,desc"`
+	Name *string `query:"name" filter:"eq,icontains" sort:"asc,desc"`
 
 	Notes          GadgetFullNotesFilter  `query:"notes"`
 	UpstreamMirror GadgetFullMirrorFilter `query:"upstreamMirror"`
@@ -85,7 +85,6 @@ type FindGadgetsFullRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`

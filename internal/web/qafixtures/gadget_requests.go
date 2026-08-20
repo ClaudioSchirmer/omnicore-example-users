@@ -92,16 +92,15 @@ func (r GadgetCreatedReceivedRequest) ToCommand() *appqa.RecordGadgetEventComman
 //	Category → eq,in,iin,inin,ieq
 //	Status   → eq,ne,ieq,ine
 type FindGadgetsRequest struct {
-	Code     *string `query:"code"     filter:"eq,in,nin,gte,lte,gt,lt,startswith"`
-	Name     *string `query:"name"     filter:"eq,ne,startswith,contains,icontains,istartswith,ine"`
-	Category *string `query:"category" filter:"eq,in,iin,inin,ieq"`
-	Status   *string `query:"status"   filter:"eq,ne,ieq,ine"`
+	Code     *string `query:"code"     filter:"eq,in,nin,gte,lte,gt,lt,startswith" sort:"asc,desc"`
+	Name     *string `query:"name"     filter:"eq,ne,startswith,contains,icontains,istartswith,ine" sort:"asc,desc"`
+	Category *string `query:"category" filter:"eq,in,iin,inin,ieq" sort:"asc,desc"`
+	Status   *string `query:"status"   filter:"eq,ne,ieq,ine" sort:"asc,desc"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
@@ -156,10 +155,10 @@ func (FindGadgetsResponse) FromResult(r appqa.FindGadgetsResult) FindGadgetsResp
 // wire. `?fields=label` therefore reads code+name from the store and answers
 // with label alone.
 //
-// The two refusals this shape locks in: `?orderBy=label` is 400
-// ComputedFieldNotSortableNotification (ordering happens in the store, and the
-// keyset cursor is built from stored values), and a `filter:` tag over label
-// would be a boot panic (there is no column to filter on).
+// The two refusals this shape locks in: `?orderBy=label` is 400 — ordering
+// speaks the Request DTO's `sort:` vocabulary, and a computed field is
+// never in it because it backs no column to order by — and a `filter:` tag
+// over label would be a boot panic, for the same reason.
 type FindGadgetsComputedResponse struct {
 	fwresponses.Auto
 	ID    *string `json:"id,omitempty"    example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`

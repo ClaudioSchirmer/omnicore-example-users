@@ -328,9 +328,9 @@ type AccountLineFilter struct {
 type FindAccountsRequest struct {
 	// ID (the shared-base root id, == the view `_id`) is allowlisted for filtering
 	// to prove the SharedBaseView root identity is queryable, like the normal view.
-	ID          *string `query:"id"          filter:"eq"`
-	AccountRef  *string `query:"accountRef"  filter:"eq,startswith"`
-	DisplayName *string `query:"displayName" filter:"eq,icontains"`
+	ID          *string `query:"id"          filter:"eq" sort:"asc,desc"`
+	AccountRef  *string `query:"accountRef"  filter:"eq,startswith" sort:"asc,desc"`
+	DisplayName *string `query:"displayName" filter:"eq,icontains" sort:"asc,desc"`
 
 	AccountHolder AccountHolderFilter `query:"accountHolder"`
 	FeaturedItem  ItemSegmentFilter   `query:"featuredItem"`
@@ -341,7 +341,6 @@ type FindAccountsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`

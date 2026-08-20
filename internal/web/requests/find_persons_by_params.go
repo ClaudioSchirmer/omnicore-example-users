@@ -21,10 +21,10 @@ import (
 // from the role Go types — that is the contract that makes the wire path
 // land on the right sub-document.
 type FindPersonsByParamsRequest struct {
-	Name      *string `query:"name"      filter:"eq,startswith,icontains,istartswith"`
-	Email     *string `query:"email"     filter:"eq,in,ieq"`
-	Document  *string `query:"document"  filter:"eq,in,startswith"`
-	Ethnicity *string `query:"ethnicity" filter:"eq,in"`
+	Name      *string `query:"name"      filter:"eq,startswith,icontains,istartswith" sort:"asc,desc"`
+	Email     *string `query:"email"     filter:"eq,in,ieq" sort:"asc,desc"`
+	Document  *string `query:"document"  filter:"eq,in,startswith" sort:"asc,desc"`
+	Ethnicity *string `query:"ethnicity" filter:"eq,in" sort:"asc,desc"`
 
 	Addresses AddressFilterParams        `query:"addresses"`
 	User      PersonUserFilterParams     `query:"user"`
@@ -34,7 +34,6 @@ type FindPersonsByParamsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`

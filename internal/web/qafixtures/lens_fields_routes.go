@@ -40,15 +40,14 @@ type LensFieldsLifecycleBrandFilter struct {
 }
 
 type FindLensFieldsForeverRequest struct {
-	Label   *string `query:"label"   filter:"eq,contains"`
-	BrandID *string `query:"brandId" filter:"eq"`
+	Label   *string `query:"label"   filter:"eq,contains" sort:"asc,desc"`
+	BrandID *string `query:"brandId" filter:"eq" sort:"asc,desc"`
 
 	Brand LensFieldsForeverBrandFilter `query:"brand"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
@@ -59,15 +58,14 @@ func (r FindLensFieldsForeverRequest) ToQuery(criteria fwqueries.ReadCriteria) *
 }
 
 type FindLensFieldsLifecycleRequest struct {
-	Label   *string `query:"label"   filter:"eq,contains"`
-	BrandID *string `query:"brandId" filter:"eq"`
+	Label   *string `query:"label"   filter:"eq,contains" sort:"asc,desc"`
+	BrandID *string `query:"brandId" filter:"eq" sort:"asc,desc"`
 
 	Brand LensFieldsLifecycleBrandFilter `query:"brand"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
@@ -127,12 +125,11 @@ func (FindLensFieldsPartsResponse) FromResult(r appqa.FindLensPartsResult) FindL
 // ─── kits: the 1:N capped elements ───────────────────────────────────────────
 
 type FindLensFieldsKitsRequest struct {
-	Name *string `query:"name" filter:"eq,contains"`
+	Name *string `query:"name" filter:"eq,contains" sort:"asc,desc"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`

@@ -18,10 +18,10 @@
 #   1. the derived value reaches every surface (JSON list, CSV, XLSX, GraphQL)
 #   2. `?fields=label` pushes the SOURCES to the store, not the computed path,
 #      and answers with label alone
-#   3. `?orderBy=label` is 400 ComputedFieldNotSortableNotification — typed and
-#      TRANSLATED (asserted in en-US and pt-BR), never a generic schema error
-#      and never leaking the internal Go field name
-#   4. an unknown token stays a plain schema violation, so the two refusals
+#   3. `?orderBy=label` is 400: ordering speaks the Request DTO's vocabulary and
+#      a computed field backs no column, so it is never declared orderable —
+#      reported on the wire token, never leaking the internal Go field name
+#   4. an unknown token rejects identically, so the vocabulary is the whole rule
 #      remain distinguishable
 #   5. a Result field the Response does not declare never leaks to that wire
 #   6. the CSV column set keeps the computed column when it is the only thing
@@ -179,8 +179,14 @@ expect_json "2.5 an unknown token is still rejected on the computed surface" \
   "fields[bogus]"
 
 ##############################################################################
-sec "3. ?orderBy= — refused, typed, translated, and NOT a generic schema error"
+sec "3. ?orderBy= — a computed field is simply not in the ordering vocabulary"
 ##############################################################################
+# Ordering speaks the REQUEST DTO's vocabulary: a leaf is orderable because it
+# declared `sort:"…"`. A computed field is derived after the read and backs
+# no column, so it is never declared — and the refusal is the canonical schema
+# violation, the same one any undeclared token gets. There is no computed-
+# specific notification to distinguish, because there is no computed-specific
+# rule: the store cannot order by a value it does not hold.
 expect_json "3.1 ?orderBy=label → 400" \
   "/qa/gadgets/computed?orderBy=label" 400 \
   'import sys,json;d=json.load(open(sys.argv[1]));print(d["status"])' \
@@ -192,36 +198,24 @@ expect_json "3.2 …reported on the canonical orderBy[label] field spelling" \
   'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["field"])' \
   "orderBy[label]"
 
-expect_json "3.3 …carrying its OWN notification key, not SchemaViolation" \
+expect_json "3.3 …as the canonical schema violation" \
   "/qa/gadgets/computed?orderBy=label" 400 \
   'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["notificationKey"])' \
-  "ComputedFieldNotSortableNotification"
+  "SchemaViolationNotification"
 
-expect_json "3.4 …with the message rendered in en-US" \
-  "/qa/gadgets/computed?orderBy=label" 400 \
-  'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["message"])' \
-  "Computed fields cannot be used for ordering." "en-US"
-
-expect_json "3.5 …and translated for pt-BR (Accept-Language drives it)" \
-  "/qa/gadgets/computed?orderBy=label" 400 \
-  'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["message"])' \
-  "Campos computados não podem ser utilizados na ordenação." "pt-BR"
-
-expect_json "3.6 the descending form rejects verbatim (orderBy[-label])" \
+expect_json "3.4 the descending form rejects verbatim (orderBy[-label])" \
   "/qa/gadgets/computed?orderBy=-label" 400 \
   'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["field"])' \
   "orderBy[-label]"
 
-# The two refusals must stay distinguishable: an UNKNOWN token is a plain
-# schema violation, a COMPUTED one is the dedicated notification.
-expect_json "3.7 an unknown orderBy token keeps SchemaViolationNotification" \
+expect_json "3.5 an unknown orderBy token rejects the same way" \
   "/qa/gadgets/computed?orderBy=bogus" 400 \
   'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["notificationKey"])' \
   "SchemaViolationNotification"
 
-# A STORED field on the same Response still sorts — the refusal is scoped to
-# the computed field, it does not disable ordering for the endpoint.
-expect_json "3.8 a stored field on the same Response still sorts (200)" \
+# A DECLARED field on the same endpoint still sorts — the refusal is scoped to
+# what the DTO did not declare, it does not disable ordering for the endpoint.
+expect_json "3.6 a declared field on the same endpoint still sorts (200)" \
   "/qa/gadgets/computed?orderBy=-code&code.startswith=CMP" 200 \
   'import sys,json;d=json.load(open(sys.argv[1]));print(d["data"][0]["code"])' \
   "CMP-02"
@@ -252,10 +246,10 @@ if printf '%s' "$CSV_F" | grep -q "CMP-01 · Alpha One"; then ok "4.4 computed c
 title "4.5 …and the hidden source did NOT become a column"
 if printf '%s' "$CSV_F" | head -1 | grep -qi "name"; then bad "4.5 a source leaked into the CSV column set"; else ok "4.5 sources stayed off the column set"; fi
 
-title "4.6 CSV ?orderBy=label is refused with the same typed notification"
+title "4.6 CSV ?orderBy=label is refused exactly like the JSON twin"
 ST=$(curl -sS -o /tmp/qa_cmp_csv_err.json -w "%{http_code}" "$BASE/qa/gadgets-computed.csv?orderBy=label" -H "Accept-Language: en-US")
 KEY=$(probe /tmp/qa_cmp_csv_err.json 'import sys,json;d=json.load(open(sys.argv[1]));print(d["errors"][0]["messages"][0]["notificationKey"])')
-if [ "$ST" = "400" ] && [ "$KEY" = "ComputedFieldNotSortableNotification" ]; then ok "4.6 export refuses like the JSON twin (400 + $KEY)"; else bad "4.6 export refusal wrong (status=$ST key=$KEY)"; fi
+if [ "$ST" = "400" ] && [ "$KEY" = "SchemaViolationNotification" ]; then ok "4.6 export refuses like the JSON twin (400 + $KEY)"; else bad "4.6 export refusal wrong (status=$ST key=$KEY)"; fi
 rm -f /tmp/qa_cmp_csv_err.json
 
 ##############################################################################

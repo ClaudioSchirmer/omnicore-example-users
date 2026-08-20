@@ -106,7 +106,7 @@ func MountGadgets(
 		computedH, computedSpec,
 		fwopenapi.Doc{
 			Summary:     "List gadgets with a COMPUTED field (label)",
-			Description: "Same `gadgets` view and handler as GET /qa/gadgets, projected through a Response whose `label` is computed by FromQueryResult from code+name. `?fields=label` reads the two sources and answers with label alone; `?orderBy=label` is 400 ComputedFieldNotSortableNotification (ordering happens in the store and the keyset cursor is built from stored values).",
+			Description: "Same `gadgets` view and handler as GET /qa/gadgets, projected through a Response whose `label` is computed by FromQueryResult from code+name. `?fields=label` reads the two sources and answers with label alone; `?orderBy=label` is 400: ordering speaks the Request DTO's `sort:` vocabulary and a computed field backs no column to order by.",
 			Tags:        []string{"QA Gadgets"},
 		},
 		fwopenapi.RequirePermission("gadgets:read"))
