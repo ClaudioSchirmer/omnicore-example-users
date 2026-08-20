@@ -97,6 +97,24 @@ type FindGadgetsRequest struct {
 	Category *string `query:"category" filter:"eq,in,iin,inin,ieq" sort:"asc,desc"`
 	Status   *string `query:"status"   filter:"eq,ne,ieq,ine" sort:"asc,desc"`
 
+	// CreatedAt is the VOCABULARY LEAF: `sort:` with no `filter:`. It is the
+	// third legal shape of a query-tagged scalar, and the one that carries the
+	// whole point of moving the ordering vocabulary onto the Request —
+	// `created_at` is a MANAGED column that FindGadgetsResponse does not
+	// render, so under the old Response-derived vocabulary it could not be
+	// ordered by at all, even though every reader can order by any column of
+	// the view.
+	//
+	// It is also DIRECTION-RESTRICTED: newest-first is the only ordering this
+	// endpoint offers over it (`?orderBy=-createdAt`), and `?orderBy=createdAt`
+	// is refused like any undeclared token. The view backs it with
+	// query.Index("created_at").Desc().
+	//
+	// Carrying no `filter:`, it takes no value on the wire: `?createdAt=` is
+	// refused, and OpenAPI emits no parameter for it — its wire name appears
+	// only inside the `orderBy` parameter's own description.
+	CreatedAt *string `query:"createdAt" sort:"desc"`
+
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`

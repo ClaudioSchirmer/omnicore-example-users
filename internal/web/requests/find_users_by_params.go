@@ -55,10 +55,15 @@ type FindUsersByParamsRequest struct {
 // translates them to the physical Mongo paths (addresses.city /
 // addresses.zip_code) via the view's TableSchema — no view: declaration.
 type AddressFilterParams struct {
-	City        *string `query:"city"        filter:"eq,istartswith,icontains"`
-	State       *string `query:"state"       filter:"eq,in"`
-	Country     *string `query:"country"     filter:"eq,in"`
-	ZipCode     *string `query:"zipCode"     filter:"eq,startswith"`
+	City    *string `query:"city"        filter:"eq,istartswith,icontains"`
+	State   *string `query:"state"       filter:"eq,in"`
+	Country *string `query:"country"     filter:"eq,in"`
+	// ZipCode carries the ordering declaration INSIDE the embed group: a leaf
+	// at any depth contributes its dotted path to the vocabulary exactly as a
+	// filter leaf does, so `?orderBy=addresses.zipCode` is legal and the
+	// GraphQL enum carries ADDRESSES_ZIP_CODE. The employee twin declares the
+	// same shape on `dependents.name`.
+	ZipCode     *string `query:"zipCode"     filter:"eq,startswith" sort:"asc,desc"`
 	AddressType *string `query:"addressType" filter:"eq,in"`
 }
 
