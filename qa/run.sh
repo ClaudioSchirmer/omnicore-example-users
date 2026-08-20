@@ -603,9 +603,18 @@ run_lane() {
     fi
   fi
 
-  local run_server_suites="" run_self_suites=""
+  local run_server_suites="" run_self_suites="" run_serial_suites=""
   for s in $SUITES; do
-    grep -qw "$s" <<<"$SERIAL_SUITES" && continue   # serial suites run after the parallel matrix
+    # A serial suite does not run HERE — it runs in its own wave after the
+    # parallel matrix — but it still needs this lane's prerequisites, so it is
+    # collected rather than skipped outright. Dropping it on the floor made a
+    # serial-only selection (SUITES="schema_evolution") boot against a bench
+    # with no migrations and no CDC relay, and every projection assertion in it
+    # failed with an empty view.
+    if grep -qw "$s" <<<"$SERIAL_SUITES"; then
+      run_serial_suites="$run_serial_suites $s"
+      continue
+    fi
     grep -qw "$s" <<<"$SERVER_SUITES" && run_server_suites="$run_server_suites $s"
     grep -qw "$s" <<<"$SELF_SUITES"   && run_self_suites="$run_self_suites $s"
   done
@@ -613,10 +622,11 @@ run_lane() {
   # The relay is a LANE prerequisite, not a server-suite one: a wave brings the
   # lane's containers up cold, and the SELF-managed suites read projections too
   # (grpc, filter_operators, view_options, composed_view, …) while booting their
-  # own binaries. Registering it here — before either branch — is what keeps a
-  # run like SUITES="grpc" from silently reading a dead pipeline. Idempotent and
-  # blocking-until-streaming, so the server branch below inherits it hot.
-  if [ -n "$run_server_suites$run_self_suites" ] && ! stop_requested; then
+  # own binaries, and so do the serial suites in their own wave. Registering it
+  # here — before ANY branch — is what keeps a run like SUITES="grpc" or
+  # SUITES="schema_evolution" from silently reading a dead pipeline. Idempotent
+  # and blocking-until-streaming, so the server branch below inherits it hot.
+  if [ -n "$run_server_suites$run_self_suites$run_serial_suites" ] && ! stop_requested; then
     # Migrations BEFORE the relay: the relay's dialect arm needs outbox +
     # integration_events to exist, and the NATS arms additionally need the
     # OMNICORE_EVENTS stream. On the now-always-empty bench only this boot
