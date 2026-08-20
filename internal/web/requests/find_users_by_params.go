@@ -45,6 +45,7 @@ type FindUsersByParamsRequest struct {
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 // AddressFilterParams is the embed-group counterpart of the Address output

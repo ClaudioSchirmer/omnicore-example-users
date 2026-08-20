@@ -89,6 +89,7 @@ type FindContractsRequest struct {
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindContractsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindContractsQuery {

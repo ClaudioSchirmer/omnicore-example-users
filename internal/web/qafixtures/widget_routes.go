@@ -74,6 +74,7 @@ type FindWidgetsRequest struct {
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindWidgetsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindWidgetsQuery {

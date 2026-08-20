@@ -232,6 +232,7 @@ type FindCatalogsRequest struct {
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindCatalogsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindCatalogsQuery {

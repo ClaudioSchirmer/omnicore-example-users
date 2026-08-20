@@ -37,6 +37,7 @@ type FindEmployeesByParamsRequest struct {
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 // DependentFilterParams is the embed-group filter vocabulary for the

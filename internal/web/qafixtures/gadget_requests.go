@@ -105,6 +105,7 @@ type FindGadgetsRequest struct {
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindGadgetsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetsQuery {

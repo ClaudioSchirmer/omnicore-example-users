@@ -89,6 +89,7 @@ type FindGadgetsFullRequest struct {
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 // GadgetFullNotesFilter is the 1:N segment filter group. Its Go field name on

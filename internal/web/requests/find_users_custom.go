@@ -29,6 +29,7 @@ type FindUsersCustomRequest struct {
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 // ToQuery is the web→application boundary — pure body mapping with no ctx.

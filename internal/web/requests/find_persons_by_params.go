@@ -38,6 +38,7 @@ type FindPersonsByParamsRequest struct {
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 // PersonUserFilterParams is the embed-group filter vocabulary for the User

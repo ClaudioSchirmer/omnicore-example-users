@@ -51,6 +51,7 @@ type FindLensBrandsRequest struct {
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindLensBrandsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensBrandsQuery {
@@ -173,6 +174,7 @@ type FindLensPartsRequest struct {
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindLensPartsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensPartsQuery {
@@ -249,6 +251,7 @@ type FindLensKitsRequest struct {
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindLensKitsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensKitsQuery {

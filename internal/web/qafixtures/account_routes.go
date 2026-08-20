@@ -344,6 +344,7 @@ type FindAccountsRequest struct {
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindAccountsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindAccountsQuery {
