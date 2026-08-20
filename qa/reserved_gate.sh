@@ -133,6 +133,37 @@ rest_pass   "2.9 last alone is valid (backward window)"   "/qa/gadgets" "last=2"
 rest_pass   "2.10 onlyTotal+filter still valid"           "/qa/gadgets" "onlyTotal=true&code.startswith=G"
 
 ##############################################################################
+sec "2b. REST — the value grammar of the declared controls"
+##############################################################################
+# Declaring a control opts the KEY in; it does not make every spelling of the
+# VALUE legal. The two booleans take exactly `true` or `false` — the spellings
+# proto `bool` and GraphQL `Boolean` accept and nothing else — so one value
+# means one thing on every surface. `?includeArchived=1` used to be false on a
+# listing and true on a by-id read of the same entity.
+rest_reject "2b.1 ?includeArchived=1 → 400"        "/qa/gadgets" "includeArchived=1"     "includeArchived"
+rest_reject "2b.2 ?includeArchived=TRUE → 400"     "/qa/gadgets" "includeArchived=TRUE"  "includeArchived"
+rest_reject "2b.3 ?includeArchived= (empty) → 400" "/qa/gadgets" "includeArchived="      "includeArchived"
+rest_reject "2b.4 ?onlyTotal=1 → 400"              "/qa/gadgets" "onlyTotal=1"           "onlyTotal"
+rest_reject "2b.5 ?onlyTotal= (empty) → 400"       "/qa/gadgets" "onlyTotal="            "onlyTotal"
+rest_pass   "2b.6 ?includeArchived=false is a no-op, not a refusal" "/qa/gadgets" "includeArchived=false"
+rest_pass   "2b.7 ?onlyTotal=false is a no-op, not a refusal"       "/qa/gadgets" "onlyTotal=false"
+
+# The by-id route shares the DTO vocabulary, so it must share the grammar.
+# PRESENCE is the key being on the wire: `?includeArchived=` is the control
+# asked for with no answer, and both routes refuse it.
+GHOST="/qa/gadgets/00000000-0000-0000-0000-000000000000"
+rest_reject "2b.8 by-id ?includeArchived=1 → 400"        "$GHOST" "includeArchived=1" "includeArchived"
+rest_reject "2b.9 by-id ?includeArchived= (empty) → 400" "$GHOST" "includeArchived="  "includeArchived"
+
+# An ordering names each path at most once: the terms become the reader's sort
+# document, where a duplicated key is malformed and the store refuses the whole
+# read. The refusal names the SECOND occurrence — the token to remove — with
+# the `-` prefix verbatim.
+rest_reject "2b.10 ?orderBy=code,code → orderBy[code]"    "/qa/gadgets" "orderBy=code,code"   "orderBy[code]"
+rest_reject "2b.11 ?orderBy=code,-code → orderBy[-code]"  "/qa/gadgets" "orderBy=code,-code"  "orderBy[-code]"
+rest_pass   "2b.12 distinct paths in one ordering stay legal" "/qa/gadgets" "orderBy=code,-name"
+
+##############################################################################
 sec "3. GraphQL — the SDL cut (bare field) vs the declared field"
 ##############################################################################
 title "3.1 gadgetsBare(first: 1) → unknown argument (cut at the schema)"

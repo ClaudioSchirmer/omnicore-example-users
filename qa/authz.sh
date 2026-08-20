@@ -266,6 +266,41 @@ print("present" if any(isinstance(u, dict) and "phone" in u for u in data) else 
   rm -f "$tmp"
 }
 
+# assert_phone_visibility_by_id <name> <bearer> <id> <present|absent> — the
+# by-id twin of the helper above. The two routes serve the SAME document and
+# declare the SAME restriction, so a Restrict that held on the listing and not
+# here would be no restriction at all: the caller just asks for the row by id.
+#
+# It is not a duplicate assertion. The listing carries a wire `?fields=`, so its
+# projection is built by the wrapper; the by-id route has none, so what reaches
+# the reader is whatever ToCriteria wrote — and ReadByID has to APPLY it. That
+# is the seam this case pins.
+assert_phone_visibility_by_id() {
+  local name="$1" token="$2" id="$3" expect="$4"
+  title "$name"
+  local tmp status has
+  tmp=$(mktemp)
+  status=$(curl -sS -o "$tmp" -w "%{http_code}" -H "Accept-Language: en-US" \
+    -H "Authorization: Bearer $token" "$BASE/users/$id")
+  has=$(python3 -c '
+import sys, json
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print("error"); sys.exit(0)
+u = d.get("data") or {}
+print("present" if isinstance(u, dict) and "phone" in u else "absent")
+' "$tmp")
+  echo "STATUS  : $status   phone in payload: $has"
+  if [ "$status" = "200" ] && [ "$has" = "$expect" ]; then
+    printf '\033[1;32mPASS\033[0m\n'; PASS=$((PASS+1))
+  else
+    printf '\033[1;31mFAIL\033[0m (expected phone %s at 200, got %s at %s)\n' "$expect" "$has" "$status"
+    FAIL=$((FAIL+1))
+  fi
+  rm -f "$tmp"
+}
+
 # extract_id_from <tmp_path> — pulls .data.id from a JSON envelope. Used after
 # POST /users so the rest of the suite knows what to archive/delete.
 extract_id_from() {
@@ -633,6 +668,14 @@ if capture_post "$TOK_BOB" "$FA_EMAIL" "10000000304"; then
     # alice ACTIVELY asking for the restricted field → 403.
     show_case "GET /users?fields=phone as alice (non-admin) → 403 FieldAccessForbiddenNotification" \
       GET "/users?fields=phone" "$TOK_ALICE" "" 403 FieldAccessForbiddenNotification
+
+    # The BY-ID twin. Same document, same declaration, so the same two answers
+    # — and this is the route where the projection ToCriteria writes is the ONLY
+    # thing standing between the restricted column and the wire.
+    assert_phone_visibility_by_id "GET /users/{id} as bob (admin via *:*) → phone PRESENT" \
+      "$TOK_BOB" "$CAPTURE_ID" present
+    assert_phone_visibility_by_id "GET /users/{id} as alice (non-admin) → phone ABSENT" \
+      "$TOK_ALICE" "$CAPTURE_ID" absent
 
     # The GraphQL twin of the three cases above. `fields` is not an argument on
     # this surface — the SELECTION SET is the projection (one of the two

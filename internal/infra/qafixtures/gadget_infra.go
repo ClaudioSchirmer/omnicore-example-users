@@ -71,6 +71,13 @@ func GadgetHotView() *query.ViewDefinition {
 		Indexes(
 			query.Index("code"),
 			query.Index("created_at").Desc(),
+			// The three gadget views share ONE Request DTO, which declares
+			// `query:"search"` — so all three have to be able to serve it.
+			// Free text is a Mongo $text query and the server refuses it
+			// without a text index; the boot guard pairs the two declarations
+			// and would fail here otherwise. Same fields as the default view:
+			// the projections differ in retention and ceiling, not in shape.
+			query.TextIndex("name", "category").DefaultLanguage("english"),
 		)
 }
 
@@ -87,6 +94,9 @@ func GadgetCappedView() *query.ViewDefinition {
 		Indexes(
 			query.Index("code"),
 			query.Index("created_at").Desc(),
+			// Same reason as gadgets_hot: the shared Request DTO declares
+			// `query:"search"`, so this projection has to back it too.
+			query.TextIndex("name", "category").DefaultLanguage("english"),
 		)
 }
 

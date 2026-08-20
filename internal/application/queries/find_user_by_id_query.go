@@ -17,16 +17,31 @@ import (
 // ToCriteria(ctx) is the only layer below the web boundary that may consume
 // *AppContext — JWT-derived overlays (tenant id, owner id) layer onto the
 // returned ReadCriteria here. The handler forwards the criteria to
-// ViewReader.ReadByID, which merges Filter into the {_id: id} +
-// deleted_at gate; Limit/Sort/After/Before/Search/Projection are ignored
-// by ReadByID by design (they only make sense on a paged read).
+// ViewReader.ReadByID, which merges Filter into the {_id: id} + deleted_at
+// gate and applies Projection; Limit/Sort/After/Before/Search are ignored by
+// ReadByID by design (they only make sense on a paged read).
 type FindUserByIDQuery struct {
 	fwqueries.QueryByIDBase
 	Criteria fwqueries.ReadCriteria
 }
 
-func (q FindUserByIDQuery) ToCriteria(_ *configuration.AppContext) (fwqueries.ReadCriteria, error) {
-	return q.Criteria, nil
+// ToCriteria carries the SAME field-level read access the listing declares:
+// Phone is restricted to principals holding users:admin. A restriction that
+// held on the listing and not here would be no restriction at all — the
+// by-id route serves the same document, so the showcase only proves something
+// if both routes answer alike.
+//
+// The refusal is always PASSIVE on this route: the endpoint declares no
+// `?fields=`, so a caller has no way to actively name Phone, and Restrict's
+// 403 branch cannot fire. What it does is write the exclusion into the
+// projection ReadByID hands the reader, which is what scrubs the field.
+func (q FindUserByIDQuery) ToCriteria(ctx *configuration.AppContext) (fwqueries.ReadCriteria, error) {
+	crit := q.Criteria
+	var err error
+	if id := ctx.Identity(); id != nil && !id.HasPermission("users:admin") {
+		err = crit.Restrict("Phone")
+	}
+	return crit, err
 }
 
 // FromQueryResult is the read-side twin of a command's FromEntity: the framework
