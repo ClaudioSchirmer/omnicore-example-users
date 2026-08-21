@@ -788,12 +788,28 @@ else
   bad "undeclared mask (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
-title "6h.10 undeclared orderBy field → invalid_argument (Fields allowlist)"
+# order_by resolves against the ordering VOCABULARY — the Request DTO's `sort:`
+# declarations folded to proto snake_case — and the refusal names the ENTRY as
+# its field, the gRPC dialect of REST's `orderBy[<token>]` (order_by is already
+# a typed field on the request message, so the bracket prefix would name
+# nothing on this wire). A prose error would leave the consumer with no way to
+# tell WHICH of several entries was refused.
+title "6h.10 undeclared orderBy field → invalid_argument naming the entry"
 rpc ListUsers '{"orderBy":[{"field":"nope"}]}'
-if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification'; then
-  ok "orderBy outside the vocabulary rejects"
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification' \
+   && echo "$RPC_BODY" | grep -q '"field":"nope"'; then
+  ok "orderBy outside the vocabulary rejects, naming the entry"
 else
   bad "undeclared orderBy (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
+fi
+
+title "6h.11 a path named twice → invalid_argument naming the repeated entry"
+rpc ListUsers '{"orderBy":[{"field":"user_name"},{"field":"email"},{"field":"user_name","desc":true}]}'
+if [ "$RPC_STATUS" = "400" ] && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification' \
+   && echo "$RPC_BODY" | grep -q '"field":"user_name"'; then
+  ok "a repeated ordering path rejects, naming the entry"
+else
+  bad "repeated orderBy (status $RPC_STATUS)"; echo "$RPC_BODY" | head -c 300; echo
 fi
 
 ##############################################################################

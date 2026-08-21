@@ -24,7 +24,14 @@ import "github.com/ClaudioSchirmer/omnicore/infra/db/query"
 func GadgetEvolveView(loader query.RelationalReader) *query.ViewDefinition {
 	v := query.View("gadgets_evolve").
 		Version(1).
-		Schema(GadgetSchema())
+		Schema(GadgetSchema()).
+		// The route over this view rides FindGadgetsRequest, which declares
+		// `query:"search"` — so the Mongo half of the flip has to back it, or
+		// the boot guard refuses an endpoint advertising a control it could
+		// never serve. Index declarations are Mongo specs: the relational half
+		// ignores them, and they are applied idempotently at boot, so they do
+		// not enter the view's declared shape or the drift decision.
+		Indexes(query.TextIndex("name", "category").DefaultLanguage("english"))
 	_ = loader // RELATIONAL_EVOLVE_MARKER
 	return v
 }

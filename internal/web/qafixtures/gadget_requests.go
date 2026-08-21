@@ -92,20 +92,38 @@ func (r GadgetCreatedReceivedRequest) ToCommand() *appqa.RecordGadgetEventComman
 //	Category → eq,in,iin,inin,ieq
 //	Status   → eq,ne,ieq,ine
 type FindGadgetsRequest struct {
-	Code     *string `query:"code"     filter:"eq,in,nin,gte,lte,gt,lt,startswith"`
-	Name     *string `query:"name"     filter:"eq,ne,startswith,contains,icontains,istartswith,ine"`
-	Category *string `query:"category" filter:"eq,in,iin,inin,ieq"`
-	Status   *string `query:"status"   filter:"eq,ne,ieq,ine"`
+	Code     *string `query:"code"     filter:"eq,in,nin,gte,lte,gt,lt,startswith" sort:"asc,desc"`
+	Name     *string `query:"name"     filter:"eq,ne,startswith,contains,icontains,istartswith,ine" sort:"asc,desc"`
+	Category *string `query:"category" filter:"eq,in,iin,inin,ieq" sort:"asc,desc"`
+	Status   *string `query:"status"   filter:"eq,ne,ieq,ine" sort:"asc,desc"`
+
+	// CreatedAt is the VOCABULARY LEAF: `sort:` with no `filter:`. It is the
+	// third legal shape of a query-tagged scalar, and the one that carries the
+	// whole point of moving the ordering vocabulary onto the Request —
+	// `created_at` is a MANAGED column that FindGadgetsResponse does not
+	// render, so under the old Response-derived vocabulary it could not be
+	// ordered by at all, even though every reader can order by any column of
+	// the view.
+	//
+	// It is also DIRECTION-RESTRICTED: newest-first is the only ordering this
+	// endpoint offers over it (`?orderBy=-createdAt`), and `?orderBy=createdAt`
+	// is refused like any undeclared token. The view backs it with
+	// query.Index("created_at").Desc().
+	//
+	// Carrying no `filter:`, it takes no value on the wire: `?createdAt=` is
+	// refused, and OpenAPI emits no parameter for it — its wire name appears
+	// only inside the `orderBy` parameter's own description.
+	CreatedAt *string `query:"createdAt" sort:"desc"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindGadgetsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindGadgetsQuery {
@@ -156,10 +174,10 @@ func (FindGadgetsResponse) FromResult(r appqa.FindGadgetsResult) FindGadgetsResp
 // wire. `?fields=label` therefore reads code+name from the store and answers
 // with label alone.
 //
-// The two refusals this shape locks in: `?orderBy=label` is 400
-// ComputedFieldNotSortableNotification (ordering happens in the store, and the
-// keyset cursor is built from stored values), and a `filter:` tag over label
-// would be a boot panic (there is no column to filter on).
+// The two refusals this shape locks in: `?orderBy=label` is 400 — ordering
+// speaks the Request DTO's `sort:` vocabulary, and a computed field is
+// never in it because it backs no column to order by — and a `filter:` tag
+// over label would be a boot panic, for the same reason.
 type FindGadgetsComputedResponse struct {
 	fwresponses.Auto
 	ID    *string `json:"id,omitempty"    example:"7b3c1f10-3c7e-4a8d-9f0e-9d2a8e6d4b51"`

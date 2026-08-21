@@ -133,6 +133,164 @@ rest_pass   "2.9 last alone is valid (backward window)"   "/qa/gadgets" "last=2"
 rest_pass   "2.10 onlyTotal+filter still valid"           "/qa/gadgets" "onlyTotal=true&code.startswith=G"
 
 ##############################################################################
+sec "2b. REST — the value grammar of the declared controls"
+##############################################################################
+# Declaring a control opts the KEY in; it does not make every spelling of the
+# VALUE legal. The two booleans take exactly `true` or `false` — the spellings
+# proto `bool` and GraphQL `Boolean` accept and nothing else — so one value
+# means one thing on every surface. `?includeArchived=1` used to be false on a
+# listing and true on a by-id read of the same entity.
+rest_reject "2b.1 ?includeArchived=1 → 400"        "/qa/gadgets" "includeArchived=1"     "includeArchived"
+rest_reject "2b.2 ?includeArchived=TRUE → 400"     "/qa/gadgets" "includeArchived=TRUE"  "includeArchived"
+rest_reject "2b.3 ?includeArchived= (empty) → 400" "/qa/gadgets" "includeArchived="      "includeArchived"
+rest_reject "2b.4 ?onlyTotal=1 → 400"              "/qa/gadgets" "onlyTotal=1"           "onlyTotal"
+rest_reject "2b.5 ?onlyTotal= (empty) → 400"       "/qa/gadgets" "onlyTotal="            "onlyTotal"
+rest_pass   "2b.6 ?includeArchived=false is a no-op, not a refusal" "/qa/gadgets" "includeArchived=false"
+rest_pass   "2b.7 ?onlyTotal=false is a no-op, not a refusal"       "/qa/gadgets" "onlyTotal=false"
+
+# The by-id route shares the DTO vocabulary, so it must share the grammar.
+# PRESENCE is the key being on the wire: `?includeArchived=` is the control
+# asked for with no answer, and both routes refuse it.
+GHOST="/qa/gadgets/00000000-0000-0000-0000-000000000000"
+rest_reject "2b.8 by-id ?includeArchived=1 → 400"        "$GHOST" "includeArchived=1" "includeArchived"
+rest_reject "2b.9 by-id ?includeArchived= (empty) → 400" "$GHOST" "includeArchived="  "includeArchived"
+
+# An ordering names each path at most once: the terms become the reader's sort
+# document, where a duplicated key is malformed and the store refuses the whole
+# read. The refusal names the SECOND occurrence — the token to remove — with
+# the `-` prefix verbatim.
+rest_reject "2b.10 ?orderBy=code,code → orderBy[code]"    "/qa/gadgets" "orderBy=code,code"   "orderBy[code]"
+rest_reject "2b.11 ?orderBy=code,-code → orderBy[-code]"  "/qa/gadgets" "orderBy=code,-code"  "orderBy[-code]"
+rest_pass   "2b.12 distinct paths in one ordering stay legal" "/qa/gadgets" "orderBy=code,-name"
+
+##############################################################################
+sec "2c. The ordering VOCABULARY — every consumer, one cut"
+##############################################################################
+# `query:"orderBy"` is the SWITCH: it decides whether the endpoint takes the
+# parameter at all. `sort:` on a Request leaf is the VOCABULARY: which paths,
+# in which directions. Six things consume that vocabulary and they must not
+# drift — REST list, REST by-id, the CSV/XLSX export, the OpenAPI document,
+# GraphQL and gRPC — over BOTH backings, since a Mongo view and its
+# RelationalSource twin share the DTO.
+#
+# FindGadgetsRequest carries the three legal shapes of a query-tagged scalar:
+#   code/name/category/status → filter: AND sort:"asc,desc"  (filterable + orderable)
+#   createdAt                 → sort:"desc" ONLY             (VOCABULARY LEAF)
+#   first/orderBy/…           → reserved controls
+#
+# `createdAt` is the interesting one: a MANAGED column FindGadgetsResponse does
+# not render. Under the old Response-derived vocabulary it could not be ordered
+# by at all — which is the whole reason the vocabulary moved to the Request.
+
+REL="/qa/rel/gadgets"          # the RelationalSource twin of /qa/gadgets
+CSV="/qa/gadgets-computed.csv" # the export sibling — its OWN criteria loop
+
+# ── the vocabulary leaf carries no value on the wire ─────────────────────────
+# It names an ordering path, it is not a filter key. Every REST consumer of the
+# DTO refuses it as an undeclared key, on both backings.
+rest_reject "2c.1  ?createdAt= is not a filter key (mongo)"      "/qa/gadgets" "createdAt=2020-01-01" "createdAt"
+rest_reject "2c.2  …nor on the relational twin"                  "$REL"        "createdAt=2020-01-01" "createdAt"
+rest_reject "2c.3  …nor on the export"                           "$CSV"        "createdAt=2020-01-01" "createdAt"
+
+# ── it IS orderable, in the ONE direction it declared ────────────────────────
+rest_pass   "2c.4  ?orderBy=-createdAt (mongo)"                  "/qa/gadgets" "orderBy=-createdAt"
+rest_pass   "2c.5  ?orderBy=-createdAt (relational twin)"        "$REL"        "orderBy=-createdAt"
+rest_pass   "2c.6  ?orderBy=-createdAt (export)"                 "$CSV"        "orderBy=-createdAt"
+# Ordering by a column the RESPONSE does not render is the headline of the
+# change: the Request declares it, so the store serves it.
+rest_pass   "2c.7  …and the column is absent from the Response"  "/qa/gadgets" "orderBy=-createdAt&fields=code"
+
+# ── the direction the declaration does NOT admit is refused like any token ───
+rest_reject "2c.8  ?orderBy=createdAt (asc undeclared, mongo)"   "/qa/gadgets" "orderBy=createdAt" "orderBy[createdAt]"
+rest_reject "2c.9  …same on the relational twin"                 "$REL"        "orderBy=createdAt" "orderBy[createdAt]"
+rest_reject "2c.10 …same on the export"                          "$CSV"        "orderBy=createdAt" "orderBy[createdAt]"
+
+# ── a path appears at most once (a duplicated sort key is malformed) ─────────
+rest_reject "2c.11 ?orderBy=code,code → orderBy[code]"           "/qa/gadgets" "orderBy=code,code"  "orderBy[code]"
+rest_reject "2c.12 ?orderBy=code,-code → orderBy[-code]"         "$REL"        "orderBy=code,-code" "orderBy[-code]"
+rest_reject "2c.13 …on the export too"                           "$CSV"        "orderBy=code,code"  "orderBy[code]"
+
+# ── an undeclared token, named verbatim with its prefix ──────────────────────
+rest_reject "2c.14 ?orderBy=bogus"                               "/qa/gadgets" "orderBy=bogus"  "orderBy[bogus]"
+rest_reject "2c.15 ?orderBy=-bogus keeps the prefix"             "/qa/gadgets" "orderBy=-bogus" "orderBy[-bogus]"
+
+##############################################################################
+sec "2d. OpenAPI — the document says exactly what the DTO declares"
+##############################################################################
+# The spec is a consumer of the vocabulary like any other: it must advertise
+# what the endpoint accepts and NOTHING it would refuse.
+title "2d.1 fetch /openapi.json"
+SPEC=$(mktemp)
+SPEC_ST=$(curl -sS -o "$SPEC" -w "%{http_code}" "$BASE/openapi.json")
+[ "$SPEC_ST" = "200" ] && ok "openapi.json served" || { bad "openapi.json (status $SPEC_ST)"; }
+
+# The spec key for a grouped route may or may not carry a trailing slash, so
+# both helpers RESOLVE the path instead of assuming one — a wrong key would
+# read as "no parameters" and pass the absence assertions for the wrong reason.
+SPEC_PY='
+import sys, json
+d = json.load(open(sys.argv[1]))
+paths = d.get("paths", {})
+want = sys.argv[2]
+key = next((k for k in (want, want + "/", want.rstrip("/")) if k in paths), None)
+if key is None:
+    print("__NO_SUCH_PATH__"); raise SystemExit(0)
+op = paths[key].get("get", {}) or {}
+params = [p for p in (op.get("parameters") or []) if p.get("in") == "query"]
+if len(sys.argv) > 3:
+    for p in params:
+        if p.get("name") == sys.argv[3]:
+            print(p.get("description", "")); break
+else:
+    for p in params:
+        print(p.get("name", ""))
+'
+# param_names <path> → the query-parameter names of GET <path>, one per line
+param_names() { python3 -c "$SPEC_PY" "$SPEC" "$1"; }
+# param_desc <path> <name> → that parameter's description
+param_desc() { python3 -c "$SPEC_PY" "$SPEC" "$1" "$2"; }
+
+title "2d.1b the spec actually carries the endpoint (guards the assertions below)"
+if param_names /qa/gadgets | grep -q '__NO_SUCH_PATH__'; then
+  bad "the spec has no GET /qa/gadgets — every assertion below would pass vacuously"
+else
+  ok "GET /qa/gadgets present in the document"
+fi
+
+title "2d.2 the VOCABULARY LEAF is not advertised as a parameter"
+if param_names /qa/gadgets | grep -qx "createdAt"; then
+  bad "createdAt must NOT be a query parameter — the parser refuses it on every call"
+else
+  ok "createdAt absent from parameters[]"
+fi
+
+title "2d.3 …while the filter leaves and the control still are"
+MISSING=""
+for want in code name orderBy fields first; do
+  param_names /qa/gadgets | grep -qx "$want" || MISSING="$MISSING $want"
+done
+[ -z "$MISSING" ] && ok "code/name/orderBy/fields/first advertised" || bad "missing parameters:$MISSING"
+
+title "2d.4 the orderBy description enumerates the vocabulary WITH directions"
+OB_DESC=$(param_desc /qa/gadgets orderBy)
+echo "$OB_DESC" | grep -q 'createdAt' && echo "$OB_DESC" | grep -qi 'desc only' \
+  && echo "$OB_DESC" | grep -q 'code' \
+  && ok "orderBy description carries createdAt (desc only) + code" \
+  || bad "orderBy description incomplete: $OB_DESC"
+
+title "2d.5 the leaf's wire name appears ONLY there, never as a parameter"
+# The relational twin shares the DTO, so it must say the same thing.
+REL_DESC=$(param_desc "$REL" orderBy)
+if param_names "$REL" | grep -qx "createdAt"; then
+  bad "the relational twin advertises the vocabulary leaf as a parameter"
+elif echo "$REL_DESC" | grep -q 'createdAt'; then
+  ok "the relational twin's spec agrees with the mongo one"
+else
+  bad "the relational twin's orderBy description lost the vocabulary: $REL_DESC"
+fi
+rm -f "$SPEC"
+
+##############################################################################
 sec "3. GraphQL — the SDL cut (bare field) vs the declared field"
 ##############################################################################
 title "3.1 gadgetsBare(first: 1) → unknown argument (cut at the schema)"
@@ -186,6 +344,68 @@ echo "$B" | grep -q '"errors"' \
   && bad "pageInfo probe must pass: $(echo "$B" | head -c 200)" || ok "pageInfo-only probe valid"
 
 ##############################################################################
+sec "3b. GraphQL — the SAME vocabulary, this surface's spelling"
+##############################################################################
+# gadgetsRel serves FindGadgetsRequest over the RelationalSource twin, so this
+# section proves the vocabulary AND the backing parity in one pass. The enum
+# <Entity>OrderField is built from the sort: declarations, so introspection
+# advertises exactly them; what an enum CANNOT express — per-member directions,
+# and "at most once" — is cut in the resolver, as the same schema violation.
+
+gql_reject_field() { # gql_reject_field <name> <query> <expected field marker>
+  local name="$1" q="$2" want="$3"
+  title "$name"
+  local b; b=$(gql "$q")
+  if echo "$b" | grep -q '"errors"' && echo "$b" | grep -qF "$want"; then
+    ok "$name (field=$want)"
+  else
+    bad "$name (want an error naming $want, got: $(echo "$b" | head -c 250))"
+  fi
+}
+gql_pass() { # gql_pass <name> <query>
+  local name="$1" q="$2"
+  title "$name"
+  local b; b=$(gql "$q")
+  echo "$b" | grep -q '"errors"' \
+    && bad "$name (unexpected error: $(echo "$b" | head -c 250))" \
+    || ok "$name"
+}
+
+title "3b.1 the enum carries the vocabulary leaf (introspection)"
+SDL_ENUM=$(gql '{ __type(name: "GadgetRelOrderField") { enumValues { name } } }')
+echo "$SDL_ENUM" | grep -q 'CREATED_AT' && echo "$SDL_ENUM" | grep -q 'CODE' \
+  && ok "GadgetRelOrderField carries CREATED_AT + CODE" \
+  || bad "enum incomplete: $(echo "$SDL_ENUM" | head -c 250)"
+
+gql_pass "3b.2 orderBy CREATED_AT/DESC resolves (the declared direction)" \
+  'query { gadgetsRel(orderBy: [{field: CREATED_AT, direction: DESC}], first: 1) { edges { node { code } } } }'
+
+gql_reject_field "3b.3 CREATED_AT/ASC → orderBy[CREATED_AT] (direction cut in the resolver)" \
+  'query { gadgetsRel(orderBy: [{field: CREATED_AT, direction: ASC}], first: 1) { edges { node { code } } } }' \
+  'orderBy[CREATED_AT]'
+
+gql_reject_field "3b.4 CREATED_AT with no direction defaults to ASC → refused the same way" \
+  'query { gadgetsRel(orderBy: [{field: CREATED_AT}], first: 1) { edges { node { code } } } }' \
+  'orderBy[CREATED_AT]'
+
+gql_reject_field "3b.5 the same member twice → orderBy[CODE]" \
+  'query { gadgetsRel(orderBy: [{field: CODE}, {field: NAME}, {field: CODE, direction: DESC}], first: 1) { edges { node { code } } } }' \
+  'orderBy[CODE]'
+
+gql_pass "3b.6 distinct members in one ordering stay legal" \
+  'query { gadgetsRel(orderBy: [{field: CODE}, {field: NAME, direction: DESC}], first: 1) { edges { node { code } } } }'
+
+title "3b.7 the vocabulary leaf is NOT a where field (it carries no value)"
+B=$(gql 'query { gadgetsRel(where: {createdAt: {eq: "2020-01-01"}}, first: 1) { edges { node { code } } } }')
+echo "$B" | grep -q '"errors"' && ok "createdAt absent from the where input" \
+  || bad "the vocabulary leaf leaked into where: $(echo "$B" | head -c 250)"
+
+title "3b.8 an undeclared member is cut by the SCHEMA, before any resolver"
+B=$(gql 'query { gadgetsRel(orderBy: [{field: BOGUS}], first: 1) { edges { node { code } } } }')
+echo "$B" | grep -q '"errors"' && ok "unknown enum member rejected at validation" \
+  || bad "expected a validation error, got: $(echo "$B" | head -c 250)"
+
+##############################################################################
 sec "4. gRPC — runtime rejection on the bare RPC (Connect JSON)"
 ##############################################################################
 # qrpc <rpc-name> <json-body> — Connect JSON call; body → $RPC_BODY, status → $RPC_STATUS
@@ -232,6 +452,57 @@ title "4.12 declared RPC: only_total=false is presence without activation (plain
 qrpc ListGadgets '{"pagination":{"onlyTotal":false,"first":"1"}}'
 [ "$RPC_STATUS" = "200" ] && ok "declared only_total=false stays a no-op beside first" \
   || bad "inactive only_total must not conflict (status=$RPC_STATUS body=$(echo "$RPC_BODY" | head -c 200))"
+
+##############################################################################
+sec "4b. gRPC — the SAME vocabulary, folded to proto snake_case"
+##############################################################################
+# order_by resolves against CriteriaBuilder.Sortable, fed from the Request
+# DTO's sort: tags and folded to the proto spelling. It has NO fallback: what
+# the DTO did not declare is not orderable here either. The refusal is the
+# canonical SchemaViolation carrying the ENTRY as its field name — the gRPC
+# dialect of REST's orderBy[<token>], since order_by is already a typed field
+# on the request message and the bracket prefix would name nothing.
+#
+# Both procedures ride the same DTO over different backings (ListGadgets →
+# mongo `gadgets`, ListGadgetsRel → the RelationalSource `gadgets_rel`), so
+# every case runs twice.
+
+grpc_field_reject() { # grpc_field_reject <name> <proc> <json> <expected field>
+  local name="$1" proc="$2" body="$3" want="$4"
+  title "$name"
+  qrpc "$proc" "$body"
+  if echo "$RPC_BODY" | grep -q '"invalid_argument"' \
+     && echo "$RPC_BODY" | grep -q 'SchemaViolationNotification' \
+     && echo "$RPC_BODY" | grep -qF "\"$want\""; then
+    ok "$name (field=$want)"
+  else
+    bad "$name (want invalid_argument naming $want, got $RPC_STATUS $(echo "$RPC_BODY" | head -c 250))"
+  fi
+}
+grpc_ok() { # grpc_ok <name> <proc> <json>
+  local name="$1" proc="$2" body="$3"
+  title "$name"
+  qrpc "$proc" "$body"
+  [ "$RPC_STATUS" = "200" ] && ok "$name" \
+    || bad "$name (status=$RPC_STATUS body=$(echo "$RPC_BODY" | head -c 250))"
+}
+
+for P in ListGadgets ListGadgetsRel; do
+  grpc_ok "4b.1 [$P] order_by created_at desc — the declared direction" \
+    "$P" '{"orderBy":[{"field":"created_at","desc":true}],"pagination":{"first":"1"}}'
+
+  grpc_field_reject "4b.2 [$P] created_at ASC is undeclared → field=created_at" \
+    "$P" '{"orderBy":[{"field":"created_at"}],"pagination":{"first":"1"}}' 'created_at'
+
+  grpc_field_reject "4b.3 [$P] a path named twice → field=code" \
+    "$P" '{"orderBy":[{"field":"code"},{"field":"name"},{"field":"code","desc":true}],"pagination":{"first":"1"}}' 'code'
+
+  grpc_field_reject "4b.4 [$P] an undeclared path → field=bogus" \
+    "$P" '{"orderBy":[{"field":"bogus"}],"pagination":{"first":"1"}}' 'bogus'
+
+  grpc_ok "4b.5 [$P] distinct paths in one ordering stay legal" \
+    "$P" '{"orderBy":[{"field":"code"},{"field":"name","desc":true}],"pagination":{"first":"1"}}'
+done
 
 ##############################################################################
 hr

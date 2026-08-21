@@ -43,15 +43,15 @@ func (LensBrandWriteResponse) FromResult(r appqa.LensBrandResult) LensBrandWrite
 }
 
 type FindLensBrandsRequest struct {
-	Name *string `query:"name" filter:"eq,contains"`
+	Name *string `query:"name" filter:"eq,contains" sort:"asc,desc"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindLensBrandsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensBrandsQuery {
@@ -146,7 +146,7 @@ type LensGadgetSegmentFilter struct {
 	// ID allowlists row-select by the embedded view's own id — the deep
 	// (view-on-view) segment identity, a stored physical column of the source view.
 	ID       *string `query:"id"       filter:"eq"`
-	Code     *string `query:"code"     filter:"eq,startswith"`
+	Code     *string `query:"code"     filter:"eq,startswith" sort:"asc,desc"`
 	Name     *string `query:"name"     filter:"eq,icontains"`
 	Category *string `query:"category" filter:"eq"`
 	Status   *string `query:"status"   filter:"eq"`
@@ -158,11 +158,11 @@ type LensBrandSegmentFilter struct {
 }
 
 type FindLensPartsRequest struct {
-	KitID    *string `query:"kitId"    filter:"eq"`
-	GadgetID *string `query:"gadgetId" filter:"eq"`
-	BrandID  *string `query:"brandId"  filter:"eq"`
-	Label    *string `query:"label"    filter:"eq,contains,icontains"`
-	Slot     *int    `query:"slot"     filter:"eq,gte,lte"`
+	KitID    *string `query:"kitId"    filter:"eq" sort:"asc,desc"`
+	GadgetID *string `query:"gadgetId" filter:"eq" sort:"asc,desc"`
+	BrandID  *string `query:"brandId"  filter:"eq" sort:"asc,desc"`
+	Label    *string `query:"label"    filter:"eq,contains,icontains" sort:"asc,desc"`
+	Slot     *int    `query:"slot"     filter:"eq,gte,lte" sort:"asc,desc"`
 
 	Gadget LensGadgetSegmentFilter `query:"gadget"`
 	Brand  LensBrandSegmentFilter  `query:"brand"`
@@ -171,10 +171,10 @@ type FindLensPartsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindLensPartsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensPartsQuery {
@@ -240,7 +240,7 @@ type LensPartsSegmentFilter struct {
 }
 
 type FindLensKitsRequest struct {
-	Name *string `query:"name" filter:"eq,contains,icontains"`
+	Name *string `query:"name" filter:"eq,contains,icontains" sort:"asc,desc"`
 
 	Parts LensPartsSegmentFilter `query:"parts"`
 
@@ -248,10 +248,10 @@ type FindLensKitsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindLensKitsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindLensKitsQuery {

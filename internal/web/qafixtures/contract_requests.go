@@ -77,19 +77,19 @@ func (ContractWriteResponse) FromResult(r appqa.ContractResult) ContractWriteRes
 // which is only possible because a part is an ordinary logical field by the
 // time the read side sees it.
 type FindContractsRequest struct {
-	Code           *string `query:"code" filter:"eq,contains"`
-	SalaryAmount   *int64  `query:"salaryAmount" filter:"eq,gte,lte"`
-	SalaryCurrency *string `query:"salaryCurrency" filter:"eq"`
-	TrialFrom      *string `query:"trialFrom" filter:"gte,lte"`
+	Code           *string `query:"code" filter:"eq,contains" sort:"asc,desc"`
+	SalaryAmount   *int64  `query:"salaryAmount" filter:"eq,gte,lte" sort:"asc,desc"`
+	SalaryCurrency *string `query:"salaryCurrency" filter:"eq" sort:"asc,desc"`
+	TrialFrom      *string `query:"trialFrom" filter:"gte,lte" sort:"asc,desc"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindContractsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindContractsQuery {

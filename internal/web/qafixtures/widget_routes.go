@@ -55,7 +55,7 @@ func (InsertWidgetResponse) FromResult(r appqa.WidgetResult) InsertWidgetRespons
 // (child-level sibling) — both unservable by the relational twin (→400), both
 // row-selecting on the Mongo view.
 type WidgetPartFilter struct {
-	Label *string `query:"label" filter:"eq,icontains"`
+	Label *string `query:"label" filter:"eq,icontains" sort:"asc,desc"`
 	Tag   *string `query:"tag"   filter:"eq,icontains"`
 }
 
@@ -63,18 +63,18 @@ type WidgetPartFilter struct {
 // root-own filter (served identically by both backings); `material` is the flat
 // ROOT sibling; `widgetParts.*` are the child/child-sibling paths.
 type FindWidgetsRequest struct {
-	Name        *string          `query:"name"     filter:"eq,icontains"`
-	Material    *string          `query:"material" filter:"eq,icontains"`
+	Name        *string          `query:"name"     filter:"eq,icontains" sort:"asc,desc"`
+	Material    *string          `query:"material" filter:"eq,icontains" sort:"asc,desc"`
 	WidgetParts WidgetPartFilter `query:"widgetParts"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindWidgetsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindWidgetsQuery {

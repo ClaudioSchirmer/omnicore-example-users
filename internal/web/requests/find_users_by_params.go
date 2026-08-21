@@ -29,23 +29,23 @@ import (
 // the Query's ToCriteria(ctx), consumed by the handler — ToQuery itself is
 // pure body mapping, no ctx parameter.
 type FindUsersByParamsRequest struct {
-	Name        *string             `query:"name"        filter:"eq,startswith,icontains,istartswith"`
-	Email       *string             `query:"email"       filter:"eq,in,ieq"`
-	Document    *string             `query:"document"    filter:"eq,in,startswith"`
-	Ethnicity   *string             `query:"ethnicity"   filter:"eq,in"`
-	UserName    *string             `query:"userName"    filter:"eq,startswith,icontains"`
-	UserProfile *int                `query:"userProfile" filter:"eq,in"`
+	Name        *string             `query:"name"        filter:"eq,startswith,icontains,istartswith" sort:"asc,desc"`
+	Email       *string             `query:"email"       filter:"eq,in,ieq" sort:"asc,desc"`
+	Document    *string             `query:"document"    filter:"eq,in,startswith" sort:"asc,desc"`
+	Ethnicity   *string             `query:"ethnicity"   filter:"eq,in" sort:"asc,desc"`
+	UserName    *string             `query:"userName"    filter:"eq,startswith,icontains" sort:"asc,desc"`
+	UserProfile *int                `query:"userProfile" filter:"eq,in" sort:"asc,desc"`
 	Addresses   AddressFilterParams `query:"addresses"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	Search          *string `query:"search"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 // AddressFilterParams is the embed-group counterpart of the Address output
@@ -55,10 +55,15 @@ type FindUsersByParamsRequest struct {
 // translates them to the physical Mongo paths (addresses.city /
 // addresses.zip_code) via the view's TableSchema — no view: declaration.
 type AddressFilterParams struct {
-	City        *string `query:"city"        filter:"eq,istartswith,icontains"`
-	State       *string `query:"state"       filter:"eq,in"`
-	Country     *string `query:"country"     filter:"eq,in"`
-	ZipCode     *string `query:"zipCode"     filter:"eq,startswith"`
+	City    *string `query:"city"        filter:"eq,istartswith,icontains"`
+	State   *string `query:"state"       filter:"eq,in"`
+	Country *string `query:"country"     filter:"eq,in"`
+	// ZipCode carries the ordering declaration INSIDE the embed group: a leaf
+	// at any depth contributes its dotted path to the vocabulary exactly as a
+	// filter leaf does, so `?orderBy=addresses.zipCode` is legal and the
+	// GraphQL enum carries ADDRESSES_ZIP_CODE. The employee twin declares the
+	// same shape on `dependents.name`.
+	ZipCode     *string `query:"zipCode"     filter:"eq,startswith" sort:"asc,desc"`
 	AddressType *string `query:"addressType" filter:"eq,in"`
 }
 

@@ -216,8 +216,8 @@ type CatalogLineFilter struct {
 type FindCatalogsRequest struct {
 	// ID (the root PK) is allowlisted for filtering to prove the projected root
 	// identity is QUERYABLE, not a read-only decoration.
-	ID   *string `query:"id" filter:"eq"`
-	Name *string `query:"name" filter:"eq,icontains"`
+	ID   *string `query:"id" filter:"eq" sort:"asc,desc"`
+	Name *string `query:"name" filter:"eq,icontains" sort:"asc,desc"`
 
 	FeaturedItem ItemSegmentFilter `query:"featuredItem"`
 	Items        ItemSegmentFilter `query:"items"`
@@ -229,10 +229,10 @@ type FindCatalogsRequest struct {
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
 	IncludeArchived *bool   `query:"includeArchived"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindCatalogsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindCatalogsQuery {

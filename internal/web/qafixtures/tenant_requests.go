@@ -68,18 +68,18 @@ func (TenantWriteResponse) FromResult(r appqa.TenantResult) TenantWriteResponse 
 }
 
 type FindTenantsRequest struct {
-	Code   *string `query:"code" filter:"eq,contains"`
-	Status *string `query:"status" filter:"eq"`
-	Plan   *string `query:"plan" filter:"eq"`
+	Code   *string `query:"code" filter:"eq,contains" sort:"asc,desc"`
+	Status *string `query:"status" filter:"eq" sort:"asc,desc"`
+	Plan   *string `query:"plan" filter:"eq" sort:"asc,desc"`
 
 	First           *int64  `query:"first"`
 	Last            *int64  `query:"last"`
 	After           *string `query:"after"`
 	Before          *string `query:"before"`
-	OrderBy         *string `query:"orderBy"`
 	Fields          *string `query:"fields"`
 	IncludeArchived *bool   `query:"includeArchived"`
 	OnlyTotal       *bool   `query:"onlyTotal"`
+	OrderBy         *string `query:"orderBy"`
 }
 
 func (r FindTenantsRequest) ToQuery(criteria fwqueries.ReadCriteria) *appqa.FindTenantsQuery {
